@@ -263,6 +263,10 @@ fun AppFrame() {
                             route = it
                             closeDrawer()
                         },
+                        onNavigateRelay = {
+                            route = RelayRoute(it)
+                            closeDrawer()
+                        },
                         onNavigateHome = {
                             route = null
                             closeDrawer()
@@ -486,6 +490,8 @@ private fun FrameContent(
                     relayUrl = route.relayUrl,
                     onBack = onCloseGroup,
                     onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
+                    forceDesktop = forceDesktop,
+                    onOpenDrawer = onOpenDrawer,
                 )
             is GroupRoute -> {
                 val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
@@ -495,6 +501,7 @@ private fun FrameContent(
                     groupName = name,
                     onNavigateHome = onCloseGroup,
                     onNavigateToGroup = { gid, _, relay -> onNavigate(GroupRoute(relay ?: route.relayUrl, gid)) },
+                    onOpenRelay = { onNavigate(RelayRoute(it)) },
                     showServerRail = false,
                     forceDesktop = forceDesktop,
                     onOpenDrawer = onOpenDrawer ?: {},

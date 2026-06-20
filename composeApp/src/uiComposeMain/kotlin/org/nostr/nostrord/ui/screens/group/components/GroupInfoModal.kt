@@ -65,6 +65,9 @@ fun GroupInfoModal(
     memberCount: Int = 0,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onUserClick: ((String) -> Unit)? = null,
+    // Opens the relay page from the RELAY section. Passed explicitly because
+    // LocalFrameNavigator does not propagate into the Dialog's composition.
+    onOpenRelay: ((String) -> Unit)? = null,
     onLeave: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
@@ -242,7 +245,19 @@ fun GroupInfoModal(
                         // the web group banner's relay link).
                         if (relayUrl.isNotBlank()) {
                             val navigate = LocalFrameNavigator.current
+                            val openRelay: (() -> Unit)? =
+                                when {
+                                    onOpenRelay != null -> {
+                                        { onOpenRelay(relayUrl) }
+                                    }
+                                    navigate != null -> {
+                                        { navigate(RelayRoute(relayUrl)) }
+                                    }
+                                    else -> null
+                                }
                             val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                            val relayInteraction = remember { MutableInteractionSource() }
+                            val relayHovered by relayInteraction.collectIsHoveredAsState()
                             SectionHead("RELAY")
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -250,17 +265,21 @@ fun GroupInfoModal(
                                 Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable(enabled = navigate != null) {
-                                        navigate?.invoke(RelayRoute(relayUrl))
+                                    .background(if (relayHovered) NostrordColors.HoverBackground else Color.Transparent)
+                                    .hoverable(relayInteraction)
+                                    .clickable(enabled = openRelay != null) {
                                         onDismiss()
+                                        openRelay?.invoke()
                                     }
-                                    .padding(vertical = Spacing.xs),
+                                    .padding(8.dp),
                             ) {
                                 RelayHeaderIcon(
                                     relayUrl = relayUrl,
                                     iconUrl = relayMetadata[relayUrl]?.icon,
                                     label = relayHost,
                                     size = 20.dp,
+                                    // Rounded square (web .info-relay-icon radius-sm), not a circle.
+                                    cornerRadius = 4.dp,
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                                 Text(

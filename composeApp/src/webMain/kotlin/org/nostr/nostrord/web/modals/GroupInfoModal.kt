@@ -5,6 +5,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
@@ -16,6 +17,7 @@ import org.nostr.nostrord.web.components.bannerGradientCss
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.components.useEscClose
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -171,6 +173,34 @@ val GroupInfoModal =
                         }
                         infoRadio("Muted", "Silence everything, including replies and mentions.", level == NotificationLevel.MUTED) {
                             notificationSettings.setGroupLevel(group.id, NotificationLevel.MUTED)
+                        }
+                    }
+
+                    // Relay this group lives on: tappable to open the relay page (parity with
+                    // the native GroupInfoModal and the group sidebar banner's relay link).
+                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                    if (relayHost.isNotBlank()) {
+                        div {
+                            className = ClassName("settings-section-head")
+                            +"RELAY"
+                        }
+                        button {
+                            className = ClassName("info-relay-row")
+                            onClick = {
+                                pushRoute(RelayRoute(relayUrl))
+                                props.onClose()
+                            }
+                            WebAvatar {
+                                url = relayMetadata[relayUrl]?.icon
+                                seed = relayUrl
+                                name = relayHost
+                                kind = AvatarKind.RELAY
+                                cls = "info-relay-icon"
+                            }
+                            span {
+                                className = ClassName("info-relay-host")
+                                +relayHost
+                            }
                         }
                     }
 

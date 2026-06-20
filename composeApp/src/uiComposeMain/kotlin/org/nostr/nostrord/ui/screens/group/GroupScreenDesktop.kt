@@ -4,17 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
@@ -23,6 +19,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
+import org.nostr.nostrord.ui.components.sidebars.MemberDrawerOverlay
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.GroupHeader
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
@@ -140,173 +137,172 @@ fun GroupScreenDesktop(
         onLoadMore = onLoadMore,
     )
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier =
-            Modifier
-                .fillMaxHeight()
-                .weight(1f)
-                .background(NostrordColors.Background),
-        ) {
-            GroupHeader(
-                groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
-                groupMetadata = groupMetadata,
-                relayUrl = relayUrl,
-                groupId = groupId,
-                isJoined = isJoined,
-                isAdmin = isAdmin,
-                onJoinClick = onJoinGroup,
-                onLeaveClick = onLeaveGroup,
-                onTitleClick = onShowGroupInfo,
-                onEditClick = onEditGroup,
-                onDeleteClick = onDeleteGroup,
-                onManageMembersClick = onManageMembers,
-                onCreateSubgroupClick = onCreateSubgroup,
-                onManageChildrenClick = onManageChildren,
-                showSubgroupControls = showSubgroupControls,
-                parentGroupName = parentGroupName,
-                onParentClick = onParentClick,
-                childCount = subgroupCount,
-                onInviteCodesClick = onInviteCodesClick,
-                isClosed = isClosed,
-                initialInviteCode = initialInviteCode,
-                pendingJoinRequestCount = pendingJoinRequestCount,
-                onJoinRequestsClick = onJoinRequestsClick,
-                onSearchClick = search.onToggle,
-                searchActive = search.active,
-                connectionState = connectionState,
-                trailingIcon = {
-                    // Members toggle (prototype): highlighted while the column is visible.
-                    IconButton(
-                        onClick = onToggleMembers,
-                        modifier = Modifier.size(30.dp),
-                        // Active fill via the IconButton container so it matches the hover
-                        // state-layer circle exactly (a manual .background fills the full box,
-                        // which reads larger than the hover).
-                        colors =
-                        if (showMemberSidebar) {
-                            IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
-                        } else {
-                            IconButtonDefaults.iconButtonColors()
-                        },
-                    ) {
-                        Icon(
-                            Icons.Default.People,
-                            contentDescription = "Members",
-                            tint = if (showMemberSidebar) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                },
-            )
-
-            ConnectionStatusBanner(
-                connectionState = connectionState,
-                onRetry = onReconnect,
-                onManageRelay = onManageRelay,
-            )
-
-            Box(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxHeight()
+                    .weight(1f)
+                    .background(NostrordColors.Background),
             ) {
-                MessagesList(
+                GroupHeader(
+                    groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
+                    groupMetadata = groupMetadata,
+                    relayUrl = relayUrl,
                     groupId = groupId,
-                    chatItems = chatItems,
-                    messages = messages,
-                    userMetadata = userMetadata,
-                    reactions = reactions,
-                    pendingReactions = pendingReactions,
-                    messageStatus = messageStatus,
-                    onRetrySend = onRetrySend,
-                    onDismissFailed = onDismissFailed,
-                    currentUserPubkey = currentUserPubkey,
                     isJoined = isJoined,
-                    isReplying = replyingToMessage != null,
-                    replyTargetId = replyingToMessage?.id,
-                    isInitialLoading = isInitialLoading,
-                    isPendingApproval = isPendingApproval,
-                    isGroupRestricted = isGroupRestricted,
-                    isLoadingMore = isLoadingMore,
-                    hasMoreMessages = hasMoreMessages,
-                    onLoadMore = onLoadMore,
-                    onUsernameClick = onUserClick,
-                    onReplyClick = onReplyClick,
-                    onDeleteMessage = onDeleteMessage,
-                    onReactionBadgeClick = onReactionBadgeClick,
-                    onNavigateToGroup = onNavigateToGroup,
-                    onReachedBottom = onReachedBottom,
-                    onLeftBottom = onLeftBottom,
-                    onSeenUpTo = onSeenUpTo,
-                    unreadFromOthersCount = unreadFromOthersCount,
-                    targetMessageId = targetMessageId,
-                    onTargetConsumed = onTargetConsumed,
-                    onFetchTargetById = onFetchTargetById,
-                    // Already empty / null when search is inactive (query is "" → no matches), so no
-                    // searchActive guard is needed here (parity with web).
-                    searchHitIds = search.hitIds,
-                    currentSearchHitId = search.currentHitId,
-                    searchScrollNonce = search.scrollNonce,
+                    isAdmin = isAdmin,
+                    onJoinClick = onJoinGroup,
+                    onLeaveClick = onLeaveGroup,
+                    onTitleClick = onShowGroupInfo,
+                    onEditClick = onEditGroup,
+                    onDeleteClick = onDeleteGroup,
+                    onManageMembersClick = onManageMembers,
+                    onCreateSubgroupClick = onCreateSubgroup,
+                    onManageChildrenClick = onManageChildren,
+                    showSubgroupControls = showSubgroupControls,
+                    parentGroupName = parentGroupName,
+                    onParentClick = onParentClick,
+                    childCount = subgroupCount,
+                    onInviteCodesClick = onInviteCodesClick,
+                    isClosed = isClosed,
+                    initialInviteCode = initialInviteCode,
+                    pendingJoinRequestCount = pendingJoinRequestCount,
+                    onJoinRequestsClick = onJoinRequestsClick,
+                    onSearchClick = search.onToggle,
                     searchActive = search.active,
-                    searchBar = search.bar,
+                    connectionState = connectionState,
+                    trailingIcon = {
+                        // Members toggle (prototype): highlighted while the column is visible.
+                        IconButton(
+                            onClick = onToggleMembers,
+                            modifier = Modifier.size(30.dp),
+                            // Active fill via the IconButton container so it matches the hover
+                            // state-layer circle exactly (a manual .background fills the full box,
+                            // which reads larger than the hover).
+                            colors =
+                            if (showMemberSidebar) {
+                                IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
+                            } else {
+                                IconButtonDefaults.iconButtonColors()
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.People,
+                                contentDescription = "Members",
+                                tint = if (showMemberSidebar) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    },
+                )
+
+                ConnectionStatusBanner(
+                    connectionState = connectionState,
+                    onRetry = onReconnect,
+                    onManageRelay = onManageRelay,
+                )
+
+                Box(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    MessagesList(
+                        groupId = groupId,
+                        chatItems = chatItems,
+                        messages = messages,
+                        userMetadata = userMetadata,
+                        reactions = reactions,
+                        pendingReactions = pendingReactions,
+                        messageStatus = messageStatus,
+                        onRetrySend = onRetrySend,
+                        onDismissFailed = onDismissFailed,
+                        currentUserPubkey = currentUserPubkey,
+                        isJoined = isJoined,
+                        isReplying = replyingToMessage != null,
+                        replyTargetId = replyingToMessage?.id,
+                        isInitialLoading = isInitialLoading,
+                        isPendingApproval = isPendingApproval,
+                        isGroupRestricted = isGroupRestricted,
+                        isLoadingMore = isLoadingMore,
+                        hasMoreMessages = hasMoreMessages,
+                        onLoadMore = onLoadMore,
+                        onUsernameClick = onUserClick,
+                        onReplyClick = onReplyClick,
+                        onDeleteMessage = onDeleteMessage,
+                        onReactionBadgeClick = onReactionBadgeClick,
+                        onNavigateToGroup = onNavigateToGroup,
+                        onReachedBottom = onReachedBottom,
+                        onLeftBottom = onLeftBottom,
+                        onSeenUpTo = onSeenUpTo,
+                        unreadFromOthersCount = unreadFromOthersCount,
+                        targetMessageId = targetMessageId,
+                        onTargetConsumed = onTargetConsumed,
+                        onFetchTargetById = onFetchTargetById,
+                        // Already empty / null when search is inactive (query is "" → no matches), so no
+                        // searchActive guard is needed here (parity with web).
+                        searchHitIds = search.hitIds,
+                        currentSearchHitId = search.currentHitId,
+                        searchScrollNonce = search.scrollNonce,
+                        searchActive = search.active,
+                        searchBar = search.bar,
+                    )
+                }
+
+                MessageInput(
+                    isPendingApproval = isPendingApproval,
+                    pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                    onCancelJoinRequest = onCancelJoinRequest,
+                    isJoined = isJoined,
+                    isGroupClosed = isClosed,
+                    selectedChannel = selectedChannel,
+                    groupId = groupId,
+                    groupName = groupName,
+                    messageInput = messageInput,
+                    onSendMessage = onSendMessage,
+                    onJoinGroup = onJoinGroup,
+                    groupMembers = groupMembers,
+                    mentions = mentions,
+                    onMentionsChange = onMentionsChange,
+                    availableGroups = availableGroups,
+                    groupMentions = groupMentions,
+                    onGroupMentionsChange = onGroupMentionsChange,
+                    replyingToMessage = replyingToMessage,
+                    replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
+                    userMetadata = userMetadata,
+                    onCancelReply = onCancelReply,
+                    isSending = isSending,
+                    onMediaUploaded = onMediaUploaded,
+                    onOverlayVisibilityChange = onInputOverlayVisibilityChange,
                 )
             }
 
-            MessageInput(
-                isPendingApproval = isPendingApproval,
-                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
-                onCancelJoinRequest = onCancelJoinRequest,
-                isJoined = isJoined,
-                isGroupClosed = isClosed,
-                selectedChannel = selectedChannel,
-                groupId = groupId,
-                groupName = groupName,
-                messageInput = messageInput,
-                onSendMessage = onSendMessage,
-                onJoinGroup = onJoinGroup,
-                groupMembers = groupMembers,
-                mentions = mentions,
-                onMentionsChange = onMentionsChange,
-                availableGroups = availableGroups,
-                groupMentions = groupMentions,
-                onGroupMentionsChange = onGroupMentionsChange,
-                replyingToMessage = replyingToMessage,
-                replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
-                userMetadata = userMetadata,
-                onCancelReply = onCancelReply,
-                isSending = isSending,
-                onMediaUploaded = onMediaUploaded,
-                onOverlayVisibilityChange = onInputOverlayVisibilityChange,
-            )
+            if (showMemberSidebar) {
+                MemberSidebar(
+                    members = groupMembers,
+                    recentlyActiveMembers = recentlyActiveMembers,
+                    isLoading = isMembersLoading,
+                    isPendingApproval = isPendingApproval,
+                    isGroupRestricted = isGroupRestricted,
+                    isPublic = groupMetadata?.isPublic == true,
+                    onMemberClick = { member -> onUserClick(member.pubkey) },
+                    isCurrentUserAdmin = isCurrentUserAdmin,
+                    currentUserPubkey = currentUserPubkey,
+                    onRemoveMember = onRemoveMember,
+                    onAddMember = onAddMember,
+                    onManage = if (isCurrentUserAdmin) onManageMembers else null,
+                )
+            }
         }
 
-        if (showMemberSidebar) {
-            MemberSidebar(
-                members = groupMembers,
-                recentlyActiveMembers = recentlyActiveMembers,
-                isLoading = isMembersLoading,
-                isPendingApproval = isPendingApproval,
-                isGroupRestricted = isGroupRestricted,
-                isPublic = groupMetadata?.isPublic == true,
-                onMemberClick = { member -> onUserClick(member.pubkey) },
-                isCurrentUserAdmin = isCurrentUserAdmin,
-                currentUserPubkey = currentUserPubkey,
-                onRemoveMember = onRemoveMember,
-                onAddMember = onAddMember,
-                onManage = if (isCurrentUserAdmin) onManageMembers else null,
-            )
-        }
-    }
-
-    if (showMemberSheet && !showMemberSidebar) {
-        @OptIn(ExperimentalMaterial3Api::class)
-        ModalBottomSheet(
-            onDismissRequest = { onShowMemberSheet(false) },
-            sheetState = rememberModalBottomSheetState(),
-            containerColor = NostrordColors.Surface,
-            sheetMaxWidth = Dp.Unspecified,
+        // When the persistent column is hidden (medium width), the members panel slides in
+        // from the right instead of up from the bottom (matches the web .member-sidebar drawer).
+        MemberDrawerOverlay(
+            visible = showMemberSheet && !showMemberSidebar,
+            onDismiss = { onShowMemberSheet(false) },
         ) {
             MemberSidebar(
                 members = groupMembers,
@@ -324,7 +320,6 @@ fun GroupScreenDesktop(
                 onRemoveMember = onRemoveMember,
                 onAddMember = onAddMember,
                 onManage = if (isCurrentUserAdmin) onManageMembers else null,
-                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

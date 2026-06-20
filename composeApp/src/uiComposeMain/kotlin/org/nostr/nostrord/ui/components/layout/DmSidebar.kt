@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,7 +42,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
-import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.AppSearchField
+import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -105,13 +107,35 @@ fun DmSidebar(
 
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (searchOpen) {
-                Box(modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.sm)) {
-                    AppTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        placeholder = "Search by name, nip-05, npub or hex",
-                    )
-                }
+                AppSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Search by name, nip-05, npub or hex",
+                    size = InputSize.Compact,
+                    autoFocus = true,
+                    // Trailing X dismisses the whole box (and clears), like the web searchInput.
+                    trailing = {
+                        IconButton(
+                            onClick = {
+                                searchOpen = false
+                                query = ""
+                            },
+                            modifier = Modifier.size(20.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    },
+                    onEscape = {
+                        searchOpen = false
+                        query = ""
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+                )
                 // A pasted npub/hex starts that conversation right away.
                 if (parsed != null) {
                     Text(

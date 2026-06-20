@@ -2146,16 +2146,6 @@ body {
     min-width: 0;
 }
 
-.dm-search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    outline: none;
-}
-
 .dm-section-label {
     margin: var(--space-md) 0 var(--space-xs);
     padding: 0 var(--space-md);
@@ -2285,22 +2275,52 @@ body {
     border-radius: var(--radius-full);
 }
 
+/* Centered empty state (same shape as .dm-hero): icon tile + title + message + CTA. Used in
+   the sidebar list and, on mobile, as the DM page's empty body. flex:1 fills the mobile page
+   column; min-height keeps it centered in the block-scrolling sidebar. */
 .dm-empty {
-    padding: 40px var(--space-sm);
+    display: flex;
+    flex: 1;
+    min-height: 240px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    padding: 40px var(--space-lg);
+    color: var(--color-text-muted);
+}
+
+.dm-empty-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin-bottom: var(--space-md);
+    font-size: 30px;
+    background: var(--color-floating);
+    border-radius: var(--radius-xl);
+}
+
+.dm-empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text-primary);
 }
 
 .dm-empty-text {
-    font-size: 13px;
+    max-width: 320px;
+    margin-top: var(--space-xs);
+    font-size: 14px;
     color: var(--color-text-muted);
 }
 
 .dm-empty-cta {
-    margin-top: var(--space-xs);
+    margin-top: var(--space-md);
     padding: 0;
     border: 0;
     background: transparent;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--color-success);
     cursor: pointer;
@@ -2315,6 +2335,13 @@ body {
     flex-direction: column;
     flex: 1;
     min-height: 0;
+}
+
+/* Mobile has no visible DM sidebar, so the empty hero is replaced by the conversation list
+   in the page body (the two are toggled by the media query after the .dm-hero rules below,
+   which must come last to override .dm-hero's own display). */
+.dm-page-convos {
+    display: none;
 }
 
 .dm-peer {
@@ -2376,6 +2403,22 @@ body {
     max-width: 320px;
     margin: var(--space-xs) 0 0;
     font-size: 14px;
+}
+
+/* Mobile DM page: hide the empty hero and show the conversation list instead. Placed after
+   the .dm-hero rules so this display override wins (equal specificity, later in source). */
+@media (max-width: 767px) {
+    .dm-hero {
+        display: none;
+    }
+
+    .dm-page-convos {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
 }
 
 .dm-messages {
@@ -2878,6 +2921,10 @@ body {
     max-width: 1024px;
     margin: 0 auto;
     padding: 24px;
+    /* Responsive breakpoints below key off the content width (not the viewport), so the
+       header and tabs collapse when the sidebar narrows the column, matching Compose. */
+    container-type: inline-size;
+    container-name: home-content;
 }
 
 .home-title-row {
@@ -2887,7 +2934,7 @@ body {
     margin-bottom: 24px;
 }
 
-@media (min-width: 640px) {
+@container home-content (min-width: 640px) {
     .home-title-row {
         flex-direction: row;
         align-items: center;
@@ -2920,6 +2967,18 @@ body {
     margin-bottom: 20px;
 }
 
+/* Compact content width: home filter tabs collapse to icons only (labels would otherwise
+   overflow the strip when the sidebar narrows the column). */
+@container home-content (max-width: 639px) {
+    .home-toolbar .tab span {
+        display: none;
+    }
+
+    .home-toolbar .tab {
+        gap: 0;
+    }
+}
+
 .home-search {
     width: 100%;
 }
@@ -2943,24 +3002,6 @@ body {
     border-bottom: 1px solid var(--color-divider);
 }
 
-.relay-back {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-}
-
-.relay-back:hover {
-    color: var(--color-text-primary);
-    background: var(--color-hover);
-}
-
 .relay-header-name {
     font-size: 16px;
     font-weight: 700;
@@ -2981,6 +3022,20 @@ body {
     flex-shrink: 0;
     align-self: flex-start;
     white-space: nowrap;
+}
+
+/* Narrow content column: the add-to-list button drops to its own full-width row so it
+   stops squeezing the relay name/url. Keys off the content width (container), so it also
+   triggers when the sidebar narrows the column, matching native's compact gate. */
+@container home-content (max-width: 559px) {
+    .relay-info-card {
+        flex-wrap: wrap;
+    }
+
+    .relay-info-card > .btn-primary,
+    .relay-info-card > .btn-secondary {
+        width: 100%;
+    }
 }
 
 .relay-info-avatar {
@@ -3045,7 +3100,9 @@ body {
     font-family: monospace;
     font-size: 13px;
     color: var(--color-text-muted);
-    word-break: break-all;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .relay-info-desc {
@@ -3069,6 +3126,7 @@ body {
     background: rgba(87, 242, 135, 0.15);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
+    white-space: nowrap;
 }
 
 /* "In your list" badge: neutral/muted, matches the prototype's "na sua lista". */
@@ -3079,6 +3137,7 @@ body {
     background: var(--color-surface-variant);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
+    white-space: nowrap;
 }
 
 .relay-meta-grid {
@@ -3088,7 +3147,9 @@ body {
     margin-top: 16px;
 }
 
-@media (min-width: 720px) {
+/* Three cells once the content column is wide enough (container, not viewport, so it
+   accounts for the sidebars; matches native's metaColumns gate). */
+@container home-content (min-width: 720px) {
     .relay-meta-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -8042,6 +8103,40 @@ body {
     /* Preserve newlines in bios/descriptions so each line lands on its own row,
        matching native (which renders the raw text with its line breaks). */
     white-space: pre-wrap;
+}
+
+/* RELAY section row: relay icon + host, tappable to open the relay page. */
+.info-relay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    text-align: left;
+}
+
+.info-relay-row:hover {
+    background: var(--color-hover);
+}
+
+.info-relay-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+}
+
+.info-relay-host {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 

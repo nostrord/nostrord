@@ -115,8 +115,12 @@ fun ChildrenBuilder.iconInput(
 
 /**
  * Standard search box reused everywhere (OOCSS): the shared `.input-group` object with a leading
- * magnifier and a trailing clear (X) that shows once there's text. [compact] switches to the
- * smaller `.input-group sm` size for dense lists (member rosters, pickers). Escape clears.
+ * magnifier and a trailing clear (X). [compact] switches to the smaller `.input-group sm` size for
+ * dense lists (member rosters, pickers).
+ *
+ * When [onClose] is set the trailing X is always shown and dismisses the whole box instead of just
+ * clearing the text, and Escape does the same (prototype behavior for a toggleable search). When it
+ * is null the X only appears once there is text and both it and Escape clear the field.
  */
 fun ChildrenBuilder.searchInput(
     placeholder: String,
@@ -125,6 +129,7 @@ fun ChildrenBuilder.searchInput(
     compact: Boolean = false,
     autoFocus: Boolean = false,
     onEnter: () -> Unit = {},
+    onClose: (() -> Unit)? = null,
 ) {
     div {
         className = ClassName(if (compact) "input-group sm" else "input-group")
@@ -141,14 +146,23 @@ fun ChildrenBuilder.searchInput(
             onKeyDown = { event ->
                 when (event.key) {
                     "Enter" -> onEnter()
-                    "Escape" -> {
-                        onChange("")
-                        event.currentTarget.blur()
-                    }
+                    "Escape" ->
+                        if (onClose != null) {
+                            onClose()
+                        } else {
+                            onChange("")
+                            event.currentTarget.blur()
+                        }
                 }
             }
         }
-        if (value.isNotEmpty()) {
+        if (onClose != null) {
+            button {
+                className = ClassName("input-clear")
+                onClick = { onClose() }
+                icon(Ic.Close)
+            }
+        } else if (value.isNotEmpty()) {
             button {
                 className = ClassName("input-clear")
                 onClick = { onChange("") }

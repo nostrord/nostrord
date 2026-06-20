@@ -41,6 +41,7 @@ external interface ProfilePageProps : Props {
     var pubkey: String
     var onOpenGroup: (GroupRoute) -> Unit
     var onEditProfile: () -> Unit
+    var onOpenDrawer: () -> Unit
 }
 
 /**
@@ -75,6 +76,12 @@ val ProfilePage =
             className = ClassName("profile-page")
             div {
                 className = ClassName("page-header")
+                button {
+                    className = ClassName("icon-btn frame-menu-btn")
+                    onClick = { props.onOpenDrawer() }
+                    icon(Ic.Menu)
+                }
+                icon(Ic.Person)
                 span {
                     className = ClassName("page-header-title")
                     +"Profile"

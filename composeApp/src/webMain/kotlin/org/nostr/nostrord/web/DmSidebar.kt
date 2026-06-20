@@ -35,17 +35,6 @@ val DmSidebar =
         val (searchOpen, setSearchOpen) = useState { false }
         val (query, setQuery) = useState { "" }
         val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
-        val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
-        val conversations = useStateFlow(dmVm.conversations)
-        val userMetadata = useStateFlow(dmVm.userMetadata)
-        val unreadByPeer = useStateFlow(dmVm.unreadByPeer)
-
-        fun nameOf(pubkey: String): String {
-            val meta = userMetadata[pubkey]
-            return meta?.displayName?.takeIf { it.isNotBlank() }
-                ?: meta?.name?.takeIf { it.isNotBlank() }
-                ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
-        }
 
         div {
             className = ClassName("dm-side-header")
@@ -73,17 +62,13 @@ val DmSidebar =
                         placeholder = "Search by name, nip-05, npub or hex",
                         value = query,
                         onChange = { setQuery(it) },
+                        compact = true,
                         autoFocus = true,
-                    )
-                    button {
-                        className = ClassName("icon-btn")
-                        title = "Close"
-                        onClick = {
+                        onClose = {
                             setSearchOpen(false)
                             setQuery("")
-                        }
-                        icon(Ic.Close)
-                    }
+                        },
+                    )
                 }
                 // A pasted npub/hex starts that conversation right away.
                 if (parsed != null) {
@@ -118,51 +103,94 @@ val DmSidebar =
                 }
             }
 
-            if (conversations.isEmpty()) {
+            DmConversationList {
+                activePubkey = props.activePubkey
+                onOpenConversation = props.onOpenConversation
+                onStartConversation = { setSearchOpen(true) }
+            }
+        }
+    }
+
+external interface DmConversationListProps : Props {
+    var activePubkey: String?
+    var onOpenConversation: (DmRoute) -> Unit
+
+    /** Optional empty-state CTA (the sidebar opens search); omit to hide it. */
+    var onStartConversation: (() -> Unit)?
+}
+
+/**
+ * The DM conversation list (`.dm-convo-list`) plus its empty state, shared by the desktop
+ * [DmSidebar] and the mobile DM page (which has no visible sidebar).
+ */
+val DmConversationList =
+    FC<DmConversationListProps> { props ->
+        val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
+        val conversations = useStateFlow(dmVm.conversations)
+        val userMetadata = useStateFlow(dmVm.userMetadata)
+        val unreadByPeer = useStateFlow(dmVm.unreadByPeer)
+
+        fun nameOf(pubkey: String): String {
+            val meta = userMetadata[pubkey]
+            return meta?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta?.name?.takeIf { it.isNotBlank() }
+                ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
+        }
+
+        if (conversations.isEmpty()) {
+            div {
+                className = ClassName("dm-empty")
                 div {
-                    className = ClassName("dm-empty")
-                    div {
-                        className = ClassName("dm-empty-text")
-                        +"No conversations yet"
-                    }
+                    className = ClassName("dm-empty-tile")
+                    +"✉️"
+                }
+                div {
+                    className = ClassName("dm-empty-title")
+                    +"No messages yet"
+                }
+                div {
+                    className = ClassName("dm-empty-text")
+                    +"Your direct messages are end-to-end encrypted. Start one with someone you follow."
+                }
+                props.onStartConversation?.let { start ->
                     button {
                         className = ClassName("dm-empty-cta")
-                        onClick = { setSearchOpen(true) }
+                        onClick = { start() }
                         +"Start a conversation"
                     }
                 }
-            } else {
-                div {
-                    className = ClassName("dm-convo-list")
-                    conversations.forEach { c ->
-                        val peer = c.peerPubkey
-                        button {
-                            key = peer
-                            className = ClassName(if (props.activePubkey == peer) "dm-convo-row selected" else "dm-convo-row")
-                            onClick = { props.onOpenConversation(DmRoute(peer)) }
-                            WebAvatar {
-                                url = userMetadata[peer]?.picture
-                                seed = peer
-                                name = nameOf(peer)
-                                cls = "dm-convo-avatar"
+            }
+        } else {
+            div {
+                className = ClassName("dm-convo-list")
+                conversations.forEach { c ->
+                    val peer = c.peerPubkey
+                    button {
+                        key = peer
+                        className = ClassName(if (props.activePubkey == peer) "dm-convo-row selected" else "dm-convo-row")
+                        onClick = { props.onOpenConversation(DmRoute(peer)) }
+                        WebAvatar {
+                            url = userMetadata[peer]?.picture
+                            seed = peer
+                            name = nameOf(peer)
+                            cls = "dm-convo-avatar"
+                        }
+                        span {
+                            className = ClassName("dm-convo-meta")
+                            span {
+                                className = ClassName("dm-convo-name")
+                                +nameOf(peer)
                             }
                             span {
-                                className = ClassName("dm-convo-meta")
-                                span {
-                                    className = ClassName("dm-convo-name")
-                                    +nameOf(peer)
-                                }
-                                span {
-                                    className = ClassName("dm-convo-last")
-                                    +c.lastMessage
-                                }
+                                className = ClassName("dm-convo-last")
+                                +c.lastMessage
                             }
-                            val unread = unreadByPeer[peer] ?: 0
-                            if (unread > 0) {
-                                span {
-                                    className = ClassName("dm-convo-unread")
-                                    +unread.toString()
-                                }
+                        }
+                        val unread = unreadByPeer[peer] ?: 0
+                        if (unread > 0) {
+                            span {
+                                className = ClassName("dm-convo-unread")
+                                +unread.toString()
                             }
                         }
                     }

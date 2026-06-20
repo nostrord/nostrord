@@ -1,17 +1,10 @@
 package org.nostr.nostrord.ui.screens.group
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -20,16 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
@@ -38,20 +25,16 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
+import org.nostr.nostrord.ui.components.sidebars.MemberDrawerOverlay
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
-import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
-import org.nostr.nostrord.ui.screens.group.components.InviteCodeJoinModal
+import org.nostr.nostrord.ui.screens.group.components.GroupHeader
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
-import org.nostr.nostrord.ui.screens.group.components.RelayStatusDot
-import org.nostr.nostrord.ui.screens.group.components.ShareGroupModal
 import org.nostr.nostrord.ui.screens.group.components.rememberChatSearchState
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.NostrordShapes
-import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import kotlin.math.abs
 
@@ -152,7 +135,6 @@ fun GroupScreenMobile(
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
-    val memberSheetState = rememberModalBottomSheetState()
 
     val search = rememberChatSearchState(
         groupId = groupId,
@@ -165,402 +147,218 @@ fun GroupScreenMobile(
 
     val parentHidden = LocalAnimatedImageHidden.current
     CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || showMemberSheet)) {
-        Scaffold(
-            topBar = {
-                MobileGroupTopBar(
-                    groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
-                    groupMetadata = groupMetadata,
-                    relayUrl = relayUrl,
-                    groupId = groupId,
-                    isJoined = isJoined,
-                    isAdmin = isAdmin,
-                    onOpenDrawer = onOpenDrawer,
-                    onTitleClick = onShowGroupInfo,
-                    onMembersClick = { showMemberSheet = true },
-                    onJoinClick = onJoinGroup,
-                    onLeaveClick = onLeaveGroup,
-                    onEditClick = onEditGroup,
-                    onDeleteClick = onDeleteGroup,
-                    onManageMembersClick = onManageMembers,
-                    onCreateSubgroupClick = onCreateSubgroup,
-                    onManageChildrenClick = onManageChildren,
-                    showSubgroupControls = showSubgroupControls,
-                    pendingJoinRequestCount = pendingJoinRequestCount,
-                    onJoinRequestsClick = onJoinRequestsClick,
-                    onInviteCodesClick = onInviteCodesClick,
-                    onSearchClick = search.onToggle,
-                    isClosed = isClosed,
-                    initialInviteCode = initialInviteCode,
-                    connectionState = connectionState,
-                )
-            },
-            containerColor = NostrordColors.Background,
-        ) { paddingValues ->
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .pointerInput(Unit) {
-                        // Right-edge leftward swipe opens the member sheet. Custom gesture
-                        // (not detectHorizontalDragGestures) so it only claims/consumes drags
-                        // that start at the right edge — left-edge drags stay free for the
-                        // nav-drawer swipe handled in App.kt (issue #77). Kept as a Box modifier,
-                        // not an overlay, so it never blocks the scroll-to-bottom button.
-                        val rightZonePx = size.width * 0.15f
-                        awaitPointerEventScope {
-                            while (true) {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                if (down.position.x < size.width - rightZonePx) continue
-                                var totalX = 0f
-                                var totalY = 0f
-                                var triggered = false
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (triggered) {
-                                        change.consume()
-                                    } else {
-                                        totalX += change.positionChange().x
-                                        totalY += change.positionChange().y
-                                        if (totalX < -80f && -totalX > abs(totalY)) {
-                                            triggered = true
-                                            change.consume()
-                                            showMemberSheet = true
-                                        }
-                                    }
-                                    if (!change.pressed) break
-                                }
-                            }
-                        }
-                    },
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    ConnectionStatusBanner(
-                        connectionState = connectionState,
-                        onRetry = onReconnect,
-                        onManageRelay = onManageRelay,
-                    )
-
-                    Box(
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    ) {
-                        val scope = rememberCoroutineScope()
-                        MessagesList(
-                            groupId = groupId,
-                            chatItems = chatItems,
-                            messages = messages,
-                            userMetadata = userMetadata,
-                            reactions = reactions,
-                            pendingReactions = pendingReactions,
-                            messageStatus = messageStatus,
-                            onRetrySend = onRetrySend,
-                            onDismissFailed = onDismissFailed,
-                            currentUserPubkey = currentUserPubkey,
-                            isJoined = isJoined,
-                            isReplying = replyingToMessage != null,
-                            replyTargetId = replyingToMessage?.id,
-                            isInitialLoading = isInitialLoading,
-                            isPendingApproval = isPendingApproval,
-                            isGroupRestricted = isGroupRestricted,
-                            isLoadingMore = isLoadingMore,
-                            hasMoreMessages = hasMoreMessages,
-                            onLoadMore = onLoadMore,
-                            onUsernameClick = onUserClick,
-                            onReplyClick = onReplyClick,
-                            onDeleteMessage = onDeleteMessage,
-                            onReactionBadgeClick = onReactionBadgeClick,
-                            onNavigateToGroup = onNavigateToGroup,
-                            onReachedBottom = onReachedBottom,
-                            onLeftBottom = onLeftBottom,
-                            onSeenUpTo = onSeenUpTo,
-                            unreadFromOthersCount = unreadFromOthersCount,
-                            targetMessageId = targetMessageId,
-                            onTargetConsumed = onTargetConsumed,
-                            onFetchTargetById = onFetchTargetById,
-                            swipeToReplyEnabled = true,
-                            // Already empty / null when search is inactive (query is "" → no matches),
-                            // so no searchActive guard is needed here (parity with web).
-                            searchHitIds = search.hitIds,
-                            currentSearchHitId = search.currentHitId,
-                            searchScrollNonce = search.scrollNonce,
-                            searchActive = search.active,
-                            searchBar = search.bar,
-                        )
-                    }
-
-                    MessageInput(
-                        isPendingApproval = isPendingApproval,
-                        pendingRequestedAtSeconds = pendingRequestedAtSeconds,
-                        onCancelJoinRequest = onCancelJoinRequest,
-                        isJoined = isJoined,
-                        isGroupClosed = isClosed,
-                        selectedChannel = selectedChannel,
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    // Shared new-design header (same as desktop GroupHeader); the hamburger
+                    // navigationIcon opens the left drawer and the trailing People button opens
+                    // the member sheet.
+                    GroupHeader(
+                        groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
+                        groupMetadata = groupMetadata,
+                        relayUrl = relayUrl,
                         groupId = groupId,
-                        groupName = groupName,
-                        messageInput = messageInput,
-                        onSendMessage = onSendMessage,
-                        onJoinGroup = onJoinGroup,
-                        groupMembers = groupMembers,
-                        mentions = mentions,
-                        onMentionsChange = onMentionsChange,
-                        availableGroups = availableGroups,
-                        groupMentions = groupMentions,
-                        onGroupMentionsChange = onGroupMentionsChange,
-                        replyingToMessage = replyingToMessage,
-                        replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
-                        userMetadata = userMetadata,
-                        onCancelReply = onCancelReply,
-                        isSending = isSending,
-                        onMediaUploaded = onMediaUploaded,
-                        onOverlayVisibilityChange = onInputOverlayVisibilityChange,
+                        isJoined = isJoined,
+                        isAdmin = isAdmin,
+                        onJoinClick = onJoinGroup,
+                        onLeaveClick = onLeaveGroup,
+                        onTitleClick = onShowGroupInfo,
+                        onEditClick = onEditGroup,
+                        onDeleteClick = onDeleteGroup,
+                        onManageMembersClick = onManageMembers,
+                        onCreateSubgroupClick = onCreateSubgroup,
+                        onManageChildrenClick = onManageChildren,
+                        showSubgroupControls = showSubgroupControls,
+                        parentGroupName = parentGroupName,
+                        onParentClick = onParentClick,
+                        childCount = subgroupCount,
+                        onInviteCodesClick = onInviteCodesClick,
+                        isClosed = isClosed,
+                        initialInviteCode = initialInviteCode,
+                        pendingJoinRequestCount = pendingJoinRequestCount,
+                        onJoinRequestsClick = onJoinRequestsClick,
+                        onSearchClick = search.onToggle,
+                        searchActive = search.active,
+                        connectionState = connectionState,
+                        navigationIcon = {
+                            IconButton(
+                                onClick = onOpenDrawer,
+                                modifier = Modifier.size(Spacing.touchTargetMin),
+                            ) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = "Open sidebar",
+                                    tint = NostrordColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { showMemberSheet = true },
+                                modifier = Modifier.size(30.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.People,
+                                    contentDescription = "Members",
+                                    tint = NostrordColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        },
                     )
-                }
-            }
-        }
-    } // CompositionLocalProvider
-
-    if (showMemberSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showMemberSheet = false },
-            sheetState = memberSheetState,
-            containerColor = NostrordColors.Surface,
-            shape = NostrordShapes.bottomSheetShape,
-            sheetMaxWidth = Dp.Unspecified,
-        ) {
-            MemberSidebar(
-                members = groupMembers,
-                recentlyActiveMembers = recentlyActiveMembers,
-                isLoading = isMembersLoading,
-                isPendingApproval = isPendingApproval,
-                isGroupRestricted = isGroupRestricted,
-                isPublic = groupMetadata?.isPublic == true,
-                onMemberClick = { member ->
-                    showMemberSheet = false
-                    onUserClick(member.pubkey)
                 },
-                isCurrentUserAdmin = isCurrentUserAdmin,
-                currentUserPubkey = currentUserPubkey,
-                onRemoveMember = onRemoveMember,
-                onAddMember = onAddMember,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-/** Mobile top bar with avatar, group name, and join/admin actions. */
-@Composable
-private fun MobileGroupTopBar(
-    groupName: String?,
-    groupMetadata: GroupMetadata?,
-    relayUrl: String = "",
-    groupId: String = "",
-    isJoined: Boolean,
-    isAdmin: Boolean = false,
-    onOpenDrawer: () -> Unit = {},
-    onTitleClick: () -> Unit,
-    onMembersClick: () -> Unit,
-    onJoinClick: (inviteCode: String?) -> Unit,
-    onLeaveClick: () -> Unit,
-    onEditClick: () -> Unit = {},
-    onDeleteClick: () -> Unit = {},
-    onManageMembersClick: () -> Unit = {},
-    onCreateSubgroupClick: () -> Unit = {},
-    onManageChildrenClick: () -> Unit = {},
-    showSubgroupControls: Boolean = true,
-    pendingJoinRequestCount: Int = 0,
-    onJoinRequestsClick: () -> Unit = {},
-    onInviteCodesClick: () -> Unit = {},
-    onSearchClick: () -> Unit = {},
-    isClosed: Boolean = false,
-    initialInviteCode: String? = null,
-    connectionState: ConnectionManager.ConnectionState? = null,
-) {
-    Row(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .background(NostrordColors.BackgroundDark)
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = onOpenDrawer,
-            modifier = Modifier.size(Spacing.touchTargetMin),
-        ) {
-            Icon(
-                Icons.Default.Menu,
-                contentDescription = "Open sidebar",
-                tint = Color.White,
-            )
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier =
-            Modifier
-                .weight(1f)
-                .padding(start = Spacing.xs)
-                .clickable(onClick = onTitleClick),
-        ) {
-            GroupHeaderIcon(
-                pictureUrl = groupMetadata?.picture,
-                groupId = groupMetadata?.id ?: "",
-                displayName = groupName ?: "Group",
-                size = 32.dp,
-            )
-
-            Spacer(modifier = Modifier.width(Spacing.sm))
-
-            Column(
-                modifier = Modifier.weight(1f),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = groupMetadata?.name ?: groupName ?: groupId.ifBlank { "Unknown Group" },
-                        style = NostrordTypography.ServerHeader,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (connectionState != null) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        RelayStatusDot(connectionState)
-                    }
-                }
-
-                if (!groupMetadata?.about.isNullOrBlank()) {
-                    Text(
-                        text = groupMetadata?.about ?: "",
-                        style = NostrordTypography.Tiny,
-                        color = NostrordColors.TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-        if (isAdmin && pendingJoinRequestCount > 0) {
-            Box {
-                IconButton(
-                    onClick = onJoinRequestsClick,
-                    modifier = Modifier.size(Spacing.touchTargetMin),
-                ) {
-                    Icon(
-                        Icons.Default.PersonAdd,
-                        contentDescription = "Join requests",
-                        tint = Color.White,
-                    )
-                }
+                containerColor = NostrordColors.Background,
+            ) { paddingValues ->
                 Box(
                     modifier =
                     Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .size(18.dp)
-                        .background(NostrordColors.Error, CircleShape),
-                    contentAlignment = Alignment.Center,
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .pointerInput(Unit) {
+                            // Right-edge leftward swipe opens the member sheet. Custom gesture
+                            // (not detectHorizontalDragGestures) so it only claims/consumes drags
+                            // that start at the right edge — left-edge drags stay free for the
+                            // nav-drawer swipe handled in App.kt (issue #77). Kept as a Box modifier,
+                            // not an overlay, so it never blocks the scroll-to-bottom button.
+                            val rightZonePx = size.width * 0.15f
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    if (down.position.x < size.width - rightZonePx) continue
+                                    var totalX = 0f
+                                    var totalY = 0f
+                                    var triggered = false
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (triggered) {
+                                            change.consume()
+                                        } else {
+                                            totalX += change.positionChange().x
+                                            totalY += change.positionChange().y
+                                            if (totalX < -80f && -totalX > abs(totalY)) {
+                                                triggered = true
+                                                change.consume()
+                                                showMemberSheet = true
+                                            }
+                                        }
+                                        if (!change.pressed) break
+                                    }
+                                }
+                            }
+                        },
                 ) {
-                    Text(
-                        text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ConnectionStatusBanner(
+                            connectionState = connectionState,
+                            onRetry = onReconnect,
+                            onManageRelay = onManageRelay,
+                        )
+
+                        Box(
+                            modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) {
+                            val scope = rememberCoroutineScope()
+                            MessagesList(
+                                groupId = groupId,
+                                chatItems = chatItems,
+                                messages = messages,
+                                userMetadata = userMetadata,
+                                reactions = reactions,
+                                pendingReactions = pendingReactions,
+                                messageStatus = messageStatus,
+                                onRetrySend = onRetrySend,
+                                onDismissFailed = onDismissFailed,
+                                currentUserPubkey = currentUserPubkey,
+                                isJoined = isJoined,
+                                isReplying = replyingToMessage != null,
+                                replyTargetId = replyingToMessage?.id,
+                                isInitialLoading = isInitialLoading,
+                                isPendingApproval = isPendingApproval,
+                                isGroupRestricted = isGroupRestricted,
+                                isLoadingMore = isLoadingMore,
+                                hasMoreMessages = hasMoreMessages,
+                                onLoadMore = onLoadMore,
+                                onUsernameClick = onUserClick,
+                                onReplyClick = onReplyClick,
+                                onDeleteMessage = onDeleteMessage,
+                                onReactionBadgeClick = onReactionBadgeClick,
+                                onNavigateToGroup = onNavigateToGroup,
+                                onReachedBottom = onReachedBottom,
+                                onLeftBottom = onLeftBottom,
+                                onSeenUpTo = onSeenUpTo,
+                                unreadFromOthersCount = unreadFromOthersCount,
+                                targetMessageId = targetMessageId,
+                                onTargetConsumed = onTargetConsumed,
+                                onFetchTargetById = onFetchTargetById,
+                                swipeToReplyEnabled = true,
+                                // Already empty / null when search is inactive (query is "" → no matches),
+                                // so no searchActive guard is needed here (parity with web).
+                                searchHitIds = search.hitIds,
+                                currentSearchHitId = search.currentHitId,
+                                searchScrollNonce = search.scrollNonce,
+                                searchActive = search.active,
+                                searchBar = search.bar,
+                            )
+                        }
+
+                        MessageInput(
+                            isPendingApproval = isPendingApproval,
+                            pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                            onCancelJoinRequest = onCancelJoinRequest,
+                            isJoined = isJoined,
+                            isGroupClosed = isClosed,
+                            selectedChannel = selectedChannel,
+                            groupId = groupId,
+                            groupName = groupName,
+                            messageInput = messageInput,
+                            onSendMessage = onSendMessage,
+                            onJoinGroup = onJoinGroup,
+                            groupMembers = groupMembers,
+                            mentions = mentions,
+                            onMentionsChange = onMentionsChange,
+                            availableGroups = availableGroups,
+                            groupMentions = groupMentions,
+                            onGroupMentionsChange = onGroupMentionsChange,
+                            replyingToMessage = replyingToMessage,
+                            replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
+                            userMetadata = userMetadata,
+                            onCancelReply = onCancelReply,
+                            isSending = isSending,
+                            onMediaUploaded = onMediaUploaded,
+                            onOverlayVisibilityChange = onInputOverlayVisibilityChange,
+                        )
+                    }
                 }
             }
-        }
-
-        IconButton(
-            onClick = onSearchClick,
-            modifier = Modifier.size(Spacing.touchTargetMin),
-        ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Search messages",
-                tint = Color.White,
-            )
-        }
-
-        IconButton(
-            onClick = onMembersClick,
-            modifier = Modifier.size(Spacing.touchTargetMin),
-        ) {
-            Icon(
-                Icons.Default.People,
-                contentDescription = "Members",
-                tint = Color.White,
-            )
-        }
-
-        if (!isJoined) {
-            val showInviteButton = isClosed || initialInviteCode != null
-            var showInviteModal by remember { mutableStateOf(initialInviteCode != null) }
-
-            if (showInviteButton) {
-                IconButton(
-                    onClick = { showInviteModal = true },
-                    modifier = Modifier.size(Spacing.touchTargetMin),
-                ) {
-                    Icon(
-                        Icons.Default.VpnKey,
-                        contentDescription = "Invite Code",
-                        tint = Color.White,
-                    )
-                }
-            }
-
-            TextButton(
-                onClick = { onJoinClick(null) },
-                modifier = Modifier.height(Spacing.touchTargetMin),
-                contentPadding = PaddingValues(horizontal = Spacing.md),
+            // Members slide-over from the right (web .member-sidebar drawer): the same
+            // MemberSidebar as desktop, kept at its default 240dp width.
+            MemberDrawerOverlay(
+                visible = showMemberSheet,
+                onDismiss = { showMemberSheet = false },
             ) {
-                Text(
-                    "Join",
-                    style = NostrordTypography.Button,
-                    color = NostrordColors.Primary,
-                )
-            }
-
-            if (showInviteModal) {
-                InviteCodeJoinModal(
-                    initialCode = initialInviteCode ?: "",
-                    onJoin = { code ->
-                        showInviteModal = false
-                        onJoinClick(code)
+                MemberSidebar(
+                    members = groupMembers,
+                    recentlyActiveMembers = recentlyActiveMembers,
+                    isLoading = isMembersLoading,
+                    isPendingApproval = isPendingApproval,
+                    isGroupRestricted = isGroupRestricted,
+                    isPublic = groupMetadata?.isPublic == true,
+                    onMemberClick = { member ->
+                        showMemberSheet = false
+                        onUserClick(member.pubkey)
                     },
-                    onDismiss = { showInviteModal = false },
+                    isCurrentUserAdmin = isCurrentUserAdmin,
+                    currentUserPubkey = currentUserPubkey,
+                    onRemoveMember = onRemoveMember,
+                    onAddMember = onAddMember,
+                    onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 )
             }
-        } else {
-            // Invite (share) button; Leave lives in the info modal (title tap),
-            // admin management in the sidebar "Manage group" entry (prototype shape).
-            var showShareModal by remember { mutableStateOf(false) }
-            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                IconButton(
-                    onClick = { showShareModal = true },
-                    modifier = Modifier.size(Spacing.touchTargetMin),
-                ) {
-                    Icon(
-                        Icons.Default.Link,
-                        contentDescription = "Invite",
-                        tint = Color.White,
-                    )
-                }
-            }
-
-            if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                ShareGroupModal(
-                    relayUrl = relayUrl,
-                    groupId = groupId,
-                    onDismiss = { showShareModal = false },
-                )
-            }
-        }
-    }
+        } // Box
+    } // CompositionLocalProvider
 }

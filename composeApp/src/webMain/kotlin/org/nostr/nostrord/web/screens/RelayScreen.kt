@@ -23,7 +23,6 @@ import web.cssom.ClassName
 
 external interface RelayScreenProps : Props {
     var relayUrl: String
-    var onBack: () -> Unit
     var onOpenGroup: (DiscoverGroup) -> Unit
     var onOpenDrawer: () -> Unit
 }
@@ -100,11 +99,6 @@ val RelayScreen =
                     className = ClassName("chat-icon-btn chat-drawer-btn")
                     onClick = { props.onOpenDrawer() }
                     icon(Ic.Menu)
-                }
-                button {
-                    className = ClassName("relay-back")
-                    onClick = { props.onBack() }
-                    icon(Ic.ArrowBack)
                 }
                 span {
                     className = ClassName("relay-header-name")

@@ -3,7 +3,9 @@ package org.nostr.nostrord.ui.screens.relay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +69,11 @@ fun RelayPageScreen(
     relayUrl: String,
     onBack: () -> Unit,
     onOpenGroup: (relayUrl: String, groupId: String) -> Unit,
+    // Desktop keeps the persistent sidebar/rail for navigation, so the back button is
+    // only shown on compact (mobile) layouts.
+    forceDesktop: Boolean = false,
+    // On compact layouts the rail + sidebar collapse into a drawer; this opens it.
+    onOpenDrawer: (() -> Unit)? = null,
 ) {
     val repo = AppModule.nostrRepository
     val vm = viewModel { HomePageViewModel(repo) }
@@ -127,14 +136,25 @@ fun RelayPageScreen(
             modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = NostrordColors.TextSecondary,
-                )
+            if (!forceDesktop) {
+                onOpenDrawer?.let { openDrawer ->
+                    IconButton(onClick = openDrawer) {
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = "Open menu",
+                            tint = NostrordColors.TextSecondary,
+                        )
+                    }
+                }
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = NostrordColors.TextSecondary,
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
             }
-            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 title,
                 color = NostrordColors.TextPrimary,
@@ -146,114 +166,161 @@ fun RelayPageScreen(
         }
         HorizontalDivider(color = NostrordColors.Divider)
 
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        ) {
-            // Relay info card.
-            Surface(shape = NostrordShapes.shapeLarge, color = NostrordColors.Surface) {
-                Row(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-                    RelayHeaderIcon(relayUrl = relayUrl, iconUrl = info?.icon, label = title, size = 56.dp)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                title,
-                                color = NostrordColors.TextPrimary,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            StatusPill(statusLabel, statusColor)
-                        }
-                        Text(
-                            url,
-                            color = NostrordColors.TextMuted,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        info?.description?.takeIf { it.isNotBlank() }?.let {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(it, color = NostrordColors.TextSecondary, fontSize = 14.sp)
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (29 in nips) CapChip("NIP-29")
-                            if (info?.supportsSubgroups == true) CapChip("Subgroups")
-                            if (42 in nips) CapChip("NIP-42")
-                            if (inList) ListTag()
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    AppButton(
-                        text = if (inList) "In your list" else "Add to list",
-                        icon = if (inList) Icons.Default.Check else Icons.Default.Add,
-                        variant = if (inList) AppButtonVariant.Secondary else AppButtonVariant.Primary,
-                        onClick = {
-                            scope.launch {
-                                if (inList) repo.removeRelay(relayUrl) else repo.addRelay(relayUrl)
-                            }
-                        },
-                    )
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // Match the web .card-grid breakpoints (1 / 2 / 3 columns) off the content width.
+            val columns =
+                when {
+                    maxWidth > 1024.dp -> 3
+                    maxWidth > 640.dp -> 2
+                    else -> 1
                 }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetaCell("Software", software, Modifier.weight(1f))
-                MetaCell("NIPs", if (nips.isEmpty()) "n/a" else nips.joinToString(", "), Modifier.weight(1f))
-                MetaCell("Operator", operatorName, Modifier.weight(1f))
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-            Text(
-                "GROUPS YOUR NETWORK IS IN · ${groups.size}",
-                color = NostrordColors.TextMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (groups.isEmpty()) {
-                Text(
-                    "No groups you or your friends are in on this relay.",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    groups.chunked(2).forEach { row ->
-                        Row(
-                            modifier = Modifier.height(IntrinsicSize.Max),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            row.forEach { dg ->
-                                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                    GroupCard(
-                                        name = dg.meta.name ?: dg.meta.id,
-                                        description = dg.meta.about,
-                                        picture = dg.meta.picture,
-                                        groupId = dg.meta.id,
-                                        memberCount = dg.memberCount,
-                                        restricted = dg.meta.isRestricted,
-                                        people = dg.people,
-                                        peopleLoading = dg.peopleLoading,
-                                        isPublic = dg.meta.isPublic,
-                                        isOpen = dg.meta.isOpen,
-                                        hasMetadata = dg.hasMetadata,
-                                        relayUrl = dg.relayUrl,
-                                        relayIconUrl = info?.icon,
-                                        isJoined = dg.meta.id in joinedIds,
-                                        onClick = { onOpenGroup(dg.relayUrl, dg.meta.id) },
+            // On a narrow column the add-to-list button stacks below the relay header
+            // (it would otherwise squeeze the name/url), and the meta grid drops to 2 cells.
+            val compact = maxWidth < 560.dp
+            val metaColumns = if (maxWidth >= 720.dp) 3 else 2
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Fixed centered content column (web .home-content: max-width 1024, padding 24).
+                Column(
+                    modifier = Modifier.widthIn(max = 1024.dp).fillMaxWidth().padding(24.dp),
+                ) {
+                    // Relay info card.
+                    val addButton: @Composable (Modifier) -> Unit = { btnModifier ->
+                        AppButton(
+                            text = if (inList) "In your list" else "Add to list",
+                            icon = if (inList) Icons.Default.Check else Icons.Default.Add,
+                            variant = if (inList) AppButtonVariant.Secondary else AppButtonVariant.Primary,
+                            modifier = btnModifier,
+                            fullWidth = compact,
+                            onClick = {
+                                scope.launch {
+                                    if (inList) repo.removeRelay(relayUrl) else repo.addRelay(relayUrl)
+                                }
+                            },
+                        )
+                    }
+                    Surface(shape = NostrordShapes.shapeLarge, color = NostrordColors.Surface) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                RelayHeaderIcon(relayUrl = relayUrl, iconUrl = info?.icon, label = title, size = 56.dp)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            title,
+                                            color = NostrordColors.TextPrimary,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        StatusPill(statusLabel, statusColor)
+                                    }
+                                    Text(
+                                        url,
+                                        color = NostrordColors.TextMuted,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
+                                    info?.description?.takeIf { it.isNotBlank() }?.let {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(it, color = NostrordColors.TextSecondary, fontSize = 14.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        if (29 in nips) CapChip("NIP-29")
+                                        if (info?.supportsSubgroups == true) CapChip("Subgroups")
+                                        if (42 in nips) CapChip("NIP-42")
+                                        if (inList) ListTag()
+                                    }
+                                }
+                                if (!compact) {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    addButton(Modifier)
                                 }
                             }
-                            if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                            if (compact) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                addButton(Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    val metaItems =
+                        listOf(
+                            "Software" to software,
+                            "NIPs" to (if (nips.isEmpty()) "n/a" else nips.joinToString(", ")),
+                            "Operator" to operatorName,
+                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        metaItems.chunked(metaColumns).forEach { rowItems ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                rowItems.forEach { (label, value) ->
+                                    MetaCell(label, value, Modifier.weight(1f))
+                                }
+                                repeat(metaColumns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Text(
+                        "GROUPS YOUR NETWORK IS IN · ${groups.size}",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (groups.isEmpty()) {
+                        Text(
+                            "No groups you or your friends are in on this relay.",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(vertical = 24.dp),
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            groups.chunked(columns).forEach { row ->
+                                Row(
+                                    modifier = Modifier.height(IntrinsicSize.Max),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    row.forEach { dg ->
+                                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                            GroupCard(
+                                                name = dg.meta.name ?: dg.meta.id,
+                                                description = dg.meta.about,
+                                                picture = dg.meta.picture,
+                                                groupId = dg.meta.id,
+                                                memberCount = dg.memberCount,
+                                                restricted = dg.meta.isRestricted,
+                                                people = dg.people,
+                                                peopleLoading = dg.peopleLoading,
+                                                isPublic = dg.meta.isPublic,
+                                                isOpen = dg.meta.isOpen,
+                                                hasMetadata = dg.hasMetadata,
+                                                relayUrl = dg.relayUrl,
+                                                relayIconUrl = info?.icon,
+                                                isJoined = dg.meta.id in joinedIds,
+                                                onClick = { onOpenGroup(dg.relayUrl, dg.meta.id) },
+                                            )
+                                        }
+                                    }
+                                    // Pad the last row so cards keep their column width instead of stretching.
+                                    repeat(columns - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                }
+                            }
                         }
                     }
                 }

@@ -1,5 +1,10 @@
 package org.nostr.nostrord.ui.components.sidebars
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -9,14 +14,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -27,20 +30,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +48,8 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
+import org.nostr.nostrord.ui.components.forms.AppSearchField
+import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
@@ -186,10 +182,31 @@ fun MemberSidebar(
             )
         }
 
-        // Search field
-        MemberSearchField(
-            query = searchQuery,
-            onQueryChange = { searchQuery = it },
+        // Search field (shared standardized input, compact density)
+        AppSearchField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = "Search members...",
+            size = InputSize.Compact,
+            trailing =
+            if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+            onEscape = { searchQuery = "" },
             modifier =
             Modifier
                 .fillMaxWidth()
@@ -529,92 +546,35 @@ private fun MemberAvatar(
 }
 
 /**
- * Search field for filtering members by name or pubkey.
+ * Right slide-over hosting the members panel (member sheet on compact / medium widths).
+ * Native counterpart of the web `.member-sidebar` drawer (`transform: translateX` from the
+ * right with a backdrop). Must be called inside a fill-size [BoxScope]; [content] is usually a
+ * [MemberSidebar] left at its default 240dp width.
  */
 @Composable
-private fun MemberSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
+fun BoxScope.MemberDrawerOverlay(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    val focusRequester = remember { FocusRequester() }
-
-    Box(
-        modifier =
-        modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(NostrordColors.BackgroundDark)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { focusRequester.requestFocus() }
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onDismiss() },
+        )
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it }),
+        modifier = Modifier.align(Alignment.CenterEnd),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search",
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(16.dp),
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (query.isEmpty()) {
-                    Text(
-                        text = "Search members...",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 13.sp,
-                    )
-                }
-
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle =
-                    TextStyle(
-                        color = Color.White,
-                        fontSize = 13.sp,
-                    ),
-                    cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .onPreviewKeyEvent { event ->
-                            if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && query.isNotEmpty()) {
-                                onQueryChange("")
-                                true
-                            } else {
-                                false
-                            }
-                        },
-                )
-            }
-
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.size(20.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            }
-        }
+        content()
     }
 }
