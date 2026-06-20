@@ -2348,23 +2348,10 @@ body {
 }
 
 /* Mobile has no visible DM sidebar, so the empty hero is replaced by the conversation list
-   in the page body (the two are toggled here, not in markup). */
+   in the page body (the two are toggled by the media query after the .dm-hero rules below,
+   which must come last to override .dm-hero's own display). */
 .dm-page-convos {
     display: none;
-}
-
-@media (max-width: 767px) {
-    .dm-hero {
-        display: none;
-    }
-
-    .dm-page-convos {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        min-height: 0;
-        overflow-y: auto;
-    }
 }
 
 .dm-peer {
@@ -2426,6 +2413,22 @@ body {
     max-width: 320px;
     margin: var(--space-xs) 0 0;
     font-size: 14px;
+}
+
+/* Mobile DM page: hide the empty hero and show the conversation list instead. Placed after
+   the .dm-hero rules so this display override wins (equal specificity, later in source). */
+@media (max-width: 767px) {
+    .dm-hero {
+        display: none;
+    }
+
+    .dm-page-convos {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
 }
 
 .dm-messages {
