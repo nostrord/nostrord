@@ -145,8 +145,16 @@ val DmConversationList =
             div {
                 className = ClassName("dm-empty")
                 div {
+                    className = ClassName("dm-empty-tile")
+                    +"✉️"
+                }
+                div {
+                    className = ClassName("dm-empty-title")
+                    +"No messages yet"
+                }
+                div {
                     className = ClassName("dm-empty-text")
-                    +"No conversations yet"
+                    +"Your direct messages are end-to-end encrypted. Start one with someone you follow."
                 }
                 props.onStartConversation?.let { start ->
                     button {

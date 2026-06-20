@@ -74,7 +74,8 @@ val DmPage =
                     DmConversationList {
                         activePubkey = null
                         onOpenConversation = { props.onOpenConversation(it) }
-                        onStartConversation = null
+                        // The drawer hosts the DM sidebar's search, where a new conversation starts.
+                        onStartConversation = { props.onOpenDrawer() }
                     }
                 }
             }

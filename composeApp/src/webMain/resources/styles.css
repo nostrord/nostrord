@@ -2285,22 +2285,52 @@ body {
     border-radius: var(--radius-full);
 }
 
+/* Centered empty state (same shape as .dm-hero): icon tile + title + message + CTA. Used in
+   the sidebar list and, on mobile, as the DM page's empty body. flex:1 fills the mobile page
+   column; min-height keeps it centered in the block-scrolling sidebar. */
 .dm-empty {
-    padding: 40px var(--space-sm);
+    display: flex;
+    flex: 1;
+    min-height: 240px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    padding: 40px var(--space-lg);
+    color: var(--color-text-muted);
+}
+
+.dm-empty-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin-bottom: var(--space-md);
+    font-size: 30px;
+    background: var(--color-floating);
+    border-radius: var(--radius-xl);
+}
+
+.dm-empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text-primary);
 }
 
 .dm-empty-text {
-    font-size: 13px;
+    max-width: 320px;
+    margin-top: var(--space-xs);
+    font-size: 14px;
     color: var(--color-text-muted);
 }
 
 .dm-empty-cta {
-    margin-top: var(--space-xs);
+    margin-top: var(--space-md);
     padding: 0;
     border: 0;
     background: transparent;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--color-success);
     cursor: pointer;
