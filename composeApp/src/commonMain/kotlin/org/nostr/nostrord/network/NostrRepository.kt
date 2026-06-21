@@ -58,11 +58,13 @@ import org.nostr.nostrord.storage.getLastActiveAt
 import org.nostr.nostrord.storage.isGroupFetchLazy
 import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
+import org.nostr.nostrord.storage.loadDmProcessedWrapIds
 import org.nostr.nostrord.storage.loadDmSyncCursor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveDmLastRead
 import org.nostr.nostrord.storage.saveDmMessages
+import org.nostr.nostrord.storage.saveDmProcessedWrapIds
 import org.nostr.nostrord.storage.saveDmSyncCursor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveRelayListFor
@@ -141,7 +143,57 @@ class NostrRepository(
     // closed the unauthenticated socket and private groups never loaded (the more DMs,
     // the worse; absent on main, which has no NIP-17). Bounding the burst leaves the
     // signer free to answer AUTH promptly while DMs decrypt steadily in the background.
-    private val dmDecryptSemaphore = Semaphore(3)
+    // Bound concurrent gift-wrap decryption. A larger fan-out amortizes the signer's per-request
+    // latency (it answers nip44_decrypt in bursts), so the inbox drains faster, while still capping
+    // the load so a remote bunker isn't flooded. Paired with the in-flight dedup (one coroutine per
+    // wrap) so re-streams never multiply the in-flight count past this bound. Local / NIP-07 signers
+    // decrypt in-process and don't care about it.
+    private val dmDecryptSemaphore = Semaphore(6)
+
+    // Cap one wrap's decryption. The signer RPC's own timeout is 120s; an intermittently
+    // unresponsive bunker would otherwise pin a decrypt permit for that long per stuck wrap. But too
+    // short a cap kills decrypts the signer answers in its NEXT burst (it replies in bursts with
+    // quiet gaps), wasting the work and stalling progress. 90s rides out a quiet gap while still
+    // freeing the permit for the periodic retry when the signer is genuinely gone.
+    private val DM_DECRYPT_TIMEOUT_MS = 90_000L
+
+    // Give up on a wrap after this many failed decrypt attempts (this session). Stops the retry
+    // loop from hammering wraps the signer never answers, or genuinely malformed ones.
+    private val DM_MAX_DECRYPT_ATTEMPTS = 4
+
+    // Durable per-wrap dedup so a re-streamed backlog skips wraps already decrypted (no repeat
+    // bunker round-trip). Loaded per account in startDmInbox; grows as wraps are handled.
+    // Copy-on-write + @Volatile: the relay pipeline thread reads it while the (serialized) decrypt
+    // coroutine appends, so snapshots stay safe without locking.
+    @kotlin.concurrent.Volatile
+    private var dmProcessedWrapIds: Set<String> = emptySet()
+
+    // This-session bookkeeping for latching the full-sync flag only once we are genuinely caught
+    // up: every gift-wrap id the inbox delivered, and whether the inbox sub has EOSEd.
+    @kotlin.concurrent.Volatile
+    private var dmReceivedWrapIds: Set<String> = emptySet()
+
+    // Gift-wrap ids with a decrypt coroutine currently in flight. A re-streamed inbox (relay change,
+    // reconnect, periodic retry) re-delivers the same wraps; without this guard each delivery spawns
+    // ANOTHER decrypt coroutine for the same wrap, and the duplicates hog the decrypt semaphore so
+    // only a handful of wraps ever make progress. One coroutine per wrap at a time.
+    @kotlin.concurrent.Volatile
+    private var dmInFlightWrapIds: Set<String> = emptySet()
+
+    // Per-wrap decrypt failure count, and wraps given up THIS session after too many failures. Kept
+    // in memory only (not persisted): a wrap abandoned because the signer was momentarily
+    // unresponsive is retried fresh next session, while within a session giving up stops the retry
+    // loop from re-streaming it forever (which otherwise spams EOSE and trips the relay's
+    // publish rate limit, "you are noting too much").
+    @kotlin.concurrent.Volatile
+    private var dmFailCounts: Map<String, Int> = emptyMap()
+
+    @kotlin.concurrent.Volatile
+    private var dmGivenUpWrapIds: Set<String> = emptySet()
+
+    @kotlin.concurrent.Volatile
+    private var dmInboxEoseSeen = false
+    private var dmProcessedSaveJob: kotlinx.coroutines.Job? = null
 
     // Upper bound on how long a bunker account holds its DM gift-wrap backlog
     // while the active relay signs its NIP-42 AUTH. awaitAuthOrTimeout returns
@@ -1183,12 +1235,20 @@ class NostrRepository(
         dmManager.hydrate(SecureStorage.loadDmMessages(myPub), SecureStorage.loadDmLastRead(myPub))
         wireDmPersistence(myPub)
 
+        // Resume per-wrap decrypt progress, and reset the this-session sync bookkeeping.
+        dmProcessedWrapIds = SecureStorage.loadDmProcessedWrapIds(myPub)
+        dmReceivedWrapIds = emptySet()
+        dmInFlightWrapIds = emptySet()
+        dmFailCounts = emptyMap()
+        dmGivenUpWrapIds = emptySet()
+        dmInboxEoseSeen = false
+
         _myDmRelays.value = dmRelaysFor(myPub)
         fetchDmRelays(myPub)
         resendDmInboxReq(myPub)
-        // The sync cursor is "last time we opened the inbox"; advance it now so the next start
-        // refetches only from cursor - 2 days (NIP-59 backdates gift wraps up to 2 days).
-        SecureStorage.saveDmSyncCursor(myPub, org.nostr.nostrord.utils.epochSeconds())
+        // The sync cursor + full-sync flag advance on the dm_inbox EOSE (handleUnifiedMessage),
+        // not here: advancing unconditionally on open skipped the whole undecrypted backlog on a
+        // device that had never synced it. The EOSE means the relay actually delivered everything.
 
         // Make ourselves reachable: publish a kind:10050 if we don't already have one.
         scope.launch {
@@ -1199,6 +1259,22 @@ class NostrRepository(
                 _myDmRelays.value = dmRelaysFor(myPub)
             }
         }
+
+        // Retry undecrypted wraps as the (flaky) bunker signer recovers: a timed-out nip44_decrypt
+        // leaves its wrap un-acked, so periodically re-stream the inbox window. The persisted dedup
+        // skips wraps already decrypted, so each pass only re-attempts the ones still missing.
+        // Registered as a dmPersistenceJob so it's cancelled on logout / account switch.
+        dmPersistenceJobs +=
+            scope.launch {
+                while (true) {
+                    delay(120_000)
+                    val pub = sessionManager.getPublicKey() ?: break
+                    val pending = dmReceivedWrapIds.count { it !in dmProcessedWrapIds && it !in dmGivenUpWrapIds }
+                    if (pending > 0) {
+                        resendDmInboxReq(pub)
+                    }
+                }
+            }
     }
 
     /** Persist decrypted messages + read state whenever they change (one collector per session). */
@@ -1220,8 +1296,44 @@ class NostrRepository(
     }
 
     /** (Re)subscribe to the kind:1059 inbox on all DM relays. Idempotent; also run on reconnect. */
+    // v2: the v1 flag was latched on bare EOSE (before decryption finished), so it could be stuck
+    // true with an incomplete backlog. v2 latches only when every delivered wrap is processed.
+    private fun dmFullSyncKey(pubkey: String) = "dm_full_synced_v2_$pubkey"
+
+
+    // Persist decrypt progress, debounced so a streaming backlog doesn't hammer storage.
+    private fun scheduleSaveProcessedWrapIds(myPub: String) {
+        dmProcessedSaveJob?.cancel()
+        dmProcessedSaveJob = scope.launch {
+            delay(2_000)
+            SecureStorage.saveDmProcessedWrapIds(myPub, dmProcessedWrapIds)
+        }
+    }
+
+    // Latch the persisted "full sync done" flag + advance the cursor ONLY once the inbox has
+    // EOSEd and every wrap it delivered this session is processed. Until then resendDmInboxReq
+    // keeps `since = 0`, so a slow/interrupted bunker backfill resumes next session (skipping the
+    // wraps already in dmProcessedWrapIds) instead of stranding the undecrypted ones.
+    private fun maybeLatchDmFullSync(myPub: String) {
+        if (!dmInboxEoseSeen) return
+        if (SecureStorage.getBooleanPref(dmFullSyncKey(myPub), false)) return
+        if (dmReceivedWrapIds.isNotEmpty() && !dmProcessedWrapIds.containsAll(dmReceivedWrapIds)) return
+        SecureStorage.saveDmProcessedWrapIds(myPub, dmProcessedWrapIds)
+        SecureStorage.saveBooleanPref(dmFullSyncKey(myPub), true)
+        SecureStorage.saveDmSyncCursor(myPub, epochSeconds())
+    }
+
+    // DM relays the inbox sub is currently subscribed on, so a re-derived (but unchanged)
+    // relay list doesn't re-issue the REQ and re-stream the whole backlog at the bunker.
+    private var dmInboxSubscribedRelays: Set<String> = emptySet()
+
     private suspend fun resendDmInboxReq(myPub: String) {
-        val since = SecureStorage.loadDmSyncCursor(myPub)
+        // Sync the whole inbox until it has EOSEd with every delivered wrap decrypted (dmFullSyncKey),
+        // then go incremental from the saved cursor. Streaming everything is safe: the in-flight
+        // dedup plus the bounded decrypt semaphore cap the load on the signer regardless of how many
+        // wraps arrive, so the relay window doesn't need to be limited.
+        val fullSynced = SecureStorage.getBooleanPref(dmFullSyncKey(myPub), default = false)
+        val since = if (!fullSynced) 0L else SecureStorage.loadDmSyncCursor(myPub)
         val filter =
             buildJsonObject {
                 putJsonArray("kinds") { add(Nip17.KIND_GIFT_WRAP) }
@@ -1235,6 +1347,7 @@ class NostrRepository(
                 add(filter)
             }.toString()
         val urls = dmRelaysFor(myPub).distinct()
+        dmInboxSubscribedRelays = urls.toSet()
         // Keep DM relays alive: register them with the reconnect scheduler so a dropped DM
         // socket is revived (and re-subscribed via resubscribePoolRelay) rather than going
         // silent until the next app start. They host no NIP-29 groups, so group-resubscribe
@@ -3065,6 +3178,17 @@ class NostrRepository(
             if (subId.startsWith("mux_chat_")) {
                 relayEventCounts.remove(url)
             }
+            if (subId == "dm_inbox") {
+                // The relay has delivered the whole backlog, but decryption (bunker round-trips)
+                // is still draining. Record the EOSE and only latch "full sync" once every
+                // delivered wrap is actually processed (maybeLatchDmFullSync), so a slow/partial
+                // decrypt keeps `since = 0` and resumes next session instead of stranding wraps.
+                val myPub = sessionManager.getPublicKey()
+                if (myPub != null) {
+                    dmInboxEoseSeen = true
+                    maybeLatchDmFullSync(myPub)
+                }
+            }
             outboxManager.handleEose(subId)
             // Fall through — handleMessage also needs EOSE for group pagination
         }
@@ -3141,18 +3265,54 @@ class NostrRepository(
                 val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
                 val myPub = sessionManager.getPublicKey() ?: return
                 val signer = ActiveAccountManager.session.value?.signer ?: return
-                scope.launch {
-                    // A bunker signer pays a remote round-trip per NIP-44 decrypt, and a gift
-                    // wrap needs two (wrap then seal). A cold start with a large DM backlog
-                    // would flood the single signer connection and starve the kind:22242 AUTH
-                    // sign that private NIP-29 relays need, leaving private groups stuck on
-                    // "auth-required". Hold the backlog until the active relay's AUTH is signed
-                    // (awaitAuthOrTimeout returns the moment AUTH completes, or after the grace
-                    // when the relay needs no AUTH). Local/NIP-07 decrypt in-process and skip it.
-                    if (signer is NostrSigner.Bunker) {
-                        connectionManager.getPrimaryClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
+                val wrapId = giftWrap.id
+                if (wrapId != null) {
+                    if (wrapId !in dmReceivedWrapIds) dmReceivedWrapIds = dmReceivedWrapIds + wrapId
+                    // Already decrypted, or given up this session: skip the (expensive) round-trip.
+                    if (wrapId in dmProcessedWrapIds || wrapId in dmGivenUpWrapIds) {
+                        maybeLatchDmFullSync(myPub)
+                        return
                     }
-                    dmDecryptSemaphore.withPermit { dmManager.ingestGiftWrap(giftWrap, myPub, signer) }
+                    // Already being decrypted by an in-flight coroutine: don't spawn a duplicate.
+                    if (wrapId in dmInFlightWrapIds) return
+                    dmInFlightWrapIds = dmInFlightWrapIds + wrapId
+                }
+                scope.launch {
+                    try {
+                        // A bunker signer pays a remote round-trip per NIP-44 decrypt, and a gift
+                        // wrap needs two (wrap then seal). A cold start with a large DM backlog
+                        // would flood the single signer connection and starve the kind:22242 AUTH
+                        // sign that private NIP-29 relays need, leaving private groups stuck on
+                        // "auth-required". Hold the backlog until the active relay's AUTH is signed
+                        // (awaitAuthOrTimeout returns the moment AUTH completes, or after the grace
+                        // when the relay needs no AUTH). Local/NIP-07 decrypt in-process and skip it.
+                        if (signer is NostrSigner.Bunker) {
+                            connectionManager.getPrimaryClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
+                        }
+                        val handled = dmDecryptSemaphore.withPermit {
+                            kotlinx.coroutines.withTimeoutOrNull(DM_DECRYPT_TIMEOUT_MS) {
+                                dmManager.ingestGiftWrap(giftWrap, myPub, signer)
+                            } ?: false
+                        }
+                        if (handled && wrapId != null && wrapId !in dmProcessedWrapIds) {
+                            dmProcessedWrapIds = dmProcessedWrapIds + wrapId
+                            dmFailCounts = dmFailCounts - wrapId
+                            scheduleSaveProcessedWrapIds(myPub)
+                            maybeLatchDmFullSync(myPub)
+                        } else if (!handled && wrapId != null) {
+                            // Transient failure (signer timeout/unresponsive, or a malformed wrap).
+                            // Count it; after the cap, give up for this session so the retry loop
+                            // stops re-streaming it (relay rate limit / EOSE spam). Retried fresh
+                            // next session, where the signer may be reachable again.
+                            val fails = (dmFailCounts[wrapId] ?: 0) + 1
+                            dmFailCounts = dmFailCounts + (wrapId to fails)
+                            if (fails >= DM_MAX_DECRYPT_ATTEMPTS) {
+                                dmGivenUpWrapIds = dmGivenUpWrapIds + wrapId
+                            }
+                        }
+                    } finally {
+                        if (wrapId != null) dmInFlightWrapIds = dmInFlightWrapIds - wrapId
+                    }
                 }
                 return
             }
@@ -3160,7 +3320,18 @@ class NostrRepository(
             if (kind == Nip17.KIND_DM_RELAYS) {
                 runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let {
                     dmManager.ingestDmRelays(it)
-                    if (it.pubkey == sessionManager.getPublicKey()) _myDmRelays.value = dmRelaysFor(it.pubkey)
+                    if (it.pubkey == sessionManager.getPublicKey()) {
+                        _myDmRelays.value = dmRelaysFor(it.pubkey)
+                        // Our own DM relay list resolved: the inbox was subscribed on the default
+                        // relays at boot, so re-subscribe on the now-known relays or DMs sent only
+                        // to them are never requested. Only when the set actually CHANGED, so the
+                        // same kind:10050 arriving from several relays doesn't re-stream the whole
+                        // gift-wrap backlog and flood the bunker signer.
+                        val newRelays = dmRelaysFor(it.pubkey).distinct().toSet()
+                        if (newRelays != dmInboxSubscribedRelays) {
+                            scope.launch { resendDmInboxReq(it.pubkey) }
+                        }
+                    }
                 }
                 return
             }

@@ -855,6 +855,29 @@ fun SecureStorage.saveDmSyncCursor(
     }
 }
 
+// Gift-wrap (kind:1059) ids we have already unwrapped, so a re-streamed backlog skips the
+// expensive per-wrap decrypt (a remote round-trip on a bunker signer) instead of redoing it.
+// Durable progress: a slow/interrupted backfill resumes across app restarts.
+private fun dmProcessedWrapsKey(pubkey: String): String = "dm_processed_wraps_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmProcessedWrapIds(pubkey: String): Set<String> {
+    if (pubkey.isBlank()) return emptySet()
+    val raw = getStringPref(dmProcessedWrapsKey(pubkey), "") ?: ""
+    if (raw.isBlank()) return emptySet()
+    return runCatching { Json.decodeFromString<Set<String>>(raw) }.getOrDefault(emptySet())
+}
+
+fun SecureStorage.saveDmProcessedWrapIds(
+    pubkey: String,
+    ids: Set<String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmProcessedWrapsKey(pubkey), Json.encodeToString(ids))
+    } catch (_: Exception) {
+    }
+}
+
 // Notification history — persisted feed of cross-relay notifications shown in
 // the notification center. Scoped by pubkey so multi-account devices stay isolated.
 private fun notificationHistoryKey(pubkey: String): String = "notification_history_${pubkeyDigest(pubkey)}"

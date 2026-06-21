@@ -90,13 +90,22 @@ class DmManager(
     // recipient wrap and the self wrap.
     private val seenRumorIds = HashSet<String>()
 
-    /** Decrypt an incoming kind:1059 with [signer] (the account) and add the message to its
-     *  conversation. No-op on anything that isn't a chat rumor we can unwrap. */
-    suspend fun ingestGiftWrap(giftWrap: Event, myPubkey: String, signer: NostrSigner) {
-        val unwrapped = Nip17.unwrap(giftWrap, signer) ?: return
+    /**
+     * Decrypt an incoming kind:1059 with [signer] (the account) and add the message to its
+     * conversation. Returns true when the wrap is definitively handled (decrypted, or a wrap we
+     * never want to retry), false on a TRANSIENT failure (e.g. a bunker decrypt timeout) so the
+     * caller can leave it un-acked and retry it on a later backfill.
+     */
+    suspend fun ingestGiftWrap(giftWrap: Event, myPubkey: String, signer: NostrSigner): Boolean {
+        val unwrapped = Nip17.unwrap(giftWrap, signer)
+        if (unwrapped == null) {
+            // Decrypt/verify failed. On a bunker this is usually a transient timeout under load;
+            // report not-handled so the wrap is retried instead of being permanently skipped.
+            return false
+        }
         val rumor = unwrapped.rumor
-        if (rumor.kind != Nip17.KIND_CHAT) return
-        val rumorId = rumor.id ?: return
+        if (rumor.kind != Nip17.KIND_CHAT) return true
+        val rumorId = rumor.id ?: return true
         val sender = unwrapped.senderPubkey
         // The conversation peer is the other party: for my own (self-copy) messages that's the
         // rumor's `p` recipient; for received messages it's the sender.
@@ -105,9 +114,9 @@ class DmManager(
                 rumor.getTag("p")?.getOrNull(1)
             } else {
                 sender
-            } ?: return
+            } ?: return true
 
-        if (!seenRumorIds.add(rumorId)) return
+        if (!seenRumorIds.add(rumorId)) return true
         val message =
             DmMessage(
                 id = rumorId,
@@ -118,6 +127,7 @@ class DmManager(
                 mine = sender == myPubkey,
             )
         addMessage(peer, message)
+        return true
     }
 
     /** Optimistically add a just-sent message so the UI shows it before the self-wrap echoes back. */
