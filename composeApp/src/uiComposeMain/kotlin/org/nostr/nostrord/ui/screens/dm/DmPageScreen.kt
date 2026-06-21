@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +46,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.layout.DmConversationList
+import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -61,6 +64,11 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun DmPageScreen(
     pubkey: String?,
     onOpenProfile: (UserRoute) -> Unit,
+    onOpenConversation: (DmRoute) -> Unit = {},
+    // Non-null only on compact/mobile (sidebar is in the drawer). Drives the hamburger and, on the
+    // empty landing, the conversation list shown in the page body (no visible DM sidebar there),
+    // mirroring the web `.dm-page-convos` media query.
+    onOpenDrawer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
@@ -68,7 +76,18 @@ fun DmPageScreen(
             Row(
                 modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Spacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
+                onOpenDrawer?.let { open ->
+                    IconButton(onClick = open, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Open menu",
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
                 Text(
                     "Direct messages",
                     color = NostrordColors.TextPrimary,
@@ -77,36 +96,51 @@ fun DmPageScreen(
                 )
             }
             HorizontalDivider(color = NostrordColors.Divider)
-            Column(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Box(
-                    modifier =
-                    Modifier
-                        .size(64.dp)
-                        .clip(NostrordShapes.shapeXLarge)
-                        .background(NostrordColors.BackgroundFloating),
-                    contentAlignment = Alignment.Center,
+            if (onOpenDrawer != null) {
+                // Compact / mobile: the DM sidebar is in the drawer, so show the conversation list
+                // in the page body (web `.dm-page-convos`). The empty-state CTA opens the drawer,
+                // where search starts a new conversation.
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                 ) {
-                    Text("✉️", fontSize = 30.sp)
+                    DmConversationList(
+                        onOpenConversation = onOpenConversation,
+                        onStartConversation = onOpenDrawer,
+                    )
                 }
-                Spacer(modifier = Modifier.height(Spacing.md))
-                Text(
-                    "Your direct messages",
-                    color = NostrordColors.TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                Text(
-                    "Pick a conversation on the side or start a new one with someone you follow.",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(max = 320.dp),
-                )
+            } else {
+                // Desktop: the conversation list lives in the sidebar, so the main area is the hero.
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Box(
+                        modifier =
+                        Modifier
+                            .size(64.dp)
+                            .clip(NostrordShapes.shapeXLarge)
+                            .background(NostrordColors.BackgroundFloating),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("✉️", fontSize = 30.sp)
+                    }
+                    Spacer(modifier = Modifier.height(Spacing.md))
+                    Text(
+                        "Your direct messages",
+                        color = NostrordColors.TextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        "Pick a conversation on the side or start a new one with someone you follow.",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.widthIn(max = 320.dp),
+                    )
+                }
             }
             return@Column
         }
@@ -137,6 +171,16 @@ fun DmPageScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
+            onOpenDrawer?.let { open ->
+                IconButton(onClick = open, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Open menu",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             Row(
                 modifier =
                 Modifier

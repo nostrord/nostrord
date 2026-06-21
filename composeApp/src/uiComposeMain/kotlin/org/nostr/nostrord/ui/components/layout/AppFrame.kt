@@ -478,7 +478,13 @@ private fun FrameContent(
                     onOpenGroup = onNavigate,
                     onEditProfile = onEditProfile,
                 )
-            is DmRoute -> DmPageScreen(pubkey = route.pubkey, onOpenProfile = onNavigate)
+            is DmRoute ->
+                DmPageScreen(
+                    pubkey = route.pubkey,
+                    onOpenProfile = onNavigate,
+                    onOpenConversation = onNavigate,
+                    onOpenDrawer = onOpenDrawer,
+                )
             // Native opens notifications and settings through full-screen overlays
             // (showNotifications / showSettings), not the route (there is no URL bar), so
             // these arms are unreachable; the web hash router is the only producer of

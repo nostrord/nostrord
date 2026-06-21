@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,17 +67,6 @@ fun DmSidebar(
     var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
-    val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
-    val conversations by dmVm.conversations.collectAsState()
-    val userMetadata by dmVm.userMetadata.collectAsState()
-    val unreadByPeer by dmVm.unreadByPeer.collectAsState()
-
-    fun nameOf(pubkey: String): String {
-        val meta = userMetadata[pubkey]
-        return meta?.displayName?.takeIf { it.isNotBlank() }
-            ?: meta?.name?.takeIf { it.isNotBlank() }
-            ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
-    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -173,41 +164,95 @@ fun DmSidebar(
             }
             HorizontalDivider(color = NostrordColors.Divider)
 
-            if (conversations.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        "No conversations yet",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 13.sp,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Text(
-                        "Start a conversation",
-                        color = NostrordColors.Success,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier =
-                        Modifier
-                            .clip(NostrordShapes.shapeSmall)
-                            .clickable { searchOpen = true }
-                            .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
-                    )
-                }
-            } else {
-                conversations.forEach { convo ->
-                    ConversationRow(
-                        pubkeyHex = convo.peerPubkey,
-                        name = nameOf(convo.peerPubkey),
-                        lastMessage = convo.lastMessage,
-                        pictureUrl = userMetadata[convo.peerPubkey]?.picture,
-                        unread = unreadByPeer[convo.peerPubkey] ?: 0,
-                        selected = activePubkey == convo.peerPubkey,
-                        onClick = { onOpenConversation(DmRoute(convo.peerPubkey)) },
-                    )
-                }
+            DmConversationList(
+                onOpenConversation = onOpenConversation,
+                activePubkey = activePubkey,
+                onStartConversation = { searchOpen = true },
+            )
+        }
+    }
+}
+
+/**
+ * The DM conversation list plus its empty state, shared by [DmSidebar] (desktop column) and the
+ * mobile DM page (which has no visible sidebar). The caller provides the scroll container. Mirrors
+ * the web web/DmSidebar DmConversationList.
+ */
+@Composable
+fun DmConversationList(
+    onOpenConversation: (DmRoute) -> Unit,
+    activePubkey: String? = null,
+    onStartConversation: (() -> Unit)? = null,
+) {
+    val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
+    val conversations by dmVm.conversations.collectAsState()
+    val userMetadata by dmVm.userMetadata.collectAsState()
+    val unreadByPeer by dmVm.unreadByPeer.collectAsState()
+
+    fun nameOf(pubkey: String): String {
+        val meta = userMetadata[pubkey]
+        return meta?.displayName?.takeIf { it.isNotBlank() }
+            ?: meta?.name?.takeIf { it.isNotBlank() }
+            ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
+    }
+
+    if (conversations.isEmpty()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = Spacing.lg),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier =
+                Modifier
+                    .size(64.dp)
+                    .clip(NostrordShapes.shapeXLarge)
+                    .background(NostrordColors.BackgroundFloating),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("✉️", fontSize = 30.sp)
+            }
+            Spacer(modifier = Modifier.height(Spacing.md))
+            Text(
+                "No messages yet",
+                color = NostrordColors.TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                "Your direct messages are end-to-end encrypted. Start one with someone you follow.",
+                color = NostrordColors.TextMuted,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 320.dp),
+            )
+            onStartConversation?.let { start ->
+                Spacer(modifier = Modifier.height(Spacing.md))
+                Text(
+                    "Start a conversation",
+                    color = NostrordColors.Success,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier =
+                    Modifier
+                        .clip(NostrordShapes.shapeSmall)
+                        .clickable { start() }
+                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                )
+            }
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            conversations.forEach { convo ->
+                ConversationRow(
+                    pubkeyHex = convo.peerPubkey,
+                    name = nameOf(convo.peerPubkey),
+                    lastMessage = convo.lastMessage,
+                    pictureUrl = userMetadata[convo.peerPubkey]?.picture,
+                    unread = unreadByPeer[convo.peerPubkey] ?: 0,
+                    selected = activePubkey == convo.peerPubkey,
+                    onClick = { onOpenConversation(DmRoute(convo.peerPubkey)) },
+                )
             }
         }
     }

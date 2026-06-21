@@ -1300,7 +1300,6 @@ class NostrRepository(
     // true with an incomplete backlog. v2 latches only when every delivered wrap is processed.
     private fun dmFullSyncKey(pubkey: String) = "dm_full_synced_v2_$pubkey"
 
-
     // Persist decrypt progress, debounced so a streaming backlog doesn't hammer storage.
     private fun scheduleSaveProcessedWrapIds(myPub: String) {
         dmProcessedSaveJob?.cancel()
