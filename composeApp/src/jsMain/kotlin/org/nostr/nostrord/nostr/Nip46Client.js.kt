@@ -49,7 +49,8 @@ actual class Nip46Client actual constructor(
         val relayParams = relays.joinToString("&") { "relay=${it.encodeForUri()}" }
         val metadata = """{"name":"$name"}"""
         val secretParam = nostrConnectSecret?.let { "&secret=${it.encodeForUri()}" } ?: ""
-        return "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam&metadata=${metadata.encodeForUri()}"
+        val permsParam = "&perms=${NIP46_REQUESTED_PERMS.encodeForUri()}"
+        return "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam$permsParam&metadata=${metadata.encodeForUri()}"
     }
 
     private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> = coroutineScope {
@@ -252,10 +253,13 @@ actual class Nip46Client actual constructor(
         }
 
         val requestId = generateRequestId()
+        // NIP-46 connect params: [remote_signer_pubkey, secret, requested_permissions]. The secret
+        // slot must be present (empty string if none) so the signer reads perms as the 3rd param.
         val params =
             buildList {
                 add(remoteSignerPubkey)
-                secret?.let { add(it) }
+                add(secret ?: "")
+                add(NIP46_REQUESTED_PERMS)
             }
 
         sendRequest(requestId, "connect", params)
