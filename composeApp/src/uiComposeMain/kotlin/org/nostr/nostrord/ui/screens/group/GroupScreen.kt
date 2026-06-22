@@ -25,7 +25,6 @@ import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
 import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageTab
-import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -472,15 +471,20 @@ fun GroupScreen(
         )
     }
 
-    // Member management modal (admin only)
+    // Managing members opens the unified Manage group modal on its Members tab (admin only),
+    // so there is a single members surface across the app instead of a separate modal.
     if (showMemberManagementModal) {
-        MemberManagementModal(
-            members = groupMembers,
-            currentUserPubkey = currentUserPubkey,
-            onPromoteToAdmin = { pubkey -> vm.promoteToAdmin(pubkey) },
-            onDemoteFromAdmin = { pubkey -> vm.demoteFromAdmin(pubkey) },
-            onRemoveMember = { member -> vm.removeUser(member.pubkey) },
+        ManageGroupModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showMemberManagementModal = false },
+            onDeleted = {
+                showMemberManagementModal = false
+                onNavigateHome()
+            },
+            initialTab = ManageTab.Members,
+            supportsSubgroups = subgroupsEnabled,
         )
     }
 

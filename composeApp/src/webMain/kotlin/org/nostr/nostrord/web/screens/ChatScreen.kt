@@ -60,7 +60,6 @@ import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.ManageGroupModal
-import org.nostr.nostrord.web.modals.MemberManagementModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
 import react.ChildrenBuilder
@@ -2287,8 +2286,9 @@ val ChatScreen =
                         onClose = { setModal(null) }
                     }
                 "members" ->
-                    MemberManagementModal {
-                        groupId = group.id
+                    ManageGroupModal {
+                        this.group = group
+                        initialTab = "members"
                         onClose = { setModal(null) }
                     }
                 "addmember" ->

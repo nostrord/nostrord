@@ -4474,6 +4474,24 @@ body {
     flex: 1;
 }
 
+/* Header with a leading accent icon next to the title (e.g. Add Member). */
+.modal-header-lead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.modal-title-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: var(--color-primary);
+}
+
 .modal-title {
     font-size: 18px;
     font-weight: 700;
@@ -8633,6 +8651,41 @@ body {
     align-items: center;
     gap: 6px;
 }
+
+/* Member row identity block: name (+ YOU tag) over the truncated npub. */
+.mod-member-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.mod-member-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.mod-npub {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mod-you {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+    border-radius: 4px;
+}
+
 
 .mod-name {
     flex: 1;

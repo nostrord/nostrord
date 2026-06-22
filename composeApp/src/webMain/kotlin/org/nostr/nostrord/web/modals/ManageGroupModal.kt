@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.utils.Result
@@ -352,6 +353,9 @@ private val ManageMembersSection =
                 ?: (pubkey.take(8) + "…")
         }
 
+        val adminCount = members.count { it in admins }
+        val memberCount = members.size - adminCount
+
         val filtered =
             members
                 .filter {
@@ -361,7 +365,12 @@ private val ManageMembersSection =
                         else -> true
                     }
                 }
-                .filter { query.isBlank() || nameOf(it).contains(query, ignoreCase = true) }
+                .filter {
+                    query.isBlank() ||
+                        nameOf(it).contains(query, ignoreCase = true) ||
+                        it.contains(query, ignoreCase = true) ||
+                        Nip19.encodeNpub(it).contains(query, ignoreCase = true)
+                }
 
         searchInput(
             placeholder = "Search members...",
@@ -369,6 +378,8 @@ private val ManageMembersSection =
             onChange = { setQuery(it) },
             compact = true,
         )
+        // Per-category counts ride on the filter tabs (All / Admins / Members).
+        val tabCounts = mapOf("All" to members.size, "Admins" to adminCount, "Members" to memberCount)
         div {
             className = ClassName("mod-tabs")
             listOf("All", "Admins", "Members").forEach { label ->
@@ -376,7 +387,7 @@ private val ManageMembersSection =
                     key = label
                     className = ClassName(if (label == tab) "mod-tab selected" else "mod-tab")
                     onClick = { setTab(label) }
-                    +label
+                    +"$label · ${tabCounts[label]}"
                 }
             }
         }
@@ -400,27 +411,35 @@ private val ManageMembersSection =
                         cls = "mod-avatar"
                     }
                     div {
-                        className = ClassName("mod-name-wrap")
-                        span {
-                            className = ClassName("mod-name")
-                            +nameOf(pubkey)
-                        }
-                        if (isAdmin) {
+                        className = ClassName("mod-member-meta")
+                        div {
+                            className = ClassName("mod-member-line")
                             span {
-                                className = ClassName("member-admin")
-                                +"ADMIN"
+                                className = ClassName("mod-name")
+                                +nameOf(pubkey)
+                            }
+                            if (pubkey == myPubkey) {
+                                span {
+                                    className = ClassName("mod-you")
+                                    +"YOU"
+                                }
                             }
                         }
-                    }
-                    if (pubkey == myPubkey) {
-                        // No self-demote / self-remove: a NIP-29 relay only accepts moderation
-                        // (kind 9000/9001) from an admin, so demoting yourself is one-way; you
-                        // could not re-promote yourself and may be locked out. Use Leave group.
                         span {
-                            className = ClassName("mod-self-tag")
-                            +"You"
+                            className = ClassName("mod-npub")
+                            +(Nip19.encodeNpub(pubkey).take(20) + "...")
                         }
-                    } else {
+                    }
+                    if (isAdmin) {
+                        span {
+                            className = ClassName("member-admin")
+                            +"ADMIN"
+                        }
+                    }
+                    // No self-demote / self-remove: a NIP-29 relay only accepts moderation
+                    // (kind 9000/9001) from an admin, so demoting yourself is one-way; you could
+                    // not re-promote yourself and may be locked out. Use Leave group.
+                    if (pubkey != myPubkey) {
                         div {
                             className = ClassName("mod-actions")
                             if (confirmRemove == pubkey) {
@@ -679,6 +698,7 @@ private val ManageInvitesSection =
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val relayMetadata = useStateFlow(repo.relayMetadata)
         val (busy, setBusy) = useState { false }
+        val (error, setError) = useState<String?> { null }
 
         val revoked =
             msgs.filter { it.kind == 9005 }
@@ -698,12 +718,33 @@ private val ManageInvitesSection =
             disabled = busy
             onClick = {
                 setBusy(true)
+                setError(null)
                 launchApp {
-                    repo.createInviteCode(props.groupId)
+                    val result = repo.createInviteCode(props.groupId)
                     setBusy(false)
+                    if (result is Result.Error) {
+                        // Surface the relay's reason; the common case is a relay that does not
+                        // allow kind:9009 (invite codes).
+                        val raw = (result.error.cause?.message ?: result.error.message)
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                        setError(
+                            if (raw.contains("9009") || raw.contains("not allowed", ignoreCase = true)) {
+                                "This relay does not support invite codes."
+                            } else {
+                                raw.ifBlank { "Failed to create invite code." }
+                            },
+                        )
+                    }
                 }
             }
             +(if (busy) "Creating…" else "Create invite code")
+        }
+        if (error != null) {
+            div {
+                className = ClassName("modal-error")
+                +error
+            }
         }
         div {
             className = ClassName("access-section-title")

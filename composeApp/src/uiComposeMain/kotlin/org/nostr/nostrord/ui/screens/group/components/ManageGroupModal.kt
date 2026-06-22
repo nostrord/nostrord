@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,15 +46,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
+import org.nostr.nostrord.ui.components.forms.AppSearchField
+import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.InputSize
+import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -236,7 +249,9 @@ private fun ManageNav(
 ) {
     if (vertical) {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-            tabs.forEach { ManageNavItem(it, it == selected) { onSelect(it) } }
+            // Vertical rail: each item fills the rail width so the active/hover background spans
+            // the full column (matches the web .manage-nav-item).
+            tabs.forEach { ManageNavItem(it, it == selected, fillWidth = true) { onSelect(it) } }
         }
     } else {
         Row(
@@ -252,6 +267,7 @@ private fun ManageNav(
 private fun ManageNavItem(
     tab: ManageTab,
     selected: Boolean,
+    fillWidth: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -259,6 +275,7 @@ private fun ManageNavItem(
     Row(
         modifier =
         Modifier
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .clip(RoundedCornerShape(8.dp))
             .background(
                 when {
@@ -420,96 +437,278 @@ private fun ManageMembersSection(
     val myPubkey = remember { vm.getPublicKey() }
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("All") }
-    var confirmRemove by remember { mutableStateOf<String?>(null) }
+    // (member, action) whose promote/demote/remove is awaiting confirmation.
+    var confirmAction by remember { mutableStateOf<Pair<MemberInfo, String>?>(null) }
 
     val adminSet = admins[groupId].orEmpty().toSet()
-    fun nameOf(pubkey: String): String {
-        val meta = userMetadata[pubkey]
-        return meta?.displayName?.takeIf { it.isNotBlank() }
-            ?: meta?.name?.takeIf { it.isNotBlank() }
-            ?: (pubkey.take(8) + "…")
-    }
+    val memberInfos =
+        members[groupId].orEmpty().map { pubkey ->
+            val meta = userMetadata[pubkey]
+            MemberInfo(
+                pubkey = pubkey,
+                displayName =
+                meta?.displayName?.takeIf { it.isNotBlank() }
+                    ?: meta?.name?.takeIf { it.isNotBlank() }
+                    ?: (pubkey.take(8) + "…"),
+                picture = meta?.picture,
+                isAdmin = pubkey in adminSet,
+            )
+        }.sortedWith(compareByDescending<MemberInfo> { it.isAdmin }.thenBy { it.displayName.lowercase() })
+
+    val adminCount = memberInfos.count { it.isAdmin }
+    val regularCount = memberInfos.size - adminCount
 
     val filtered =
-        members[groupId].orEmpty()
+        memberInfos
             .filter {
                 when (filter) {
-                    "Admins" -> it in adminSet
-                    "Members" -> it !in adminSet
+                    "Admins" -> it.isAdmin
+                    "Members" -> !it.isAdmin
                     else -> true
                 }
             }
-            .filter { query.isBlank() || nameOf(it).contains(query, ignoreCase = true) }
+            .filter {
+                query.isBlank() ||
+                    it.displayName.contains(query, ignoreCase = true) ||
+                    it.pubkey.contains(query, ignoreCase = true) ||
+                    Nip19.encodeNpub(it.pubkey).contains(query, ignoreCase = true)
+            }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedTextField(
+        AppSearchField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search members...", color = NostrordColors.TextMuted, style = NostrordTypography.Caption) },
-            singleLine = true,
+            placeholder = "Search members...",
             modifier = Modifier.fillMaxWidth(),
-            colors = editFieldColors(),
-            shape = RoundedCornerShape(8.dp),
+            size = InputSize.Compact,
         )
         Spacer(modifier = Modifier.height(Spacing.md))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            listOf("All", "Admins", "Members").forEach { label ->
-                ModTab(label, label == filter) { filter = label }
-            }
-        }
+        // Per-category counts ride on the filter tabs (All / Admins / Members) instead of a
+        // separate stats row.
+        val filterKeys = listOf("All", "Admins", "Members")
+        val filterCounts = listOf(memberInfos.size, adminCount, regularCount)
+        AppSegmentedTabs(
+            tabs = filterKeys.mapIndexed { i, key -> SegmentedTab("$key · ${filterCounts[i]}") },
+            selectedIndex = filterKeys.indexOf(filter).coerceAtLeast(0),
+            onSelect = { filter = filterKeys[it] },
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(modifier = Modifier.height(Spacing.md))
         LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (filtered.isEmpty()) {
-                item { ModEmpty("No members found") }
+                item { ModEmpty(if (query.isNotBlank()) "No members found" else "No members") }
             }
-            items(filtered, key = { it }) { pubkey ->
-                val isAdmin = pubkey in adminSet
-                Row(
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(NostrordColors.SurfaceVariant.copy(alpha = 0.5f))
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    MemberAvatar(pubkey)
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            nameOf(pubkey),
-                            color = NostrordColors.TextPrimary,
-                            style = NostrordTypography.Caption,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (isAdmin) {
-                            Text("ADMIN", color = NostrordColors.Primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            items(filtered, key = { it.pubkey }) { member ->
+                AdminMemberItem(
+                    member = member,
+                    isSelf = member.pubkey == myPubkey,
+                    onPromote = { confirmAction = member to "promote" },
+                    onDemote = { confirmAction = member to "demote" },
+                    onRemove = { confirmAction = member to "remove" },
+                )
+            }
+        }
+    }
+
+    confirmAction?.let { (member, action) ->
+        val title =
+            when (action) {
+                "promote" -> "Promote to Admin"
+                "demote" -> "Remove Admin Role"
+                else -> "Remove from Group"
+            }
+        val desc =
+            when (action) {
+                "promote" -> "${member.displayName} will be able to manage members and group settings."
+                "demote" -> "${member.displayName} will lose admin privileges."
+                else -> "${member.displayName} will be removed from the group."
+            }
+        AlertDialog(
+            onDismissRequest = { confirmAction = null },
+            title = { Text(title, color = NostrordColors.TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(desc, color = NostrordColors.TextSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        when (action) {
+                            "promote" -> vm.promoteToAdmin(member.pubkey)
+                            "demote" -> vm.demoteFromAdmin(member.pubkey)
+                            "remove" -> vm.removeUser(member.pubkey)
                         }
-                    }
-                    if (pubkey == myPubkey) {
-                        Text("You", color = NostrordColors.TextMuted, style = MaterialTheme.typography.labelSmall)
-                    } else if (confirmRemove == pubkey) {
-                        TextButton(onClick = {
-                            confirmRemove = null
-                            vm.removeUser(pubkey)
-                        }) {
-                            Text("Confirm", color = NostrordColors.Error, style = NostrordTypography.Caption)
-                        }
-                        TextButton(onClick = { confirmRemove = null }) {
-                            Text("Cancel", color = NostrordColors.TextSecondary, style = NostrordTypography.Caption)
-                        }
-                    } else {
-                        TextButton(onClick = { if (isAdmin) vm.demoteFromAdmin(pubkey) else vm.promoteToAdmin(pubkey) }) {
-                            Text(if (isAdmin) "Demote" else "Promote", color = NostrordColors.TextSecondary, style = NostrordTypography.Caption)
-                        }
-                        TextButton(onClick = { confirmRemove = pubkey }) {
-                            Text("Remove", color = NostrordColors.Error, style = NostrordTypography.Caption)
-                        }
-                    }
+                        confirmAction = null
+                    },
+                    colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = if (action == "remove") NostrordColors.Error else NostrordColors.Primary,
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                ) { Text("Confirm") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmAction = null }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            },
+            containerColor = NostrordColors.Surface,
+            shape = RoundedCornerShape(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun AdminMemberItem(
+    member: MemberInfo,
+    isSelf: Boolean,
+    onPromote: () -> Unit,
+    onDemote: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var showRoleMenu by remember { mutableStateOf(false) }
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.SurfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AdminMemberAvatar(member = member, size = 36.dp)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = member.displayName,
+                    color = NostrordColors.TextPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isSelf) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "YOU",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier =
+                        Modifier
+                            .background(NostrordColors.TextMuted.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
                 }
             }
+            Text(
+                text = Nip19.encodeNpub(member.pubkey).take(20) + "...",
+                color = NostrordColors.TextMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+            )
+        }
+        if (member.isAdmin) {
+            Text(
+                text = "ADMIN",
+                color = NostrordColors.Primary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier =
+                Modifier
+                    .background(NostrordColors.Primary.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        // No self-demote / self-remove: a NIP-29 relay only accepts moderation from an admin, so
+        // demoting yourself is one-way and could lock you out. Use Leave group instead.
+        if (!isSelf) {
+            Box {
+                IconButton(
+                    onClick = { showRoleMenu = true },
+                    modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon.Hand),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Member actions",
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = showRoleMenu,
+                    onDismissRequest = { showRoleMenu = false },
+                    containerColor = NostrordColors.Surface,
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (member.isAdmin) "Remove Admin Role" else "Promote to Admin",
+                                color = NostrordColors.TextPrimary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = if (member.isAdmin) NostrordColors.Warning else NostrordColors.Primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        onClick = {
+                            showRoleMenu = false
+                            if (member.isAdmin) onDemote() else onPromote()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text("Remove from Group", color = NostrordColors.Error, style = MaterialTheme.typography.bodySmall)
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = NostrordColors.Error, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showRoleMenu = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminMemberAvatar(
+    member: MemberInfo,
+    size: androidx.compose.ui.unit.Dp,
+) {
+    val context = LocalPlatformContext.current
+    Box(modifier = Modifier.size(size).clip(CircleShape), contentAlignment = Alignment.Center) {
+        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        val showPlaceholder =
+            member.picture.isNullOrBlank() ||
+                imageState is AsyncImagePainter.State.Loading ||
+                imageState is AsyncImagePainter.State.Error
+        if (showPlaceholder) {
+            UserGradientAvatar(seed = member.pubkey, size = size)
+        }
+        if (!member.picture.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+            AsyncImage(
+                model =
+                ImageRequest
+                    .Builder(context)
+                    .data(member.picture!!)
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = member.displayName,
+                modifier = Modifier.size(size).clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it },
+            )
         }
     }
 }
@@ -525,7 +724,11 @@ private fun ManageInvitesSection(
     val copyToClipboard = rememberClipboardWriter()
     val messages by vm.messages.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
+    // createInviteCode reports failure (e.g. relay rejects kind 9009) via the VM's moderation
+    // error; reset the button and surface it when that arrives.
+    val moderationError by vm.moderationError.collectAsState()
     var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(moderationError) { if (moderationError != null) busy = false }
 
     val msgs = messages[groupId].orEmpty()
     val revoked =
@@ -545,6 +748,7 @@ private fun ManageInvitesSection(
         Button(
             onClick = {
                 busy = true
+                vm.clearModerationError()
                 vm.createInviteCode { busy = false }
             },
             enabled = !busy,
@@ -553,6 +757,10 @@ private fun ManageInvitesSection(
             modifier = Modifier.fillMaxWidth().pointerHoverIcon(PointerIcon.Hand),
         ) {
             Text(if (busy) "Creating…" else "Create invite code", style = NostrordTypography.Button)
+        }
+        if (moderationError != null) {
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            Text(moderationError!!, style = NostrordTypography.Caption, color = NostrordColors.Error)
         }
         Spacer(modifier = Modifier.height(Spacing.lg))
         Text("ACTIVE CODES (${codes.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
@@ -884,27 +1092,6 @@ private fun ManageDangerSection(
 }
 
 // ---- Shared bits ----
-
-@Composable
-private fun ModTab(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand),
-        shape = RoundedCornerShape(6.dp),
-        color = if (selected) NostrordColors.Primary else NostrordColors.SurfaceVariant,
-    ) {
-        Text(
-            label,
-            style = NostrordTypography.Caption,
-            color = if (selected) Color.White else NostrordColors.TextMuted,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-        )
-    }
-}
 
 @Composable
 private fun ModEmpty(text: String) {
