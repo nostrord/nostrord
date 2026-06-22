@@ -3196,7 +3196,11 @@ private val URL_REGEX =
             // (mirrors native MessageContentParser so the apostrophe form renders a group card).
             "|(wss?://[^\\s<>\"]+)" +
             "|(nostr:(?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]+)" +
-            "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})",
+            "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})" +
+            // Bare NIP-29 group address without the scheme, `relay.host'groupId` (the share field's
+            // copy form). Dotted host + 4+ char id so ordinary apostrophes don't match. No
+            // lookbehind here on purpose: older Safari throws on it and would break all rendering.
+            "|([a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+'[a-zA-Z0-9]{4,})",
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
@@ -3389,6 +3393,15 @@ private fun ChildrenBuilder.renderEntities(
                 }
             } else {
                 +token
+            }
+        } else if (token.contains('\'')) {
+            // Bare NIP-29 group address `relay'groupId` (no scheme): normalize with wss:// and
+            // render the same group card as the scheme form.
+            val apostrophe = token.indexOf('\'')
+            GroupLinkCard {
+                groupId = token.substring(apostrophe + 1)
+                relayUrl = "wss://" + token.substring(0, apostrophe)
+                onNavigate = onGroupRef
             }
         } else {
             // A mention standing alone (the whole message) keeps the rich form (group card,

@@ -196,9 +196,13 @@ object MessageContentParser {
         // every downstream pass treats their ranges as already covered.
         val urlMatches = findDataImages(contentWithPlaceholders) + findUrls(contentWithPlaceholders)
 
-        // Step 2: Find relay URLs (ws://, wss://)
+        // Step 2: Find relay URLs (ws://, wss://) and bare NIP-29 group addresses (relay'groupId).
+        // Both become a Relay part; the renderer shows a group card when the value has an apostrophe.
         val coveredByUrls = urlMatches.map { it.range }
-        val relayMatches = findRelayUrls(contentWithPlaceholders, coveredByUrls)
+        val relayUrlMatches = findRelayUrls(contentWithPlaceholders, coveredByUrls)
+        val relayMatches =
+            relayUrlMatches +
+                findGroupAddresses(contentWithPlaceholders, coveredByUrls + relayUrlMatches.map { it.range })
 
         // Step 3: Find Cashu tokens and requests
         val coveredByUrlsAndRelays = (urlMatches + relayMatches).map { it.range }
@@ -409,6 +413,17 @@ object MessageContentParser {
     private val relayUrlRegex =
         Regex(
             """wss?://[^\s<>"]+""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    /**
+     * Bare NIP-29 group address without the scheme: `relay.host'groupId` (the form the share field
+     * copies). Requires a dotted host and a 4+ char group id so ordinary apostrophes ("it's") don't
+     * match. The wss:// form is caught by [relayUrlRegex] first; this runs on what's left.
+     */
+    private val groupAddressRegex =
+        Regex(
+            """(?<![\w@/])[a-z0-9-]+(?:\.[a-z0-9-]+)+'[a-z0-9]{4,}""",
             RegexOption.IGNORE_CASE,
         )
 
@@ -941,6 +956,24 @@ object MessageContentParser {
 
                     ParsedMatch(actualRange, ParsedPart.Relay(cleanedUrl))
                 }
+            }.toList()
+    }
+
+    /**
+     * Find bare NIP-29 group addresses (`relay.host'groupId`, no scheme) in non-covered regions and
+     * emit them as the same [ParsedPart.Relay] as wss:// addresses (normalized with the scheme), so
+     * the renderer's apostrophe split turns them into a group card.
+     */
+    private fun findGroupAddresses(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
+        val coveredPositions = buildCoveredPositions(coveredRanges)
+        return groupAddressRegex
+            .findAll(content)
+            .mapNotNull { match ->
+                if (match.range.any { it in coveredPositions }) return@mapNotNull null
+                ParsedMatch(match.range, ParsedPart.Relay("wss://${match.value}"))
             }.toList()
     }
 
