@@ -88,6 +88,7 @@ import web.dom.ElementId
 import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
 import kotlin.math.abs
+import org.nostr.nostrord.ui.screens.group.pendingJoinRequests as computePendingJoinRequests
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -1086,18 +1087,11 @@ val ChatScreen =
         // account has no read access (NIP-29 private+closed group).
         val restrictedGroups = useStateFlow(vm.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
-        // Pending join-request count — admin/closed-group only, drives the header badge.
-        // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
-        // and anyone whose most-recent event is a 9022 leave.
+        // Pending join-request count — admin/closed-group only, drives the header badge. Shares
+        // the Manage > Requests logic (pendingJoinRequests) so the badge and the list never
+        // disagree: a member removed by an admin (kind 9001) must not resurface as pending.
         val pendingJoinRequests = if (isAdmin && !group.isOpen) {
-            val lastLeave =
-                messages.filter { it.kind == 9022 }
-                    .groupBy { it.pubkey }
-                    .mapValues { (_, evs) -> evs.maxOf { it.createdAt } }
-            messages.filter { it.kind == 9021 && it.pubkey !in members }
-                .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
-                .distinctBy { it.pubkey }
-                .size
+            computePendingJoinRequests(messages, members.toSet()).size
         } else {
             0
         }

@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
@@ -770,15 +771,7 @@ private val ManageRequestsSection =
             return@FC
         }
 
-        val lastLeave =
-            msgs.filter { it.kind == 9022 }
-                .groupBy { it.pubkey }
-                .mapValues { (_, events) -> events.maxOf { it.createdAt } }
-        val pending =
-            msgs.filter { it.kind == 9021 && it.pubkey !in members }
-                .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
-                .distinctBy { it.pubkey }
-                .sortedByDescending { it.createdAt }
+        val pending = pendingJoinRequests(msgs, members)
 
         fun nameOf(pubkey: String): String {
             val meta = userMetadata[pubkey]

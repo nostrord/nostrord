@@ -249,22 +249,14 @@ fun GroupScreen(
         }
     }
 
-    val pendingJoinRequests by remember(groupId) {
+    // Shares the Manage > Requests logic (pendingJoinRequests) so the header badge and the list
+    // never disagree; resolvedRequestPubkeys drops requests approved/rejected this session before
+    // the relay echo lands.
+    val pendingRequests by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
             val members = (allGroupMembers[groupId] ?: emptyList()).toSet()
-            val lastLeave: Map<String, Long> =
-                msgs
-                    .filter { it.kind == 9022 }
-                    .groupBy { it.pubkey }
-                    .mapValues { (_, events) -> events.maxOf { it.createdAt } }
-            msgs
-                .filter { it.kind == 9021 && it.pubkey !in members && it.pubkey !in resolvedRequestPubkeys }
-                .filter { req ->
-                    val leave = lastLeave[req.pubkey]
-                    leave == null || req.createdAt > leave
-                }.distinctBy { it.pubkey }
-                .sortedByDescending { it.createdAt }
+            pendingJoinRequests(msgs, members).filterNot { it.pubkey in resolvedRequestPubkeys }
         }
     }
 
@@ -937,7 +929,7 @@ fun GroupScreen(
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
                     onAddMember = { pubkey -> vm.addUser(pubkey) },
-                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
                     pendingRequestedAtSeconds = pendingRequestedAtSeconds,
@@ -1089,7 +1081,7 @@ fun GroupScreen(
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
                     onAddMember = { pubkey -> vm.addUser(pubkey) },
-                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
                     pendingRequestedAtSeconds = pendingRequestedAtSeconds,

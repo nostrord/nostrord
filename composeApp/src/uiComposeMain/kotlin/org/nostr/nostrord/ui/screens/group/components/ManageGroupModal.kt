@@ -54,6 +54,7 @@ import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -610,15 +611,7 @@ private fun ManageRequestsSection(
 
     val msgs = messages[groupId].orEmpty()
     val memberSet = members[groupId].orEmpty().toSet()
-    val lastLeave =
-        msgs.filter { it.kind == 9022 }
-            .groupBy { it.pubkey }
-            .mapValues { (_, events) -> events.maxOf { it.createdAt } }
-    val pending =
-        msgs.filter { it.kind == 9021 && it.pubkey !in memberSet }
-            .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
-            .distinctBy { it.pubkey }
-            .sortedByDescending { it.createdAt }
+    val pending = pendingJoinRequests(msgs, memberSet)
 
     fun nameOf(pubkey: String): String {
         val meta = userMetadata[pubkey]
