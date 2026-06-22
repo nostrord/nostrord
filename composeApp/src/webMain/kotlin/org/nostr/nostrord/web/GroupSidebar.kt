@@ -10,6 +10,7 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.Portal
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.bannerGradientCss
 import org.nostr.nostrord.web.components.icon
@@ -212,25 +213,34 @@ val GroupSidebar =
             }
         }
 
+        // The sidebar lives inside the mobile nav drawer, whose `transform` would trap a
+        // position:fixed overlay inside the drawer; portal these modals to <body> so they cover
+        // the viewport.
         if (showMembers) {
-            MembersModal {
-                groupId = route.groupId
-                onClose = { setShowMembers(false) }
+            Portal {
+                MembersModal {
+                    groupId = route.groupId
+                    onClose = { setShowMembers(false) }
+                }
             }
         }
         if (showManage) {
-            ManageGroupModal {
-                group = meta ?: placeholderMeta(route.groupId)
-                initialTab = manageTab
-                onClose = { setShowManage(false) }
+            Portal {
+                ManageGroupModal {
+                    group = meta ?: placeholderMeta(route.groupId)
+                    initialTab = manageTab
+                    onClose = { setShowManage(false) }
+                }
             }
         }
         if (showCreateSubgroup) {
-            CreateGroupModal {
-                onClose = { setShowCreateSubgroup(false) }
-                subgroup = true
-                parentGroupId = route.groupId
-                relayUrl = route.relayUrl
+            Portal {
+                CreateGroupModal {
+                    onClose = { setShowCreateSubgroup(false) }
+                    subgroup = true
+                    parentGroupId = route.groupId
+                    relayUrl = route.relayUrl
+                }
             }
         }
     }
