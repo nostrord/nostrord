@@ -90,6 +90,19 @@ class SqlDelightCacheStore(
         q.getEvents(account, ids).executeAsList().map { toEventRow(it.id, it.pubkey, it.created_at, it.kind, it.content, it.tags_json) }
     }
 
+    override suspend fun deleteByIds(
+        account: String,
+        ids: Collection<String>,
+    ) = withContext(Dispatchers.Default) {
+        if (ids.isEmpty()) return@withContext
+        db.transaction {
+            ids.forEach { id ->
+                q.deleteMessageById(account, id)
+                q.deleteEventById(account, id)
+            }
+        }
+    }
+
     override suspend fun evictToByteBudget(
         account: String,
         maxBytes: Long,

@@ -88,6 +88,16 @@ class InMemoryCacheStore : CacheStore {
         ids.mapNotNull { byId[it] }
     }
 
+    override suspend fun deleteByIds(
+        account: String,
+        ids: Collection<String>,
+    ) = mutex.withLock {
+        if (ids.isEmpty()) return@withLock
+        messages[account]?.values?.forEach { byId -> ids.forEach { byId.remove(it) } }
+        events[account]?.let { byId -> ids.forEach { byId.remove(it) } }
+        Unit
+    }
+
     override suspend fun evictToByteBudget(
         account: String,
         maxBytes: Long,

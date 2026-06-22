@@ -152,6 +152,22 @@ class IndexedDbCacheStore : CacheStore {
         }
     }
 
+    override suspend fun deleteByIds(
+        account: String,
+        ids: Collection<String>,
+    ) {
+        if (ids.isEmpty()) return
+        val database = db()
+        val tx = database.transaction(arrayOf(MESSAGE, EVENT), "readwrite")
+        val msgStore = tx.objectStore(MESSAGE)
+        val evtStore = tx.objectStore(EVENT)
+        ids.forEach { id ->
+            msgStore.delete(arrayOf(account, id))
+            evtStore.delete(arrayOf(account, id))
+        }
+        awaitTx(tx)
+    }
+
     override suspend fun evictToByteBudget(
         account: String,
         maxBytes: Long,

@@ -3630,6 +3630,19 @@ class GroupManager(
             }
             updated
         }
+
+        // Evict from the persistent cache too. Without this, a deleted event (e.g. a revoked
+        // kind:9009 invite code) rehydrates from cache on the next cold open — the relay no longer
+        // serves it and the 9005 delete is never cached, so nothing re-removes it. Fire-and-forget.
+        val account = currentPubkey
+        if (account != null) {
+            scope.launch {
+                try {
+                    cacheStore.deleteByIds(account, eventIdsToDelete)
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     /**

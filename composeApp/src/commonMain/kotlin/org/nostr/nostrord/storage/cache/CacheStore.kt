@@ -60,6 +60,16 @@ interface CacheStore {
         ids: List<String>,
     ): List<CachedEventRow>
 
+    /**
+     * Remove rows (message and generic-event tables) for [account] whose id is in [ids]. Applied
+     * when a deletion event (kind 5 / 9005) lands, so the deleted target (e.g. a revoked kind:9009
+     * invite code) does not rehydrate from cache on the next cold open. No-op for ids not present.
+     */
+    suspend fun deleteByIds(
+        account: String,
+        ids: Collection<String>,
+    )
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
     /** Drop the oldest rows (by `created_at`) for [account] until under [maxBytes]. */
     suspend fun evictToByteBudget(
