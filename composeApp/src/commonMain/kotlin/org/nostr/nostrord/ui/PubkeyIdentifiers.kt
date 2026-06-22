@@ -64,7 +64,9 @@ fun isValidNip05(nip05: String): Boolean = NIP05_REGEX.matches(nip05.trim())
  *
  * With an [inviteCode], every format carries the Nostrord `?invite=` suffix extension:
  * everything before the `?` stays a plain address any client understands, and
- * `parseGroupJoinInput` reads the code back for auto-join.
+ * `parseGroupJoinInput` reads the code back for auto-join. Invite codes lead with the
+ * nostrord link (the shareable form people paste into a browser); the bare share modal
+ * keeps relay'groupId first.
  */
 fun groupIdentifiers(
     relayUrl: String,
@@ -74,12 +76,18 @@ fun groupIdentifiers(
 ): List<Identifier> = buildList {
     val host = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
     if (host.isBlank() || groupId.isBlank()) return@buildList
-    val invite = inviteCode?.takeIf { it.isNotBlank() }?.let { "?invite=$it" } ?: ""
-    add(Identifier("relay'groupId", "$host'$groupId$invite"))
-    runCatching { Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey) }
-        .getOrNull()
-        ?.let { add(Identifier("naddr", "$it$invite")) }
+    val invite = inviteCode?.takeIf { it.isNotBlank() }
+    val inviteSuffix = invite?.let { "?invite=$it" } ?: ""
+    val relayAddr = Identifier("relay'groupId", "$host'$groupId$inviteSuffix")
+    val naddr =
+        runCatching { Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey) }
+            .getOrNull()
+            ?.let { Identifier("naddr", "$it$inviteSuffix") }
     // The link form carries the invite inside the hash route itself (?invite= after the id).
-    val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = inviteCode?.takeIf { it.isNotBlank() })
-    add(Identifier("nostrord link", "https://nostrord.com/" + route.toHash()))
+    val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = invite)
+    val link = Identifier("nostrord link", "https://nostrord.com/" + route.toHash())
+    if (invite != null) add(link)
+    add(relayAddr)
+    naddr?.let { add(it) }
+    if (invite == null) add(link)
 }
