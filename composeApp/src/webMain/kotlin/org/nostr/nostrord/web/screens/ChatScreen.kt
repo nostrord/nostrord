@@ -1695,10 +1695,10 @@ val ChatScreen =
                             onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
                             icon(Ic.Search)
                         }
-                        // Prototype header actions: Invite (share link) and Info, then Members.
+                        // Prototype header actions: Share (group address / link) and Info, then Members.
                         button {
                             className = ClassName("chat-icon-btn")
-                            title = "Invite"
+                            title = "Share"
                             onClick = { setModal("share") }
                             icon(Ic.Link)
                         }

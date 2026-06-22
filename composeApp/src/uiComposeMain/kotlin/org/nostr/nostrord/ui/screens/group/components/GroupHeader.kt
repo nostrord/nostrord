@@ -242,7 +242,7 @@ fun GroupHeader(
                         ) {
                             Icon(
                                 Icons.Default.Link,
-                                contentDescription = "Invite",
+                                contentDescription = "Share",
                                 tint = NostrordColors.TextSecondary,
                                 modifier = Modifier.size(18.dp),
                             )
