@@ -22,8 +22,9 @@ import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
-import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
 import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
+import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
+import org.nostr.nostrord.ui.screens.group.components.ManageTab
 import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
@@ -755,21 +756,20 @@ fun GroupScreen(
         )
     }
 
-    // Join requests modal (admin only)
+    // Join requests open the unified Manage group modal on its Requests tab (parity with the
+    // web requests badge, which opens ManageGroupModal at "requests").
     if (showJoinRequestsModal) {
-        JoinRequestsModal(
-            pendingRequests = pendingJoinRequests,
-            userMetadata = userMetadata,
-            onApprove = { pubkey: String ->
-                vm.approveJoinRequest(pubkey)
-                resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
-            },
-            onReject = { eventId: String ->
-                val pubkey = pendingJoinRequests.find { it.id == eventId }?.pubkey
-                vm.rejectJoinRequest(eventId)
-                if (pubkey != null) resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
-            },
+        ManageGroupModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showJoinRequestsModal = false },
+            onDeleted = {
+                showJoinRequestsModal = false
+                onNavigateHome()
+            },
+            initialTab = ManageTab.Requests,
+            supportsSubgroups = subgroupsEnabled,
         )
     }
 

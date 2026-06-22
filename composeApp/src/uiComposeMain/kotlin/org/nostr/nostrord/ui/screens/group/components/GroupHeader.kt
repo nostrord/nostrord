@@ -24,7 +24,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -199,17 +202,33 @@ fun GroupHeader(
                         Box(
                             modifier =
                             Modifier
+                                // Top-right corner, nudged just outside the icon (mirrors the web
+                                // .chat-requests-badge at top:-2px/right:-2px) so it doesn't sit on
+                                // the glyph.
                                 .align(Alignment.TopEnd)
-                                .offset(x = (-4).dp, y = 4.dp)
-                                .size(18.dp)
+                                .offset(x = 2.dp, y = (-2).dp)
+                                .size(16.dp)
                                 .background(NostrordColors.Error, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
+                                // Trim the line box and center the glyph within it so the count
+                                // sits vertically centered in the circle (cross-platform; the
+                                // Android-only includeFontPadding flag isn't available here).
+                                style =
+                                TextStyle(
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 10.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeightStyle =
+                                    LineHeightStyle(
+                                        alignment = LineHeightStyle.Alignment.Center,
+                                        trim = LineHeightStyle.Trim.Both,
+                                    ),
+                                ),
                             )
                         }
                     }

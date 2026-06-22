@@ -57,7 +57,6 @@ import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
-import org.nostr.nostrord.web.modals.JoinRequestsModal
 import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.ManageGroupModal
@@ -1672,11 +1671,12 @@ val ChatScreen =
                         }
                     }
                     // Pending join-requests indicator (admin + closed group, count > 0).
-                    // Opens the JoinRequestsModal directly so admins don't need to dig into
-                    // the 3-dots menu when the badge is calling for attention.
+                    // Opens Manage group on its Requests tab directly so admins don't need to
+                    // dig into the 3-dots menu when the badge is calling for attention.
                     if (pendingJoinRequests > 0) {
                         button {
                             className = ClassName("chat-icon-btn chat-requests-btn")
+                            title = "Join requests"
                             onClick = { setModal("requests") }
                             icon(Ic.PersonAdd)
                             span {
@@ -2314,8 +2314,9 @@ val ChatScreen =
                         onClose = { setModal(null) }
                     }
                 "requests" ->
-                    JoinRequestsModal {
-                        groupId = group.id
+                    ManageGroupModal {
+                        this.group = group
+                        initialTab = "requests"
                         onClose = { setModal(null) }
                     }
                 "subgroup" ->

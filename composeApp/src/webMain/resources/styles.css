@@ -8470,6 +8470,24 @@ body {
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
+    /* Column so a tab's list/body fills the modal's fixed height instead of
+       leaving dead space below it. */
+    display: flex;
+    flex-direction: column;
+}
+
+/* List-based tabs (Members / Invites / Requests / subgroups) grow to fill the
+   content column and scroll internally, rather than being capped at 340px. */
+.manage-content .mod-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+}
+
+/* Info tab: push the Save footer to the bottom of the available space when the
+   form is shorter than the modal (collapses to 0 when the content scrolls). */
+.manage-content .modal-footer {
+    margin-top: auto;
 }
 
 /* Hierarchy tab: current parent line + the set-parent / make-root row. */

@@ -53,7 +53,8 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
-import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
+import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
+import org.nostr.nostrord.ui.screens.group.components.ManageTab
 import org.nostr.nostrord.ui.screens.group.components.MembersModal
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.AvatarGradients
@@ -103,6 +104,8 @@ fun GroupSidebar(
     var showMembers by remember { mutableStateOf(false) }
     var showCreateSubgroup by remember { mutableStateOf(false) }
     var showManage by remember { mutableStateOf(false) }
+    // Tab the Manage modal opens on: the Members row jumps admins straight to "Members".
+    var manageTab by remember { mutableStateOf(ManageTab.Info) }
 
     val relayHost = route.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
     val relayIconUrl =
@@ -135,9 +138,18 @@ fun GroupSidebar(
             SidebarRow(
                 icon = Icons.Default.People,
                 label = if (memberCount > 0) "Members · $memberCount" else "Members",
-            ) { showMembers = true }
+            ) {
+                // Admins manage members in the Manage modal; everyone else sees the roster.
+                if (isAdmin) {
+                    manageTab = ManageTab.Members
+                    showManage = true
+                } else {
+                    showMembers = true
+                }
+            }
             if (isAdmin) {
                 SidebarRow(icon = Icons.Default.Settings, label = "Manage group") {
+                    manageTab = ManageTab.Info
                     showManage = true
                 }
             }
@@ -199,16 +211,17 @@ fun GroupSidebar(
         )
     }
     if (showManage) {
-        EditGroupModal(
+        ManageGroupModal(
             groupId = route.groupId,
             currentMetadata = meta,
+            relayUrl = route.relayUrl,
             onDismiss = { showManage = false },
-            onGroupUpdated = { showManage = false },
             onDeleted = {
                 showManage = false
                 onNavigateHome()
             },
-            showSubgroupControls = supportsSubgroups,
+            initialTab = manageTab,
+            supportsSubgroups = supportsSubgroups,
         )
     }
     if (showCreateSubgroup) {
