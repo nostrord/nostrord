@@ -33,11 +33,9 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.settings.NotificationLevel
-import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.ui.components.ModalTitleBar
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.RichAboutText
-import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
@@ -52,8 +50,8 @@ private fun Hsl.toColor(): Color = Color.hsl(hue.toFloat(), saturation / 100f, l
 /**
  * Group info modal — prototype GroupInfoModal: title bar, gradient cover with the
  * centered group avatar, name, status badges, ABOUT, per-group NOTIFICATIONS level,
- * the GROUP ADDRESS (cyclable relay'id / naddr / link formats) and, for members,
- * Leave group with an inline confirm.
+ * the RELAY link and, for members, Leave group with an inline confirm. (The group
+ * address moved to ShareGroupModal.)
  */
 @Composable
 fun GroupInfoModal(
@@ -235,11 +233,7 @@ fun GroupInfoModal(
                             )
                         }
 
-                        // Group address (prototype): the shared IdentifierRow cycles
-                        // relay'id / naddr / nostrord link, same object as the profile field.
                         val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
-                        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
-                        val groupIds = remember(relayUrl, groupId, relayPubkey) { groupIdentifiers(relayUrl, groupId, relayPubkey) }
 
                         // Relay this group lives on: tappable to open the relay page (parity with
                         // the web group banner's relay link).
@@ -291,11 +285,6 @@ fun GroupInfoModal(
                                 )
                             }
                             Spacer(modifier = Modifier.height(Spacing.md))
-                        }
-
-                        if (groupIds.isNotEmpty()) {
-                            SectionHead("GROUP ADDRESS")
-                            IdentifierRow(ids = groupIds)
                         }
 
                         // Leave group: danger row swapped for an inline confirm box (prototype).

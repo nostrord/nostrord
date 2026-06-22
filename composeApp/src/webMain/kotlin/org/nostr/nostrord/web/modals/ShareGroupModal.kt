@@ -56,6 +56,10 @@ val ShareGroupModal =
                     }
                 }
 
+                div {
+                    className = ClassName("settings-section-head")
+                    +"GROUP ADDRESS"
+                }
                 IdentifierRow { ids = groupIdentifiers(relayUrl, group.id, relayPubkey) }
             }
         }

@@ -4,13 +4,11 @@ import js.objects.unsafeJso
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.settings.NotificationLevel
-import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.aboutMentionPubkeys
 import org.nostr.nostrord.web.components.bannerGradientCss
@@ -26,7 +24,6 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
 import react.useEffect
-import react.useMemo
 import react.useState
 import web.cssom.ClassName
 
@@ -39,8 +36,8 @@ external interface GroupInfoModalProps : Props {
 /**
  * Group info modal — prototype GroupInfoModal: title bar, gradient cover with the
  * centered group avatar, name, status badges, ABOUT, per-group NOTIFICATIONS level,
- * the GROUP ADDRESS (cyclable relay'id / naddr / link formats) and, for members,
- * Leave group with an inline confirm.
+ * the RELAY link and, for members, Leave group with an inline confirm. (The group
+ * address moved to ShareGroupModal.)
  */
 val GroupInfoModal =
     FC<GroupInfoModalProps> { props ->
@@ -68,10 +65,6 @@ val GroupInfoModal =
             if (pks.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(pks) }
         }
         useEscClose { props.onClose() }
-
-        // Author = the relay's own pubkey (NIP-11), like ShareGroupModal; falls back inside encodeNaddr.
-        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
-        val groupIds = useMemo(relayUrl, group.id, relayPubkey) { groupIdentifiers(relayUrl, group.id, relayPubkey) }
 
         div {
             className = ClassName("modal-overlay")
@@ -202,14 +195,6 @@ val GroupInfoModal =
                                 +relayHost
                             }
                         }
-                    }
-
-                    if (groupIds.isNotEmpty()) {
-                        div {
-                            className = ClassName("settings-section-head")
-                            +"GROUP ADDRESS"
-                        }
-                        IdentifierRow { ids = groupIds }
                     }
 
                     if (isJoined) {
