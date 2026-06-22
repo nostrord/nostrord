@@ -69,12 +69,12 @@ import org.nostr.nostrord.ui.components.media.AudioPlayerContent
 import org.nostr.nostrord.ui.components.media.PlatformVideoPlayer
 import org.nostr.nostrord.ui.components.media.YouTubeLinkCard
 import org.nostr.nostrord.ui.components.media.rememberAudioPlayer
+import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
-import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.getImageUrl
@@ -2696,17 +2696,14 @@ private fun GroupLinkCard(
 
     val displayName = groupMeta?.name ?: groupId
     val relayDisplay = relayUrl?.removePrefix("wss://")?.removePrefix("ws://")
-    var imageState by remember(groupMeta?.picture) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    val pictureUrl = groupMeta?.picture
-    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     DisableSelection {
         Row(
             modifier =
             modifier
                 .fillMaxWidth()
+                // Match the web group-link-card cap (.group-link-card max-width: 380px).
+                .widthIn(max = 380.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(NostrordColors.Surface)
                 .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl) }
@@ -2715,40 +2712,14 @@ private fun GroupLinkCard(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Box(
-                modifier =
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!showImage) {
-                    Text(
-                        text = displayName.take(1).uppercase(),
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                if (!pictureUrl.isNullOrBlank()) {
-                    val context = LocalPlatformContext.current
-                    AsyncImage(
-                        model =
-                        ImageRequest
-                            .Builder(context)
-                            .data(getImageUrl(pictureUrl))
-                            .crossfade(true)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build(),
-                        contentDescription = displayName,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        onState = { imageState = it },
-                    )
-                }
-            }
+            // Seeded-gradient group avatar (or the group picture), same object as the web card.
+            GroupHeaderIcon(
+                pictureUrl = groupMeta?.picture,
+                groupId = groupId,
+                displayName = displayName,
+                size = 36.dp,
+                cornerRadius = 8.dp,
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
