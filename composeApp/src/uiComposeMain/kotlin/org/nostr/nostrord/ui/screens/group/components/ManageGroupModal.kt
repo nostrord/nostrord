@@ -65,6 +65,7 @@ import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
@@ -369,13 +370,13 @@ private fun ManageInfoSection(
 
         Text("ACCESS", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
         Spacer(modifier = Modifier.height(Spacing.sm))
-        EditAccessToggleRow(Icons.Default.Lock, "Private", "Only members can read messages.", isPrivate) { isPrivate = it }
+        EditAccessToggleRow(Icons.Default.Lock, GroupAccessCopy.PRIVATE_LABEL, GroupAccessCopy.PRIVATE_DESC, isPrivate) { isPrivate = it }
         Spacer(modifier = Modifier.height(Spacing.xs))
-        EditAccessToggleRow(Icons.AutoMirrored.Filled.Send, "Restricted (announcements)", "Only admins can post; members can only read.", isRestricted) { isRestricted = it }
+        EditAccessToggleRow(Icons.Default.Block, GroupAccessCopy.CLOSED_LABEL, GroupAccessCopy.CLOSED_DESC, isClosed) { isClosed = it }
         Spacer(modifier = Modifier.height(Spacing.xs))
-        EditAccessToggleRow(Icons.Default.VisibilityOff, "Hidden", "The relay hides the group from non-members, not discoverable.", isHidden) { isHidden = it }
+        EditAccessToggleRow(Icons.AutoMirrored.Filled.Send, GroupAccessCopy.RESTRICTED_LABEL, GroupAccessCopy.RESTRICTED_DESC, isRestricted) { isRestricted = it }
         Spacer(modifier = Modifier.height(Spacing.xs))
-        EditAccessToggleRow(Icons.Default.Block, "Closed", "Joining needs approval or an invite.", isClosed) { isClosed = it }
+        EditAccessToggleRow(Icons.Default.VisibilityOff, GroupAccessCopy.HIDDEN_LABEL, GroupAccessCopy.HIDDEN_DESC, isHidden) { isHidden = it }
 
         if (error != null) {
             Spacer(modifier = Modifier.height(Spacing.md))

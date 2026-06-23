@@ -5,6 +5,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -203,10 +204,10 @@ private val ManageInfoSection =
             className = ClassName("access-section-title")
             +"ACCESS"
         }
-        accessToggle(Ic.Lock, "Private", "Only members can read messages.", isPrivate) { setIsPrivate(!isPrivate) }
-        accessToggle(Ic.Send, "Restricted (announcements)", "Only admins can post; members can only read.", isRestricted) { setIsRestricted(!isRestricted) }
-        accessToggle(Ic.VisibilityOff, "Hidden", "The relay hides the group from non-members, not discoverable.", isHidden) { setIsHidden(!isHidden) }
-        accessToggle(Ic.Block, "Closed", "Joining needs approval or an invite.", isClosed) { setIsClosed(!isClosed) }
+        accessToggle(Ic.Lock, GroupAccessCopy.PRIVATE_LABEL, GroupAccessCopy.PRIVATE_DESC, isPrivate) { setIsPrivate(!isPrivate) }
+        accessToggle(Ic.Block, GroupAccessCopy.CLOSED_LABEL, GroupAccessCopy.CLOSED_DESC, isClosed) { setIsClosed(!isClosed) }
+        accessToggle(Ic.Send, GroupAccessCopy.RESTRICTED_LABEL, GroupAccessCopy.RESTRICTED_DESC, isRestricted) { setIsRestricted(!isRestricted) }
+        accessToggle(Ic.VisibilityOff, GroupAccessCopy.HIDDEN_LABEL, GroupAccessCopy.HIDDEN_DESC, isHidden) { setIsHidden(!isHidden) }
 
         if (error != null) {
             div {

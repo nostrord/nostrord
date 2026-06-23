@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
@@ -281,29 +282,29 @@ val CreateGroupModal =
                 }
                 accessToggle(
                     ic = Ic.Lock,
-                    label = "Private",
-                    description = "Only members can read group messages",
+                    label = GroupAccessCopy.PRIVATE_LABEL,
+                    description = GroupAccessCopy.PRIVATE_DESC,
                     checked = isPrivate,
                     onToggle = { setIsPrivate(!isPrivate) },
                 )
                 accessToggle(
                     ic = Ic.Block,
-                    label = "Closed",
-                    description = "Join requests are ignored (invite-only)",
+                    label = GroupAccessCopy.CLOSED_LABEL,
+                    description = GroupAccessCopy.CLOSED_DESC,
                     checked = isClosed,
                     onToggle = { setIsClosed(!isClosed) },
                 )
                 accessToggle(
                     ic = Ic.Send,
-                    label = "Restricted",
-                    description = "Only members can post messages",
+                    label = GroupAccessCopy.RESTRICTED_LABEL,
+                    description = GroupAccessCopy.RESTRICTED_DESC,
                     checked = isRestricted,
                     onToggle = { setIsRestricted(!isRestricted) },
                 )
                 accessToggle(
                     ic = Ic.VisibilityOff,
-                    label = "Hidden",
-                    description = "Hidden from non-members, not discoverable",
+                    label = GroupAccessCopy.HIDDEN_LABEL,
+                    description = GroupAccessCopy.HIDDEN_DESC,
                     checked = isHidden,
                     onToggle = { setIsHidden(!isHidden) },
                 )

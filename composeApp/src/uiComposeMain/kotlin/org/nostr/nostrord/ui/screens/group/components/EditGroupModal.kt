@@ -36,6 +36,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.upload.UploadImageField
+import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -258,8 +259,8 @@ fun EditGroupModal(
 
                     EditAccessToggleRow(
                         icon = Icons.Default.Lock,
-                        label = "Private",
-                        description = "Only members can read group messages",
+                        label = GroupAccessCopy.PRIVATE_LABEL,
+                        description = GroupAccessCopy.PRIVATE_DESC,
                         checked = isPrivate,
                         onCheckedChange = { isPrivate = it },
                     )
@@ -268,8 +269,8 @@ fun EditGroupModal(
 
                     EditAccessToggleRow(
                         icon = Icons.Default.Block,
-                        label = "Closed",
-                        description = "Join requests are ignored (invite-only)",
+                        label = GroupAccessCopy.CLOSED_LABEL,
+                        description = GroupAccessCopy.CLOSED_DESC,
                         checked = isClosed,
                         onCheckedChange = { isClosed = it },
                     )
@@ -278,8 +279,8 @@ fun EditGroupModal(
 
                     EditAccessToggleRow(
                         icon = Icons.AutoMirrored.Filled.Send,
-                        label = "Restricted",
-                        description = "Only members can post messages",
+                        label = GroupAccessCopy.RESTRICTED_LABEL,
+                        description = GroupAccessCopy.RESTRICTED_DESC,
                         checked = isRestricted,
                         onCheckedChange = { isRestricted = it },
                     )
@@ -288,8 +289,8 @@ fun EditGroupModal(
 
                     EditAccessToggleRow(
                         icon = Icons.Default.VisibilityOff,
-                        label = "Hidden",
-                        description = "Hidden from non-members, not discoverable",
+                        label = GroupAccessCopy.HIDDEN_LABEL,
+                        description = GroupAccessCopy.HIDDEN_DESC,
                         checked = isHidden,
                         onCheckedChange = { isHidden = it },
                     )
