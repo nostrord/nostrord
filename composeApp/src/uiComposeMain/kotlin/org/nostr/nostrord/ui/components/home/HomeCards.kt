@@ -181,11 +181,13 @@ fun GroupCard(
                 }
             }
             // Single-line description, always shown below the head (the agreed card shape).
+            // lineHeight is pinned to the reserved 18dp box so the glyphs aren't clipped.
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 description.orEmpty().ifBlank { "No description" },
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
+                lineHeight = 18.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.height(18.dp),
