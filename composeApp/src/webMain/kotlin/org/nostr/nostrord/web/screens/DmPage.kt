@@ -1,16 +1,24 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.document
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.DmConversationList
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
+import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.uploadBlob
+import org.nostr.nostrord.web.components.useEscClose
+import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -20,6 +28,7 @@ import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
+import react.useRef
 import react.useState
 import web.cssom.ClassName
 import web.html.HTMLTextAreaElement
@@ -102,6 +111,40 @@ val DmPage =
                 ?: metadata?.name?.takeIf { it.isNotBlank() }
                 ?: vm.npub.take(12) + "..."
 
+        // Composer media + emoji, mirroring the group ChatComposer (no mentions / formatting here).
+        val (emojiOpen, setEmojiOpen) = useState { false }
+        val (uploadCount, setUploadCount) = useState { 0 }
+        val (uploadError, setUploadError) = useState<String?> { null }
+        val composerInputRef = useRef<HTMLTextAreaElement>(null)
+        useEscClose { if (emojiOpen) setEmojiOpen(false) }
+
+        fun isMediaMime(type: String?): Boolean = type != null && (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
+
+        // Upload a pasted / dropped file and append its URL to the draft (parity with the group composer).
+        fun handleMediaFile(file: dynamic) {
+            setUploadCount { it + 1 }
+            launchApp {
+                try {
+                    when (val r = uploadBlob(file)) {
+                        is Result.Success -> setText { prev -> if (prev.isBlank()) r.data.url else "$prev ${r.data.url}" }
+                        is Result.Error -> setUploadError(r.error.message)
+                    }
+                } finally {
+                    setUploadCount { it - 1 }
+                }
+            }
+        }
+
+        fun insertAtCursor(s: String) {
+            val ta = composerInputRef.current
+            if (ta == null) {
+                setText { it + s }
+                return
+            }
+            ta.focus()
+            document.asDynamic().execCommand("insertText", false, s)
+        }
+
         div {
             className = ClassName("dm-page")
             div {
@@ -168,13 +211,17 @@ val DmPage =
                 className = ClassName("dm-composer-wrap")
                 div {
                     className = ClassName("dm-composer")
-                    button {
-                        className = ClassName("dm-composer-btn")
-                        title = "Attach"
-                        disabled = true
-                        icon(Ic.AttachFile)
+                    UploadButton {
+                        cls = "dm-composer-btn"
+                        icon = Ic.AttachFile
+                        busy = uploadCount > 0
+                        onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
+                        onPickerClosed = { composerInputRef.current?.focus() }
+                        onUploaded = { upload -> setText { prev -> if (prev.isBlank()) upload.url else "$prev ${upload.url}" } }
+                        onError = { setUploadError(it) }
                     }
                     textarea {
+                        ref = composerInputRef
                         rows = 1
                         value = text
                         placeholder = "Message $name"
@@ -185,21 +232,91 @@ val DmPage =
                                 send()
                             }
                         }
+                        onPaste = { event ->
+                            val items = event.asDynamic().clipboardData?.items
+                            val count = (items?.length as? Int) ?: 0
+                            for (i in 0 until count) {
+                                val item = items[i]
+                                val type = item.type.unsafeCast<String?>()
+                                if (item.kind == "file" && isMediaMime(type)) {
+                                    val file = item.getAsFile()
+                                    if (file != null) {
+                                        event.preventDefault()
+                                        handleMediaFile(file)
+                                    }
+                                }
+                            }
+                        }
+                        onDragOver = { it.preventDefault() }
+                        onDrop = { event ->
+                            val files = event.asDynamic().dataTransfer?.files
+                            val count = (files?.length as? Int) ?: 0
+                            if (count > 0) event.preventDefault()
+                            for (i in 0 until count) {
+                                val file = files[i]
+                                if (isMediaMime(file.type.unsafeCast<String?>())) handleMediaFile(file)
+                            }
+                        }
                     }
                     button {
-                        className = ClassName("dm-composer-btn")
+                        className = ClassName(if (emojiOpen) "dm-composer-btn active" else "dm-composer-btn")
                         title = "Emoji"
-                        disabled = true
+                        onClick = { setEmojiOpen(!emojiOpen) }
                         icon(Ic.EmojiEmotions)
                     }
                     button {
                         className = ClassName("dm-composer-btn send")
                         title = "Send"
-                        disabled = text.isBlank()
+                        disabled = (text.isBlank() && uploadCount == 0) || uploadCount > 0
+                        onMouseDown = { e -> e.preventDefault() }
                         onClick = { send() }
                         icon(Ic.Send)
                     }
+                    if (emojiOpen) {
+                        div {
+                            className = ClassName("emoji-overlay")
+                            onClick = { setEmojiOpen(false) }
+                            EmojiPicker {
+                                onPick = { emoji ->
+                                    insertAtCursor(emoji)
+                                    setEmojiOpen(false)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            uploadError?.let { uploadErrorDialog(it) { setUploadError(null) } }
+        }
+    }
+
+/** Minimal "upload failed" dialog, parity with the group composer's. */
+private fun ChildrenBuilder.uploadErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-header")
+                div {
+                    className = ClassName("modal-title")
+                    +"Upload failed"
+                }
+            }
+            div {
+                className = ClassName("modal-subtitle")
+                +message
+            }
+            div {
+                className = ClassName("modal-actions")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
                 }
             }
         }
     }
+}
