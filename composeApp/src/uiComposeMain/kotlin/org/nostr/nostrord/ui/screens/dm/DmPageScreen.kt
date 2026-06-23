@@ -1,7 +1,7 @@
 package org.nostr.nostrord.ui.screens.dm
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,44 +15,72 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.upload.FileTooLargeException
+import org.nostr.nostrord.network.upload.MAX_UPLOAD_BYTES
+import org.nostr.nostrord.network.upload.NostrBuildUploader
+import org.nostr.nostrord.network.upload.PasteMediaEffect
+import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
+import org.nostr.nostrord.network.upload.rememberClipboardImageReader
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
-import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.layout.DmConversationList
+import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.Result
 
 /**
  * Direct-message conversation page (prototype DirectMessage, NIP-17 style). The
@@ -154,13 +182,48 @@ fun DmPageScreen(
         LaunchedEffect(pubkey, messages.size) {
             if (messages.isNotEmpty()) dmVm.markRead(pubkey)
         }
-        var text by remember { mutableStateOf("") }
+        // Composer state mirrors the group MessageInput (minus mentions / formatting): a
+        // TextFieldValue for caret-aware emoji/paste insertion, plus paste-upload + emoji.
+        var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+        var showEmojiPicker by remember { mutableStateOf(false) }
+        var isUploadingPaste by remember { mutableStateOf(false) }
+        var pasteError by remember { mutableStateOf<String?>(null) }
+        val focusRequester = remember { FocusRequester() }
+        val clipboardReader = rememberClipboardImageReader()
+        val scope = rememberCoroutineScope()
+
         val send = {
-            if (text.isNotBlank()) {
-                dmVm.send(pubkey, text)
-                text = ""
+            val body = textFieldValue.text.trim()
+            if (body.isNotBlank()) {
+                dmVm.send(pubkey, body)
+                textFieldValue = TextFieldValue("")
             }
         }
+
+        fun appendUploadedUrl(url: String) {
+            val current = textFieldValue.text
+            val sep = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
+            val newText = current + sep + url
+            textFieldValue = TextFieldValue(newText, TextRange(newText.length))
+        }
+
+        suspend fun handlePastedMedia(bytes: ByteArray, filename: String) {
+            if (bytes.size.toLong() > MAX_UPLOAD_BYTES) {
+                isUploadingPaste = false
+                pasteError = "This file is too large. The maximum upload size is 20 MB."
+                return
+            }
+            try {
+                val mime = NostrBuildUploader.mimeTypeForFilename(filename)
+                when (val result = NostrBuildUploader.upload(bytes, filename, mime, AppModule.nostrRepository::buildNip98AuthHeader)) {
+                    is Result.Success -> appendUploadedUrl(result.data.url)
+                    is Result.Error -> pasteError = result.error.message
+                }
+            } finally {
+                isUploadingPaste = false
+            }
+        }
+
         val name =
             metadata?.displayName?.takeIf { it.isNotBlank() }
                 ?: metadata?.name?.takeIf { it.isNotBlank() }
@@ -271,41 +334,168 @@ fun DmPageScreen(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg).padding(bottom = Spacing.xl, top = Spacing.xs),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            IconButton(onClick = {}, enabled = false) {
-                Icon(
-                    imageVector = Icons.Default.AttachFile,
-                    contentDescription = "Attach",
-                    tint = NostrordColors.TextMuted,
-                    modifier = Modifier.size(20.dp),
+        // Single rounded "pill" like the web DM composer / group composer (web .composer parity).
+        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg).padding(bottom = Spacing.xl, top = Spacing.xs)) {
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clip(NostrordShapes.inputShape)
+                    .background(NostrordColors.SurfaceVariant)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MessageUploadButton(
+                    externalBusy = isUploadingPaste,
+                    onUploadComplete = { uploadResult -> appendUploadedUrl(uploadResult.url) },
                 )
+                BasicTextField(
+                    value = textFieldValue,
+                    onValueChange = { textFieldValue = it },
+                    cursorBrush = SolidColor(Color.White),
+                    textStyle = NostrordTypography.Input.copy(color = Color.White),
+                    maxLines = 7,
+                    modifier =
+                    Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .onPreviewKeyEvent { event ->
+                            when {
+                                event.type == KeyEventType.KeyDown && event.key == Key.Escape && showEmojiPicker -> {
+                                    showEmojiPicker = false
+                                    true
+                                }
+                                // Ctrl+V media: read the clipboard image and upload it.
+                                event.type == KeyEventType.KeyDown && event.key == Key.V && event.isCtrlPressed && !isUploadingPaste -> {
+                                    val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
+                                    if (hasMedia) {
+                                        isUploadingPaste = true
+                                        scope.launch {
+                                            val image =
+                                                try {
+                                                    clipboardReader.read()
+                                                } catch (e: FileTooLargeException) {
+                                                    isUploadingPaste = false
+                                                    pasteError = e.message
+                                                    return@launch
+                                                } catch (e: UnsupportedFileTypeException) {
+                                                    isUploadingPaste = false
+                                                    pasteError = e.message
+                                                    return@launch
+                                                }
+                                            if (image == null) {
+                                                isUploadingPaste = false
+                                                return@launch
+                                            }
+                                            handlePastedMedia(image.first, image.second)
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                event.type == KeyEventType.KeyDown && event.key == Key.Enter && event.isShiftPressed -> {
+                                    val sel = textFieldValue.selection
+                                    val t = textFieldValue.text
+                                    val newText = t.substring(0, sel.start) + "\n" + t.substring(sel.end)
+                                    textFieldValue = TextFieldValue(newText, TextRange(sel.start + 1))
+                                    true
+                                }
+                                event.type == KeyEventType.KeyDown && event.key == Key.Enter && !event.isShiftPressed -> {
+                                    if (textFieldValue.text.isNotBlank()) send()
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.padding(vertical = 4.dp)) {
+                            if (textFieldValue.text.isEmpty()) {
+                                Text(
+                                    "Message $name",
+                                    style = NostrordTypography.InputPlaceholder,
+                                    color = NostrordColors.TextMuted,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                IconButton(
+                    onClick = { showEmojiPicker = !showEmojiPicker },
+                    modifier = Modifier.size(width = 26.dp, height = 32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.EmojiEmotions,
+                        contentDescription = "Emoji",
+                        tint = if (showEmojiPicker) NostrordColors.Primary else NostrordColors.TextMuted,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(
+                    onClick = send,
+                    enabled = textFieldValue.text.isNotBlank() && !isUploadingPaste,
+                    modifier = Modifier.size(width = 26.dp, height = 32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        tint = if (textFieldValue.text.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
-            AppTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = "Message $name",
-                modifier = Modifier.weight(1f),
+
+            if (showEmojiPicker) {
+                Popup(
+                    alignment = Alignment.BottomEnd,
+                    onDismissRequest = { showEmojiPicker = false },
+                    properties = PopupProperties(focusable = true),
+                ) {
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showEmojiPicker = false },
+                            ),
+                    ) {
+                        EmojiPicker(
+                            onEmojiSelect = { emoji ->
+                                val t = textFieldValue.text
+                                val cursor = textFieldValue.selection.start
+                                val newText = t.substring(0, cursor) + emoji + t.substring(cursor)
+                                textFieldValue = TextFieldValue(newText, TextRange(cursor + emoji.length))
+                            },
+                            onDismiss = { showEmojiPicker = false },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(end = Spacing.lg, bottom = 56.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Desktop / Android paste of media (web is a no-op here, handled in the JS composer).
+        PasteMediaEffect(
+            onMediaPasted = { bytes, filename ->
+                if (!isUploadingPaste) {
+                    isUploadingPaste = true
+                    scope.launch { handlePastedMedia(bytes, filename) }
+                }
+            },
+            onError = { pasteError = it },
+        )
+
+        pasteError?.let { error ->
+            AlertDialog(
+                onDismissRequest = { pasteError = null },
+                title = { Text("Upload Failed") },
+                text = { Text(error) },
+                confirmButton = { TextButton(onClick = { pasteError = null }) { Text("OK") } },
             )
-            IconButton(onClick = {}, enabled = false) {
-                Icon(
-                    imageVector = Icons.Default.EmojiEmotions,
-                    contentDescription = "Emoji",
-                    tint = NostrordColors.TextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            IconButton(onClick = send, enabled = text.isNotBlank()) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    tint = if (text.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
         }
     }
 }
