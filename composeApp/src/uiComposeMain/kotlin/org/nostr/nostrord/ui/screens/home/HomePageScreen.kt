@@ -95,7 +95,8 @@ fun HomePageScreen(
     // HomePageViewModel re-arms its per-account state on account change (it observes
     // repo.activePubkey), so a single long-lived instance is correct here.
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
-    val myGroups by vm.myGroups.collectAsState()
+    // The page list is filtered by the search box; the rail (AppFrame) keeps the full myGroups.
+    val myGroups by vm.filteredMyGroups.collectAsState()
     val query by vm.query.collectAsState()
     val friends by vm.friends.collectAsState()
     val friendsGroups by vm.friendsGroups.collectAsState()

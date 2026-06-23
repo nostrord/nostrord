@@ -160,7 +160,8 @@ class HomePageViewModel(
     /**
      * Joined groups across all relays (each with its hosting relay), with metadata
      * where the relay already served the kind:39000 (a bare id placeholder
-     * otherwise), filtered by [query] over name and description. Carries the same
+     * otherwise). Unfiltered (the rail and relay page read this); the Home page list reads
+     * [filteredMyGroups]. Carries the same
      * people preview + member count as the discovery tabs so every group card shows
      * the same shape: the friends you follow who are here (or members as a fallback).
      */
@@ -172,7 +173,6 @@ class HomePageViewModel(
                 repo.groupMembers,
                 repo.following,
                 repo.userMetadata,
-                _query,
                 _membersResolved,
             ),
         ) { arr ->
@@ -181,8 +181,7 @@ class HomePageViewModel(
             val members = arr[2] as Map<String, List<String>>
             val following = arr[3] as Set<String>
             val meta = arr[4] as Map<String, UserMetadata>
-            val needle = (arr[5] as String).trim().lowercase()
-            val resolved = arr[6] as Set<String>
+            val resolved = arr[5] as Set<String>
             joinedByRelay
                 .flatMap { (relay, ids) ->
                     val metas = groupsByRelay[relay].orEmpty().associateBy { it.id }
@@ -215,11 +214,24 @@ class HomePageViewModel(
                     }
                 }
                 .distinctBy { it.meta.id }
-                .filter { dg ->
-                    needle.isEmpty() ||
-                        (dg.meta.name ?: dg.meta.id).lowercase().contains(needle) ||
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * [myGroups] filtered by the search [query] over name + description. The Home page's "My groups"
+     * list reads this; the groups rail / relay page read the unfiltered [myGroups] so the search box
+     * never trims the sidebar.
+     */
+    val filteredMyGroups: StateFlow<List<DiscoverGroup>> =
+        combine(myGroups, _query) { groups, q ->
+            val needle = q.trim().lowercase()
+            if (needle.isEmpty()) {
+                groups
+            } else {
+                groups.filter { dg ->
+                    (dg.meta.name ?: dg.meta.id).lowercase().contains(needle) ||
                         dg.meta.about.orEmpty().lowercase().contains(needle)
                 }
+            }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**

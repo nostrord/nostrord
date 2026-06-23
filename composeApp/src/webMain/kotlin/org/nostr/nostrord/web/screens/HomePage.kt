@@ -61,7 +61,8 @@ external interface HomePageProps : Props {
 val HomePage =
     FC<HomePageProps> { props ->
         val vm = useViewModel { HomePageViewModel(AppModule.nostrRepository) }
-        val myGroups = useStateFlow(vm.myGroups)
+        // The page list is filtered by the search box; the rail (AppFrame) keeps the full myGroups.
+        val myGroups = useStateFlow(vm.filteredMyGroups)
         val query = useStateFlow(vm.query)
         val friends = useStateFlow(vm.friends)
         val friendsGroups = useStateFlow(vm.friendsGroups)

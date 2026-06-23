@@ -73,11 +73,13 @@ class HomePageViewModelTest {
 
         vm.setQuery("dogs")
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf("g2"), vm.myGroups.value.map { it.meta.id })
+        assertEquals(listOf("g2"), vm.filteredMyGroups.value.map { it.meta.id })
+        // The search must not trim the rail's unfiltered list.
+        assertEquals(listOf("g1", "g2"), vm.myGroups.value.map { it.meta.id })
 
         vm.setQuery("ALPHA")
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf("g1"), vm.myGroups.value.map { it.meta.id })
+        assertEquals(listOf("g1"), vm.filteredMyGroups.value.map { it.meta.id })
     }
 
     @Test
