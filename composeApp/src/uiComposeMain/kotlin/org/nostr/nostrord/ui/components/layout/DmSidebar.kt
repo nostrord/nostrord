@@ -151,7 +151,7 @@ fun DmSidebar(
                     val selected = tab == index
                     Text(
                         label,
-                        color = if (selected) NostrordColors.Success else NostrordColors.TextMuted,
+                        color = if (selected) NostrordColors.Primary else NostrordColors.TextMuted,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier =
@@ -230,7 +230,7 @@ fun DmConversationList(
                 Spacer(modifier = Modifier.height(Spacing.md))
                 Text(
                     "Start a conversation",
-                    color = NostrordColors.Success,
+                    color = NostrordColors.Primary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     modifier =
