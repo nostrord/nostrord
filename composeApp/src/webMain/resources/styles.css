@@ -7553,6 +7553,13 @@ body {
     color: var(--color-error);
 }
 
+.settings-success {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-success);
+}
+
 .settings-relay-row {
     display: flex;
     align-items: center;

@@ -1474,6 +1474,22 @@ private fun ExperimentalToggleRow(
 
 @Composable
 private fun SecurityPanelContent() {
+    val accountSecurity = viewModel { SecurityViewModel() }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        // ncryptsec accounts are unlocked per session and own a rotatable password, independent
+        // of the desktop app-store passphrase handled below.
+        if (accountSecurity.isPasswordProtected) {
+            ChangeAccountPasswordForm(accountSecurity)
+        }
+        AppPassphraseContent()
+    }
+}
+
+@Composable
+private fun AppPassphraseContent() {
     when {
         !PassphraseSettings.isApplicable -> {
             InfoCard(
@@ -1510,6 +1526,88 @@ private fun SecurityPanelContent() {
                     "passphrase to persist your data securely.",
                 isCompact = false,
             )
+        }
+    }
+}
+
+@Composable
+private fun ChangeAccountPasswordForm(vm: SecurityViewModel) {
+    val current by vm.current.collectAsState()
+    val new by vm.new.collectAsState()
+    val confirm by vm.confirm.collectAsState()
+    val busy by vm.busy.collectAsState()
+    val error by vm.error.collectAsState()
+    val success by vm.success.collectAsState()
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        InfoCard(
+            title = "Account password",
+            titleColor = NostrordColors.TextSecondary,
+            icon = Icons.Default.Key,
+            content = "Your private key is encrypted with this password (NIP-49) and unlocked each " +
+                "session. Choose a new password below to rotate it. It cannot be recovered if you " +
+                "forget it.",
+            isCompact = false,
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                PassphraseField("Current password", current) { vm.setCurrent(it) }
+                PassphraseField("New password", new) { vm.setNew(it) }
+                PassphraseField("Confirm new password", confirm) { vm.setConfirm(it) }
+
+                Text(
+                    text = "At least 8 characters. Must match.",
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextSecondary,
+                )
+
+                error?.let {
+                    Text(text = it, style = NostrordTypography.MessageBody, color = NostrordColors.Error)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = { vm.changePassword() },
+                        enabled = !busy && current.isNotEmpty() && new.isNotEmpty() && confirm.isNotEmpty(),
+                    ) {
+                        Text(
+                            if (busy) "Saving…" else "Change password",
+                            color = NostrordColors.Primary,
+                            style = NostrordTypography.Button,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (success) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Password changed", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

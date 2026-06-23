@@ -13,6 +13,7 @@ import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.ui.screens.backup.BackupViewModel
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
+import org.nostr.nostrord.ui.screens.settings.SecurityViewModel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
@@ -862,18 +863,83 @@ private val MediaPanel =
 
 private val SecurityPanel =
     FC<Props> {
-        div {
-            className = ClassName("settings-card")
+        val vm = useViewModel { SecurityViewModel() }
+        val current = useStateFlow(vm.current)
+        val newPassword = useStateFlow(vm.new)
+        val confirm = useStateFlow(vm.confirm)
+        val busy = useStateFlow(vm.busy)
+        val error = useStateFlow(vm.error)
+        val success = useStateFlow(vm.success)
+
+        if (vm.isPasswordProtected) {
+            // The active account is unlocked per session from a stored ncryptsec; let the user
+            // rotate that password (the key itself is unchanged).
             div {
-                className = ClassName("settings-section-head")
-                +"APP SECURITY"
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("settings-section-head")
+                    +"ACCOUNT PASSWORD"
+                }
+                div {
+                    className = ClassName("settings-tip")
+                    +"Your private key is encrypted with this password (NIP-49). It cannot be recovered if you forget it."
+                }
+                passwordField("Current password", current) { vm.setCurrent(it) }
+                passwordField("New password", newPassword) { vm.setNew(it) }
+                passwordField("Confirm new password", confirm) { vm.setConfirm(it) }
+                error?.let {
+                    div {
+                        className = ClassName("settings-error")
+                        +it
+                    }
+                }
+                if (success) {
+                    div {
+                        className = ClassName("settings-success")
+                        +"Password changed."
+                    }
+                }
+                button {
+                    className = ClassName("settings-outline-btn")
+                    disabled = busy || current.isEmpty() || newPassword.isEmpty() || confirm.isEmpty()
+                    onClick = { vm.changePassword() }
+                    +(if (busy) "Saving…" else "Change password")
+                }
             }
+        } else {
             div {
-                className = ClassName("settings-status-line")
-                +"No app passphrase on the web. Your key is managed by the browser. Use Backup Keys to save it."
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("settings-section-head")
+                    +"APP SECURITY"
+                }
+                div {
+                    className = ClassName("settings-status-line")
+                    +"No app passphrase on the web. Your key is managed by the browser. Use Backup Keys to save it."
+                }
             }
         }
     }
+
+private fun react.ChildrenBuilder.passwordField(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    div {
+        className = ClassName("settings-field")
+        div {
+            className = ClassName("field-label")
+            +label
+        }
+        input {
+            className = ClassName("modal-input")
+            type = InputType.password
+            this.value = value
+            this.onChange = { event -> onChange(event.currentTarget.value) }
+        }
+    }
+}
 
 // ── Experimental ─────────────────────────────────────────────────────────────
 
