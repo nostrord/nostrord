@@ -289,10 +289,11 @@ fun AppFrame() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "nostrord",
-                        color = NostrordColors.TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        // Matches the web .sidebar-header: uppercase, muted, bold (13sp/700).
+                        "NOSTRORD",
+                        color = NostrordColors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
                 HorizontalDivider(color = NostrordColors.Divider)
