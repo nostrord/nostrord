@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
@@ -37,7 +38,7 @@ val MembersModal =
             val meta = userMetadata[pubkey]
             return meta?.displayName?.takeIf { it.isNotBlank() }
                 ?: meta?.name?.takeIf { it.isNotBlank() }
-                ?: (pubkey.take(8) + "…")
+                ?: shortNpub(pubkey)
         }
 
         div {

@@ -25,6 +25,7 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.normalizeForSearch
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Get filtered members based on query for mention popup.
@@ -163,7 +164,7 @@ private fun MentionItem(
             )
 
             Text(
-                text = member.pubkey.take(8) + "..." + member.pubkey.takeLast(4),
+                text = shortNpub(member.pubkey),
                 style = NostrordTypography.Tiny,
                 color = NostrordColors.TextMuted,
                 maxLines = 1,

@@ -47,6 +47,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * New-design notifications page (prototype Notifications): a header (bell + title + unread
@@ -149,7 +150,7 @@ fun NotificationsPage(
                         val authorName =
                             meta?.displayName?.takeIf { it.isNotBlank() }
                                 ?: meta?.name?.takeIf { it.isNotBlank() }
-                                ?: (entry.actorPubkey.take(8) + "…")
+                                ?: shortNpub(entry.actorPubkey)
                         val groupMeta =
                             groupsByRelay[entry.relayUrl]?.firstOrNull { it.id == entry.groupId }
                                 ?: groupsByRelay.values.firstNotNullOfOrNull { list -> list.firstOrNull { it.id == entry.groupId } }

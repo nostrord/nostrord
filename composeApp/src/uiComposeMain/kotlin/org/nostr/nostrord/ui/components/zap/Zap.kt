@@ -54,6 +54,7 @@ import org.nostr.nostrord.ui.components.QrCode
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * App-wide entry point for opening the zap modal from anywhere (message context menu,
@@ -103,7 +104,7 @@ private fun ZapModal(
 
     val metadataMap by AppModule.nostrRepository.userMetadata.collectAsState()
     val metadata = metadataMap[recipientPubkey]
-    val recipientName = metadata?.displayName ?: metadata?.name ?: (recipientPubkey.take(8) + "…")
+    val recipientName = metadata?.displayName ?: metadata?.name ?: shortNpub(recipientPubkey)
 
     LaunchedEffect(recipientPubkey) {
         if (metadataMap[recipientPubkey] == null) {

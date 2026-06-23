@@ -33,6 +33,7 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatDateTime
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Data class representing a quoted event reference from a "q" tag.
@@ -116,7 +117,7 @@ fun QuotedEventPreview(
                 val authorName =
                     metadata?.displayName
                         ?: metadata?.name
-                        ?: event.pubkey.take(8) + "..."
+                        ?: shortNpub(event.pubkey)
 
                 // Request metadata for any pubkeys mentioned in the content
                 LaunchedEffect(event.content) {

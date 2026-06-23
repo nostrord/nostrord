@@ -73,6 +73,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Tabs of the unified admin "Manage group" modal. Mirrors the web web/modals/ManageGroupModal
@@ -449,7 +450,7 @@ private fun ManageMembersSection(
                 displayName =
                 meta?.displayName?.takeIf { it.isNotBlank() }
                     ?: meta?.name?.takeIf { it.isNotBlank() }
-                    ?: (pubkey.take(8) + "…"),
+                    ?: shortNpub(pubkey),
                 picture = meta?.picture,
                 isAdmin = pubkey in adminSet,
             )
@@ -825,7 +826,7 @@ private fun ManageRequestsSection(
         val meta = userMetadata[pubkey]
         return meta?.displayName?.takeIf { it.isNotBlank() }
             ?: meta?.name?.takeIf { it.isNotBlank() }
-            ?: (pubkey.take(8) + "…")
+            ?: shortNpub(pubkey)
     }
 
     if (pending.isEmpty()) {

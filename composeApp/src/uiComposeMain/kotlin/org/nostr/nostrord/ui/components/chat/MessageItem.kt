@@ -62,6 +62,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.shortNpub
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -133,7 +134,7 @@ fun MessageItem(
     // Memoize display name calculation
     val displayName =
         remember(metadata?.displayName, metadata?.name, message.pubkey) {
-            metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
+            metadata?.displayName ?: metadata?.name ?: shortNpub(message.pubkey)
         }
 
     // Check if this message is a reply and find the parent message

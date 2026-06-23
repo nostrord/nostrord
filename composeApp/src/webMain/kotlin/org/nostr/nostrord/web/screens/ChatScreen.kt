@@ -31,6 +31,7 @@ import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.normalizeForSearch
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -155,11 +156,11 @@ private fun processMentions(content: String, userMetadata: Map<String, UserMetad
         when (val entity = Nip19.decode(bech32)) {
             is Nip19.Entity.Npub -> {
                 val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                if (!name.isNullOrBlank()) "@$name" else "@" + shortNpub(entity.pubkey)
             }
             is Nip19.Entity.Nprofile -> {
                 val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                if (!name.isNullOrBlank()) "@$name" else "@" + shortNpub(entity.pubkey)
             }
             is Nip19.Entity.Note -> "[note]"
             is Nip19.Entity.Nevent -> "[event]"
@@ -171,7 +172,7 @@ private fun processMentions(content: String, userMetadata: Map<String, UserMetad
 
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
-    ?: (pubkey.take(8) + "…")
+    ?: shortNpub(pubkey)
 
 /** Active mention being typed in the composer: the trigger (@ or %), its query, and start index. */
 private data class MentionCtx(val trigger: Char, val query: String, val start: Int)
@@ -372,7 +373,7 @@ private val ChatComposer =
                                 pk,
                                 group = false,
                                 ref = "nostr:" + Nip19.encodeNpub(pk),
-                                sub = pk.take(8) + "…" + pk.takeLast(4),
+                                sub = shortNpub(pk) + pk.takeLast(4),
                             )
                         }
                         .toList()

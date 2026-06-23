@@ -32,6 +32,7 @@ import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.shortNpub
 
 // Unit separator — safe field delimiter for encoding GroupInfo into the platform-agnostic
 // String values the shared MessageDraftStore holds. It cannot appear in ids, names or URLs.
@@ -240,7 +241,7 @@ fun GroupScreen(
                         displayName =
                         metadata?.displayName
                             ?: metadata?.name
-                            ?: pubkey.take(8) + "...",
+                            ?: shortNpub(pubkey),
                         picture = metadata?.picture,
                         isAdmin = pubkey in adminPubkeys,
                     )

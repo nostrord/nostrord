@@ -30,6 +30,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.shortNpub
 
 // Regex to match nostr:nevent, nostr:note, or nostr:naddr references
 private val NOSTR_EVENT_REGEX = Regex("""nostr:(nevent1[a-zA-Z0-9]+|note1[a-zA-Z0-9]+|naddr1[a-zA-Z0-9]+)""")
@@ -165,7 +166,7 @@ fun ReplyPreview(
     val authorName =
         parentMetadata?.displayName
             ?: parentMetadata?.name
-            ?: parentMessage.pubkey.take(8) + "..."
+            ?: shortNpub(parentMessage.pubkey)
 
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentMessage.content) {

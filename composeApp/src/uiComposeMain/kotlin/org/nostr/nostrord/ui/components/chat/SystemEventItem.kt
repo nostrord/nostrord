@@ -37,6 +37,7 @@ import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.screens.group.model.SystemEventType
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Enhanced system event item with avatars and grouping support.
@@ -126,7 +127,7 @@ fun SystemEventItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (totalUsers == 1) {
-                val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+                val displayName = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey)
                 Text(
                     text = displayName,
                     color = Color.White,

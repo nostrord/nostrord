@@ -82,6 +82,7 @@ import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.isBlockedImageHost
 import org.nostr.nostrord.utils.proxyViaWeserv
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.shortNpub
 
 // Type alias to bridge new parser to existing rendering code
 private typealias ContentPart = MessageContentParser.ParsedPart
@@ -950,12 +951,12 @@ fun processMentionsInContent(
                 is Nip19.Entity.Npub -> {
                     val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
-                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                    if (name != null) "@$name" else "@" + shortNpub(entity.pubkey)
                 }
                 is Nip19.Entity.Nprofile -> {
                     val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
-                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                    if (name != null) "@$name" else "@" + shortNpub(entity.pubkey)
                 }
                 is Nip19.Entity.Note -> "[note]"
                 is Nip19.Entity.Nevent -> "[event]"
@@ -1321,7 +1322,7 @@ fun ForwardedEventCard(
     var showMenu by remember { mutableStateOf(false) }
 
     val authorMetadata = userMetadata[event.pubkey]
-    val authorName = authorMetadata?.displayName ?: authorMetadata?.name ?: event.pubkey.take(8) + "..."
+    val authorName = authorMetadata?.displayName ?: authorMetadata?.name ?: shortNpub(event.pubkey)
 
     // Check for reply (q tag) - indicates this event is a reply to another
     val replyEventId = event.tags.find { it.firstOrNull() == "q" }?.getOrNull(1)
@@ -1555,7 +1556,7 @@ private fun ReplyPreview(
     val parentAuthorName =
         parentAuthorMetadata?.displayName
             ?: parentAuthorMetadata?.name
-            ?: parentEvent.pubkey.take(8) + "..."
+            ?: shortNpub(parentEvent.pubkey)
 
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentEvent.content) {
@@ -1667,7 +1668,7 @@ private fun QuotedEvent(
     // Check if this is a kind 30040 (book) event - render as BookCard
     if (event?.kind == 30040) {
         val metadata = userMetadata[event.pubkey]
-        val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+        val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(event.pubkey)
 
         BookCard(
             event = event,
@@ -1845,7 +1846,7 @@ private fun QuotedEvent(
 
     // Default rendering for other event kinds
     val metadata = userMetadata[event.pubkey]
-    val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+    val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(event.pubkey)
     val uriHandler = LocalUriHandler.current
     val copyToClipboard = rememberClipboardWriter()
     // Linux desktop (GNOME/Wayland) can't reliably raise the browser to the front, so copy the
@@ -2909,7 +2910,7 @@ private fun AddressableEvent(
     }
 
     val metadata = userMetadata[pubkey]
-    val authorName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+    val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey)
 
     // Render different card styles based on kind
     when (kind) {
@@ -2990,7 +2991,7 @@ private fun ProfileCard(
         // Profile info
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "...",
+                text = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey),
                 color = NostrordColors.TextPrimary,
                 style = NostrordTypography.MessageBody,
                 fontWeight = FontWeight.Bold,

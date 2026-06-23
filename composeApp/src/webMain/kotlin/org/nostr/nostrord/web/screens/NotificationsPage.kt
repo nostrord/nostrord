@@ -6,6 +6,7 @@ import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.ui.screens.notifications.NotifFilter
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
@@ -104,7 +105,7 @@ val NotificationsPage =
 
 private fun actorName(meta: UserMetadata?, pubkey: String): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
-    ?: (pubkey.take(8) + "…")
+    ?: shortNpub(pubkey)
 
 private fun actionLabel(entry: NotificationEntry): String = when (entry.type) {
     NotificationType.MENTION -> "mentioned you"

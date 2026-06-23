@@ -8,6 +8,7 @@ import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
@@ -350,7 +351,7 @@ private val ManageMembersSection =
             val meta = userMetadata[pubkey]
             return meta?.displayName?.takeIf { it.isNotBlank() }
                 ?: meta?.name?.takeIf { it.isNotBlank() }
-                ?: (pubkey.take(8) + "…")
+                ?: shortNpub(pubkey)
         }
 
         val adminCount = members.count { it in admins }
@@ -818,7 +819,7 @@ private val ManageRequestsSection =
             val meta = userMetadata[pubkey]
             return meta?.displayName?.takeIf { it.isNotBlank() }
                 ?: meta?.name?.takeIf { it.isNotBlank() }
-                ?: (pubkey.take(8) + "…")
+                ?: shortNpub(pubkey)
         }
 
         if (pending.isEmpty()) {
