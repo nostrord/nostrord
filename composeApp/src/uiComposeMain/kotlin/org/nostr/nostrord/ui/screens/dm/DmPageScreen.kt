@@ -222,12 +222,14 @@ fun DmPageScreen(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(Spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Avatar + name open the peer's profile, like the header peer button.
             OptimizedSmallAvatar(
                 imageUrl = metadata?.picture,
                 identifier = pubkey,
                 displayName = name,
                 size = 64.dp,
                 shape = CircleShape,
+                modifier = Modifier.clip(CircleShape).clickable { onOpenProfile(UserRoute(pubkey)) },
             )
             Spacer(modifier = Modifier.height(Spacing.sm))
             Text(
@@ -235,6 +237,11 @@ fun DmPageScreen(
                 color = NostrordColors.TextPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
+                modifier =
+                Modifier
+                    .clip(NostrordShapes.shapeSmall)
+                    .clickable { onOpenProfile(UserRoute(pubkey)) }
+                    .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
             )
             Text(
                 "Beginning of your direct conversation with $name. Direct messages are encrypted (NIP-17).",
