@@ -34,6 +34,9 @@ internal enum class KeySource { Keychain, Passphrase, Ephemeral }
 actual object SecureStorage {
     private val prefs = Preferences.userNodeForPackage(SecureStorage::class.java)
 
+    // Headroom under Preferences.MAX_VALUE_LENGTH (8192) for the chunked-value split.
+    private const val MAX_PREF_VALUE_CHARS = 8000
+
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
     private const val CURRENT_RELAY_URL = "current_relay_url"
@@ -550,21 +553,54 @@ actual object SecureStorage {
         return result
     }
 
+    // java.util.prefs.Preferences caps a single value at MAX_VALUE_LENGTH (8192). Encrypted blobs
+    // that grow past that (notably the DM cache JSON) would make prefs.put throw and the write get
+    // silently dropped, so they never persisted across restarts. Split such values across
+    // "<key>#<i>" chunks with "<key>#n" holding the count; small values keep the plain single-key
+    // form, so existing data still loads.
+    private fun chunkCountKey(key: String) = "$key#n"
+
+    private fun chunkKey(key: String, index: Int) = "$key#$index"
+
+    private fun clearChunks(key: String) {
+        val count = prefs.getInt(chunkCountKey(key), 0)
+        if (count > 0) {
+            for (i in 0 until count) prefs.remove(chunkKey(key, i))
+            prefs.remove(chunkCountKey(key))
+        }
+    }
+
     private fun saveString(
         key: String,
         value: String,
     ) {
-        prefs.put(key, encrypt(value))
+        val encrypted = encrypt(value)
+        clearChunks(key)
+        if (encrypted.length <= MAX_PREF_VALUE_CHARS) {
+            prefs.put(key, encrypted)
+        } else {
+            prefs.remove(key)
+            val chunks = encrypted.chunked(MAX_PREF_VALUE_CHARS)
+            chunks.forEachIndexed { i, chunk -> prefs.put(chunkKey(key, i), chunk) }
+            prefs.putInt(chunkCountKey(key), chunks.size)
+        }
         prefs.flush()
     }
 
     private fun getString(key: String): String? {
-        val encrypted = prefs.get(key, null) ?: return null
+        val count = prefs.getInt(chunkCountKey(key), 0)
+        val encrypted =
+            if (count > 0) {
+                buildString { for (i in 0 until count) append(prefs.get(chunkKey(key, i), "")) }
+            } else {
+                prefs.get(key, null) ?: return null
+            }
         return decrypt(encrypted)
     }
 
     private fun remove(key: String) {
         prefs.remove(key)
+        clearChunks(key)
         prefs.flush()
     }
 
