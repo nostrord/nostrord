@@ -63,12 +63,12 @@ import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
-import org.nostr.nostrord.ui.components.cards.KeyCard
-import org.nostr.nostrord.ui.components.cards.WarningCard
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
+import org.nostr.nostrord.ui.screens.backup.BackupKeysSections
+import org.nostr.nostrord.ui.screens.backup.BackupViewModel
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.theme.DarkColorPalette
 import org.nostr.nostrord.ui.theme.LightColorPalette
@@ -76,7 +76,6 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
-import org.nostr.nostrord.utils.rememberClipboardWriter
 
 enum class SettingsSection(val label: String) {
     Profile("Profile"),
@@ -206,35 +205,10 @@ fun SettingsScreen(
         )
     }
 
-    // Backup state
-    val copyToClipboard = rememberClipboardWriter()
-    val privateKey = remember { AppModule.nostrRepository.getPrivateKey() }
-    var showKeyCopied by remember { mutableStateOf(false) }
-    LaunchedEffect(showKeyCopied) {
-        if (showKeyCopied) {
-            delay(2000)
-            showKeyCopied = false
-        }
-    }
-
+    // Backup keys: the same shared screen as the standalone Backup route and the web Settings.
+    val backupVm = viewModel { BackupViewModel() }
     val backupContent: @Composable () -> Unit = {
-        BackupPanelContent(
-            privateKey = privateKey,
-            publicKey = publicKey,
-            showCopiedMessage = showKeyCopied,
-            onCopyPublicKey = {
-                publicKey?.let {
-                    copyToClipboard(it)
-                    showKeyCopied = true
-                }
-            },
-            onCopyPrivateKey = {
-                privateKey?.let {
-                    copyToClipboard(it)
-                    showKeyCopied = true
-                }
-            },
-        )
+        BackupPanelContent(backupVm)
     }
 
     // NIP-65 relay state
@@ -908,72 +882,14 @@ private fun ProfileField(
 // ── Backup panel content ──────────────────────────────────────────────────────
 
 @Composable
-private fun BackupPanelContent(
-    privateKey: String?,
-    publicKey: String?,
-    showCopiedMessage: Boolean,
-    onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit,
-) {
+private fun BackupPanelContent(vm: BackupViewModel) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = null,
-            tint = NostrordColors.WarningOrange,
-            modifier = Modifier.size(48.dp),
-        )
-
-        WarningCard(isCompact = false)
-
-        if (publicKey != null) {
-            KeyCard(
-                title = "Public Key (npub)",
-                titleColor = NostrordColors.TextSecondary,
-                keyValue = publicKey,
-                keyColor = Color.White,
-                buttonText = "Copy Public Key",
-                buttonColor = NostrordColors.Primary,
-                onCopy = onCopyPublicKey,
-                isCompact = false,
-            )
-        }
-
-        if (privateKey != null) {
-            KeyCard(
-                title = "Private Key (nsec)",
-                titleColor = NostrordColors.Error,
-                keyValue = privateKey,
-                keyColor = NostrordColors.LightRed,
-                buttonText = "Copy Private Key",
-                buttonColor = NostrordColors.Error,
-                onCopy = onCopyPrivateKey,
-                isCompact = false,
-                showSecretBadge = true,
-            )
-        }
-
-        if (showCopiedMessage) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Copied to clipboard", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        // Same keys UI as the web Settings backup panel: public cycles npub / nprofile / hex with a
+        // QR, the private key is reveal-gated and offers nsec / hex plus a NIP-49 ncryptsec export.
+        BackupKeysSections(vm)
 
         InfoCard(
             title = "Security Tips",
@@ -1567,7 +1483,7 @@ private fun ChangeAccountPasswordForm(vm: SecurityViewModel) {
                 PassphraseField("Confirm new password", confirm) { vm.setConfirm(it) }
 
                 Text(
-                    text = "At least 8 characters. Must match.",
+                    text = "At least 6 characters. Must match.",
                     style = NostrordTypography.Caption,
                     color = NostrordColors.TextSecondary,
                 )

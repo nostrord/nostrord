@@ -114,6 +114,6 @@ class SecurityViewModel(
     }
 
     private companion object {
-        const val MIN_PASSPHRASE = 8
+        const val MIN_PASSPHRASE = 6
     }
 }

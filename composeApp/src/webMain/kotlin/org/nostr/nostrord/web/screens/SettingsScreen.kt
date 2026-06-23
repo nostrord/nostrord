@@ -344,46 +344,55 @@ private val BackupPanel =
 
                     // ncryptsec: a password-encrypted export, safe to store and to move between devices.
                     div {
-                        className = ClassName("field-label")
-                        +"Encrypted backup (ncryptsec)"
-                    }
-                    if (ncryptsec == null) {
-                        input {
-                            className = ClassName("modal-input")
-                            type = InputType.password
-                            placeholder = "Choose a password"
-                            value = passphrase
-                            onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
-                        }
-                        error?.let {
-                            div {
-                                className = ClassName("settings-error")
-                                +it
-                            }
-                        }
-                        button {
-                            className = ClassName("settings-outline-btn")
-                            disabled = encrypting
-                            onClick = { vm.encrypt() }
-                            +(if (encrypting) "Encrypting…" else "Encrypt")
-                        }
+                        className = ClassName("backup-subsection")
                         div {
-                            className = ClassName("settings-tip")
-                            +"Keep this password safe. Without it the encrypted backup cannot be recovered."
+                            className = ClassName("field-label")
+                            +"Encrypted backup (ncryptsec)"
                         }
-                    } else {
-                        IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
-                        button {
-                            className = ClassName("settings-outline-btn")
-                            onClick = { vm.setPassphrase("") }
-                            +"Use a different password"
+                        if (ncryptsec == null) {
+                            div {
+                                className = ClassName("backup-encrypt-row")
+                                input {
+                                    className = ClassName("modal-input")
+                                    type = InputType.password
+                                    placeholder = "Choose a password"
+                                    value = passphrase
+                                    onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
+                                }
+                                button {
+                                    className = ClassName("btn-primary")
+                                    disabled = encrypting || passphrase.isEmpty()
+                                    onClick = { vm.encrypt() }
+                                    +(if (encrypting) "Encrypting…" else "Encrypt")
+                                }
+                            }
+                            error?.let {
+                                div {
+                                    className = ClassName("settings-error")
+                                    +it
+                                }
+                            }
+                            div {
+                                className = ClassName("settings-tip")
+                                +"Keep this password safe. Without it the encrypted backup cannot be recovered."
+                            }
+                        } else {
+                            IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
+                            button {
+                                className = ClassName("btn-text backup-link")
+                                onClick = { vm.setPassphrase("") }
+                                +"Use a different password"
+                            }
                         }
                     }
 
-                    button {
-                        className = ClassName("settings-outline-btn")
-                        onClick = { vm.hide() }
-                        +"Hide private key"
+                    div {
+                        className = ClassName("backup-footer")
+                        button {
+                            className = ClassName("btn-text")
+                            onClick = { vm.hide() }
+                            +"Hide private key"
+                        }
                     }
                 }
             }

@@ -7560,6 +7560,43 @@ body {
     color: var(--color-success);
 }
 
+/* Backup keys: the ncryptsec subsection and the hide-key footer inside the private-key card. */
+.backup-subsection {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--color-divider);
+}
+
+.backup-encrypt-row {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: stretch;
+    flex-wrap: wrap;
+    margin-top: var(--space-sm);
+}
+
+.backup-encrypt-row .modal-input {
+    flex: 1 1 220px;
+}
+
+.backup-encrypt-row .btn-primary {
+    flex: 0 0 auto;
+}
+
+.backup-link {
+    margin-top: var(--space-xs);
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.backup-footer {
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-divider);
+    display: flex;
+    justify-content: flex-end;
+}
+
 .settings-relay-row {
     display: flex;
     align-items: center;
