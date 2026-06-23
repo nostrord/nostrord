@@ -139,10 +139,12 @@ val DmPage =
                         url = metadata?.picture
                         seed = pubkey
                         this.name = name
-                        cls = "dm-intro-avatar"
+                        cls = "dm-intro-avatar link"
+                        onClick = { props.onOpenProfile(UserRoute(pubkey)) }
                     }
                     div {
-                        className = ClassName("dm-intro-name")
+                        className = ClassName("dm-intro-name link")
+                        onClick = { props.onOpenProfile(UserRoute(pubkey)) }
                         +name
                     }
                     div {

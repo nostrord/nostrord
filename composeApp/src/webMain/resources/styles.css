@@ -2502,6 +2502,16 @@ body {
     color: var(--color-text-primary);
 }
 
+/* The intro avatar + name open the peer's profile. */
+.dm-intro-avatar.link,
+.dm-intro-name.link {
+    cursor: pointer;
+}
+
+.dm-intro-name.link:hover {
+    text-decoration: underline;
+}
+
 .dm-intro-text {
     max-width: 320px;
     font-size: 13px;
