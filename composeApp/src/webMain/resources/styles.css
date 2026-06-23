@@ -1333,12 +1333,21 @@ body {
     height: 100%;
 }
 
-/* Backdrop behind the mobile nav drawer (only rendered while the drawer is open). */
+/* Backdrop behind the mobile nav drawer. Always mounted, faded in/out via .drawer-open so it
+   tracks the drawer slide instead of popping. visibility keeps it click-through while hidden. */
 .app-frame-backdrop {
     position: fixed;
     inset: 0;
     z-index: 35;
     background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.app-frame.drawer-open .app-frame-backdrop {
+    opacity: 1;
+    visibility: visible;
 }
 
 /* A hamburger that toggles the nav drawer; shown only below the md breakpoint, where

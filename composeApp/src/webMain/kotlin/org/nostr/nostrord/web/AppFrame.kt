@@ -211,11 +211,11 @@ val AppFrame =
 
         div {
             className = ClassName(if (drawerOpen) "app-frame drawer-open" else "app-frame")
-            if (drawerOpen) {
-                div {
-                    className = ClassName("app-frame-backdrop")
-                    onClick = { setDrawerOpen(false) }
-                }
+            // Always mounted so it can fade in/out with the drawer slide (CSS toggles it via
+            // .drawer-open); conditionally rendering it would pop instantly and feel abrupt.
+            div {
+                className = ClassName("app-frame-backdrop")
+                onClick = { setDrawerOpen(false) }
             }
             div {
                 className = ClassName("app-frame-nav")
