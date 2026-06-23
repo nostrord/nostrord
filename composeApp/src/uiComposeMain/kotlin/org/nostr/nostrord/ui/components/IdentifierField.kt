@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -66,10 +68,12 @@ fun IdentifierField(
 fun IdentifierRow(
     ids: List<Identifier>,
     modifier: Modifier = Modifier,
+    showQr: Boolean = false,
 ) {
     if (ids.isEmpty()) return
     var index by remember(ids) { mutableStateOf(0) }
     var copied by remember { mutableStateOf(false) }
+    var qrOpen by remember { mutableStateOf(false) }
     val copyToClipboard = rememberClipboardWriter()
     val id = ids[index % ids.size]
 
@@ -106,6 +110,16 @@ fun IdentifierRow(
                         )
                     }
                 }
+                if (showQr) {
+                    IconButton(onClick = { qrOpen = !qrOpen }) {
+                        Icon(
+                            imageVector = Icons.Default.QrCode,
+                            contentDescription = "QR code",
+                            tint = if (qrOpen) NostrordColors.Success else NostrordColors.TextMuted,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
                 IconButton(onClick = {
                     copyToClipboard(id.value)
                     copied = true
@@ -118,6 +132,14 @@ fun IdentifierRow(
                     )
                 }
             }
+        }
+        if (showQr && qrOpen) {
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            QrCode(
+                data = id.value,
+                size = 200.dp,
+                modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally),
+            )
         }
         if (ids.size > 1) {
             Spacer(modifier = Modifier.height(Spacing.xxs))

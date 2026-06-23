@@ -2107,6 +2107,22 @@ body {
     color: var(--color-text-secondary);
 }
 
+/* QR panel under an .identifier-field when its QR toggle is on (public key backup). */
+.identifier-qr {
+    margin-top: var(--space-sm);
+    display: flex;
+    justify-content: center;
+}
+
+.identifier-qr img {
+    width: 200px;
+    height: 200px;
+    image-rendering: pixelated;
+    background: #fff;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+}
+
 /* ===== DM section (prototype DMSidebar + DirectMessage) ===== */
 .dm-side-header {
     display: flex;
@@ -7528,6 +7544,13 @@ body {
     font-size: 13px;
     line-height: 1.5;
     color: var(--color-text-secondary);
+}
+
+.settings-error {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-error);
 }
 
 .settings-relay-row {

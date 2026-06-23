@@ -1,13 +1,23 @@
 package org.nostr.nostrord.ui.screens.backup
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,20 +25,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.components.cards.InfoCard
-import org.nostr.nostrord.ui.components.cards.KeyCard
 import org.nostr.nostrord.ui.components.cards.WarningCard
-import org.nostr.nostrord.ui.screens.backup.components.NoKeyCard
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackupScreenMobile(
-    privateKey: String?,
-    publicKey: String?,
-    showCopiedMessage: Boolean,
-    onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit,
-) {
+fun BackupScreenMobile(vm: BackupViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -40,25 +42,6 @@ fun BackupScreenMobile(
             )
         },
         containerColor = NostrordColors.Background,
-        snackbarHost = {
-            if (showCopiedMessage) {
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    containerColor = NostrordColors.Success,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "Success",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Copied to clipboard", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        },
     ) { paddingValues ->
         Column(
             modifier =
@@ -69,7 +52,6 @@ fun BackupScreenMobile(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Warning icon
             Icon(
                 Icons.Default.Warning,
                 contentDescription = "Warning",
@@ -89,46 +71,14 @@ fun BackupScreenMobile(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Warning card - compact version
             WarningCard(isCompact = true)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Public Key Section
-            if (publicKey != null) {
-                KeyCard(
-                    title = "Public Key (npub)",
-                    titleColor = NostrordColors.TextSecondary,
-                    keyValue = publicKey,
-                    keyColor = Color.White,
-                    buttonText = "Copy Public Key",
-                    buttonColor = NostrordColors.Primary,
-                    onCopy = onCopyPublicKey,
-                    isCompact = true,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // Private Key Section
-            if (privateKey != null) {
-                KeyCard(
-                    title = "Private Key (nsec)",
-                    titleColor = NostrordColors.Error,
-                    keyValue = privateKey,
-                    keyColor = NostrordColors.LightRed,
-                    buttonText = "Copy Private Key",
-                    buttonColor = NostrordColors.Error,
-                    onCopy = onCopyPrivateKey,
-                    isCompact = true,
-                    showSecretBadge = true,
-                )
-            } else {
-                NoKeyCard()
-            }
+            BackupKeysSections(vm)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Security tips - compact
             InfoCard(
                 title = "Security Tips",
                 titleColor = NostrordColors.Warning,

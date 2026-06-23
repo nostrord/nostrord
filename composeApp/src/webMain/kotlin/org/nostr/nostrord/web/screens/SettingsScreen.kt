@@ -5,11 +5,12 @@ import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.ui.Identifier
+import org.nostr.nostrord.ui.screens.backup.BackupViewModel
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
 import org.nostr.nostrord.utils.Result
@@ -19,9 +20,9 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
-import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
@@ -37,6 +38,7 @@ import react.useState
 import web.cssom.ClassName
 import web.html.InputType
 import web.html.checkbox
+import web.html.password
 
 external interface SettingsScreenProps : Props {
     var onClose: () -> Unit
@@ -298,58 +300,110 @@ private val ProfilePanel =
 
 private val BackupPanel =
     FC<Props> {
-        val repo = AppModule.nostrRepository
-        val pubkey = repo.getPublicKey()
-        val npub = pubkey?.let { Nip19.encodeNpub(it) } ?: ""
-        val isLocal = AppModule.accountStore.active?.authMethod == AuthMethod.LOCAL
-        val (revealed, setRevealed) = useState { false }
-        val nsec =
-            if (revealed && isLocal) {
-                repo.getPrivateKey()?.let { Nip19.encodeNsec(it) } ?: ""
-            } else {
-                "nsec1••••••••••••••••••••••••••••••••••••"
-            }
+        val vm = useViewModel { BackupViewModel() }
+        val revealed = useStateFlow(vm.revealed)
+        val passphrase = useStateFlow(vm.passphrase)
+        val ncryptsec = useStateFlow(vm.ncryptsec)
+        val encrypting = useStateFlow(vm.encrypting)
+        val error = useStateFlow(vm.error)
 
+        // Public key: non-sensitive, shown immediately, cycles npub / nprofile / hex with a QR.
         div {
             className = ClassName("settings-card")
             div {
                 className = ClassName("field-label")
-                +"Public Key (npub)"
+                +"Public key"
             }
-            div {
-                className = ClassName("settings-key")
-                +npub
-            }
-            button {
-                className = ClassName("settings-outline-btn")
-                onClick = { copyToClipboard(npub) }
-                +"Copy Public Key"
+            IdentifierRow {
+                ids = vm.publicIds
+                showQr = true
             }
         }
-        if (isLocal) {
+
+        // Private key: LOCAL accounts only, reveal-gated. Bunker / NIP-07 hold no local key.
+        if (vm.canExportPrivate) {
             div {
                 className = ClassName("settings-card")
                 div {
                     className = ClassName("field-label")
-                    +"Private Key (nsec)"
+                    +"Private key"
                 }
-                div {
-                    className = ClassName("settings-key danger")
-                    +nsec
-                }
-                button {
-                    className = ClassName("settings-outline-btn danger")
-                    onClick = {
-                        if (!revealed) {
-                            setRevealed(true)
-                        } else {
-                            repo.getPrivateKey()?.let { copyToClipboard(Nip19.encodeNsec(it)) }
+                if (!revealed) {
+                    div {
+                        className = ClassName("settings-key danger")
+                        +"nsec1••••••••••••••••••••••••••••••••••••"
+                    }
+                    button {
+                        className = ClassName("settings-outline-btn danger")
+                        onClick = { vm.reveal() }
+                        +"Reveal private key"
+                    }
+                } else {
+                    IdentifierRow { ids = vm.privateDirectIds() }
+
+                    // ncryptsec: a password-encrypted export, safe to store and to move between devices.
+                    div {
+                        className = ClassName("field-label")
+                        +"Encrypted backup (ncryptsec)"
+                    }
+                    if (ncryptsec == null) {
+                        input {
+                            className = ClassName("modal-input")
+                            type = InputType.password
+                            placeholder = "Choose a password"
+                            value = passphrase
+                            onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
+                        }
+                        error?.let {
+                            div {
+                                className = ClassName("settings-error")
+                                +it
+                            }
+                        }
+                        button {
+                            className = ClassName("settings-outline-btn")
+                            disabled = encrypting
+                            onClick = { vm.encrypt() }
+                            +(if (encrypting) "Encrypting…" else "Encrypt")
+                        }
+                        div {
+                            className = ClassName("settings-tip")
+                            +"Keep this password safe. Without it the encrypted backup cannot be recovered."
+                        }
+                    } else {
+                        IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
+                        button {
+                            className = ClassName("settings-outline-btn")
+                            onClick = { vm.setPassphrase("") }
+                            +"Use a different password"
                         }
                     }
-                    +(if (revealed) "Copy Private Key" else "Reveal Private Key")
+
+                    button {
+                        className = ClassName("settings-outline-btn")
+                        onClick = { vm.hide() }
+                        +"Hide private key"
+                    }
+                }
+            }
+        } else {
+            div {
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("field-label")
+                    +"Private key"
+                }
+                div {
+                    className = ClassName("settings-tip")
+                    +when (vm.authMethod) {
+                        AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
+                        AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
+                        else -> "No private key is available for this account."
+                    }
                 }
             }
         }
+
         div {
             className = ClassName("settings-card warning")
             div {
