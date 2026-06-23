@@ -60,6 +60,9 @@ val ProfilePage =
         val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
         val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
+        // Collected unconditionally (hooks must not run inside the isSelf branch below, or the hook
+        // count changes when navigating between your own and another user's profile).
+        val activeSession = useStateFlow(ActiveAccountManager.session)
         // Resolve @names for any npub/nprofile mentioned in the bio so mentions
         // render as display names, not raw npubs.
         useEffect(metadata?.about) {
@@ -169,7 +172,7 @@ val ProfilePage =
 
                             if (!vm.isSelf) {
                                 // Zaps require a signer + a lightning address on the profile.
-                                val canSign = useStateFlow(ActiveAccountManager.session) != null
+                                val canSign = activeSession != null
                                 val canZap = canSign && Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
                                 div {
                                     className = ClassName("profile-page-actions secondary")
