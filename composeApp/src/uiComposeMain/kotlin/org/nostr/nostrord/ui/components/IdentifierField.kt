@@ -86,10 +86,12 @@ fun IdentifierRow(
 
     Column(modifier = modifier) {
         Surface(shape = NostrordShapes.shapeMedium, color = NostrordColors.BackgroundFloating) {
+            // Compact icon buttons + tight spacing to match the web .identifier-field (22px
+            // buttons, 6px gap), instead of Material's 48dp touch targets.
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = Spacing.md),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 Text(
                     id.value,
@@ -101,34 +103,37 @@ fun IdentifierRow(
                     modifier = Modifier.weight(1f),
                 )
                 if (ids.size > 1) {
-                    IconButton(onClick = { index = (index + 1) % ids.size }) {
+                    IconButton(onClick = { index = (index + 1) % ids.size }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.Cached,
                             contentDescription = "Format: ${id.label} (switch)",
                             tint = NostrordColors.TextMuted,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
                 if (showQr) {
-                    IconButton(onClick = { qrOpen = !qrOpen }) {
+                    IconButton(onClick = { qrOpen = !qrOpen }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.QrCode,
                             contentDescription = "QR code",
                             tint = if (qrOpen) NostrordColors.Success else NostrordColors.TextMuted,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
-                IconButton(onClick = {
-                    copyToClipboard(id.value)
-                    copied = true
-                }) {
+                IconButton(
+                    onClick = {
+                        copyToClipboard(id.value)
+                        copied = true
+                    },
+                    modifier = Modifier.size(28.dp),
+                ) {
                     Icon(
                         imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
                         contentDescription = "Copy",
                         tint = if (copied) NostrordColors.Success else NostrordColors.TextMuted,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                 }
             }

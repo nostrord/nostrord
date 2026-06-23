@@ -69,6 +69,7 @@ import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.screens.backup.BackupKeysSections
 import org.nostr.nostrord.ui.screens.backup.BackupViewModel
+import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.theme.DarkColorPalette
 import org.nostr.nostrord.ui.theme.LightColorPalette
@@ -895,11 +896,7 @@ private fun BackupPanelContent(vm: BackupViewModel) {
             title = "Security Tips",
             titleColor = NostrordColors.Warning,
             icon = Icons.Default.Lightbulb,
-            content = "1. Write it down on paper and store in a safe place\n" +
-                "2. Use a password manager like 1Password or Bitwarden\n" +
-                "3. Never store it in plain text files or screenshots\n" +
-                "4. Never send it via email or messaging apps\n" +
-                "5. Consider using a hardware wallet for long-term storage",
+            content = backupSecurityTips.joinToString("\n") { "• $it" },
             isCompact = false,
         )
     }

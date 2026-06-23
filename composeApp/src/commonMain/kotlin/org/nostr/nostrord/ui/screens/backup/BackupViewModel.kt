@@ -17,6 +17,19 @@ import org.nostr.nostrord.nostr.Nip49
 import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.ui.nprofileRelayHints
 
+/** Minimum length for the ncryptsec backup password, shared by the VM and both UIs. */
+const val MIN_BACKUP_PASSWORD = 6
+
+/** The Backup screen's security tips, shared so every platform shows the same set. */
+val backupSecurityTips: List<String> =
+    listOf(
+        "Never share your private key (nsec) with anyone.",
+        "Save it in a password manager, or write it down and store it offline.",
+        "Never keep it in plain text files or screenshots.",
+        "Never send it over email or messaging apps.",
+        "Anyone with your nsec has full control of your account.",
+    )
+
 /**
  * Shared state + actions for the "Backup keys" screen, so the Compose and web UIs render the same
  * thing instead of drifting. Both expose the keys through the cycling identifier field:
@@ -94,8 +107,8 @@ class BackupViewModel(
         if (_encrypting.value) return
         val hex = repo.getPrivateKey() ?: return
         val pw = _passphrase.value
-        if (pw.length < MIN_PASSPHRASE) {
-            _error.value = "Use at least $MIN_PASSPHRASE characters."
+        if (pw.length < MIN_BACKUP_PASSWORD) {
+            _error.value = "Use at least $MIN_BACKUP_PASSWORD characters."
             return
         }
         _error.value = null
@@ -111,9 +124,5 @@ class BackupViewModel(
                 onFailure = { _error.value = "Could not encrypt the key." },
             )
         }
-    }
-
-    private companion object {
-        const val MIN_PASSPHRASE = 6
     }
 }

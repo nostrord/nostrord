@@ -11,6 +11,8 @@ import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.ui.screens.backup.BackupViewModel
+import org.nostr.nostrord.ui.screens.backup.MIN_BACKUP_PASSWORD
+import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
 import org.nostr.nostrord.ui.screens.settings.SecurityViewModel
@@ -326,7 +328,7 @@ private val BackupPanel =
             div {
                 className = ClassName("settings-card")
                 div {
-                    className = ClassName("field-label")
+                    className = ClassName("field-label danger")
                     +"Private key"
                 }
                 if (!revealed) {
@@ -358,10 +360,15 @@ private val BackupPanel =
                                     placeholder = "Choose a password"
                                     value = passphrase
                                     onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
+                                    onKeyDown = { event ->
+                                        if (event.key == "Enter" && passphrase.length >= MIN_BACKUP_PASSWORD && !encrypting) {
+                                            vm.encrypt()
+                                        }
+                                    }
                                 }
                                 button {
                                     className = ClassName("btn-primary")
-                                    disabled = encrypting || passphrase.isEmpty()
+                                    disabled = encrypting || passphrase.length < MIN_BACKUP_PASSWORD
                                     onClick = { vm.encrypt() }
                                     +(if (encrypting) "Encrypting…" else "Encrypt")
                                 }
@@ -420,17 +427,11 @@ private val BackupPanel =
                 className = ClassName("settings-section-head")
                 +"SECURITY TIPS"
             }
-            div {
-                className = ClassName("settings-tip")
-                +"• Never share your private key (nsec) with anyone."
-            }
-            div {
-                className = ClassName("settings-tip")
-                +"• Store it in a password manager or write it down offline."
-            }
-            div {
-                className = ClassName("settings-tip")
-                +"• Anyone with your nsec has full control of your identity."
+            backupSecurityTips.forEach { tip ->
+                div {
+                    className = ClassName("settings-tip")
+                    +"• $tip"
+                }
             }
         }
     }

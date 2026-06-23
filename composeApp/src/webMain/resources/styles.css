@@ -4609,11 +4609,14 @@ body {
 }
 
 .field-label {
-    margin-top: 16px;
     margin-bottom: 6px;
     font-size: 13px;
     font-weight: 500;
     color: var(--color-text-secondary);
+}
+
+.field-label.danger {
+    color: var(--color-error);
 }
 
 .field-hint {

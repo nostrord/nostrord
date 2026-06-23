@@ -83,11 +83,7 @@ fun BackupScreenMobile(vm: BackupViewModel) {
                 title = "Security Tips",
                 titleColor = NostrordColors.Warning,
                 icon = Icons.Default.Lightbulb,
-                content =
-                "1. Write it down and store safely\n" +
-                    "2. Use a password manager\n" +
-                    "3. Never store in plain text\n" +
-                    "4. Never send via messages",
+                content = backupSecurityTips.joinToString("\n") { "• $it" },
                 isCompact = true,
             )
         }

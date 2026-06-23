@@ -82,12 +82,7 @@ fun BackupScreenDesktop(vm: BackupViewModel) {
                     title = "Security Tips",
                     titleColor = NostrordColors.Warning,
                     icon = Icons.Default.Lightbulb,
-                    content =
-                    "1. Write it down on paper and store in a safe place\n" +
-                        "2. Use a password manager like 1Password or Bitwarden\n" +
-                        "3. Never store it in plain text files or screenshots\n" +
-                        "4. Never send it via email or messaging apps\n" +
-                        "5. Consider using a hardware wallet for long-term storage",
+                    content = backupSecurityTips.joinToString("\n") { "• $it" },
                     isCompact = false,
                 )
             }
