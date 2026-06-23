@@ -31,6 +31,7 @@ import react.useEffect
 import react.useRef
 import react.useState
 import web.cssom.ClassName
+import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
 
 external interface DmPageProps : Props {
@@ -98,6 +99,11 @@ val DmPage =
         // Mark the conversation read while it is open (and as new messages stream in).
         useEffect(pubkey, messages.size) {
             if (messages.isNotEmpty()) dmVm.markRead(pubkey)
+        }
+        // Open a conversation pinned to the latest message (scroll to the bottom), like a chat.
+        val messagesRef = useRef<HTMLDivElement>(null)
+        useEffect(pubkey, messages.size) {
+            messagesRef.current?.let { el -> el.scrollTop = el.scrollHeight.toDouble() }
         }
         val (text, setText) = useState { "" }
         val send = {
@@ -176,6 +182,7 @@ val DmPage =
 
             div {
                 className = ClassName("dm-messages")
+                ref = messagesRef
                 div {
                     className = ClassName("dm-intro")
                     WebAvatar {

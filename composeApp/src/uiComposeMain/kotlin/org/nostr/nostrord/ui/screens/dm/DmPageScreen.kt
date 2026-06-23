@@ -192,6 +192,12 @@ fun DmPageScreen(
         val clipboardReader = rememberClipboardImageReader()
         val scope = rememberCoroutineScope()
 
+        // Open a conversation pinned to the latest message (scroll to the bottom), like a chat.
+        val messagesScroll = rememberScrollState()
+        LaunchedEffect(pubkey, messages.size) {
+            messagesScroll.scrollTo(messagesScroll.maxValue)
+        }
+
         val send = {
             val body = textFieldValue.text.trim()
             if (body.isNotBlank()) {
@@ -282,7 +288,7 @@ fun DmPageScreen(
         HorizontalDivider(color = NostrordColors.Divider)
 
         Column(
-            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(Spacing.lg),
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(messagesScroll).padding(Spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Avatar + name open the peer's profile, like the header peer button.
