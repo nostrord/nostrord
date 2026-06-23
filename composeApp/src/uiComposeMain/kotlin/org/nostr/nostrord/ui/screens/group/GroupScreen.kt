@@ -18,7 +18,6 @@ import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
-import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
@@ -447,18 +446,20 @@ fun GroupScreen(
         )
     }
 
-    // Edit group modal (admin only)
+    // "Edit group" opens the unified Manage group modal on its Info tab (admin only), so editing
+    // shares the same surface as members / requests instead of a separate modal.
     if (showEditGroupModal) {
-        EditGroupModal(
+        ManageGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showEditGroupModal = false },
-            onGroupUpdated = { showEditGroupModal = false },
             onDeleted = {
                 showEditGroupModal = false
                 onNavigateHome()
             },
-            showSubgroupControls = subgroupsEnabled,
+            initialTab = ManageTab.Info,
+            supportsSubgroups = subgroupsEnabled,
         )
     }
 
