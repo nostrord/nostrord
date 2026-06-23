@@ -207,7 +207,9 @@ fun SettingsScreen(
     }
 
     // Backup keys: the same shared screen as the standalone Backup route and the web Settings.
-    val backupVm = viewModel { BackupViewModel() }
+    // Keyed by the active account so switching accounts rebuilds the VM with the new keys.
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
+    val backupVm = viewModel(key = activeAccountId) { BackupViewModel() }
     val backupContent: @Composable () -> Unit = {
         BackupPanelContent(backupVm)
     }
@@ -1387,7 +1389,8 @@ private fun ExperimentalToggleRow(
 
 @Composable
 private fun SecurityPanelContent() {
-    val accountSecurity = viewModel { SecurityViewModel() }
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
+    val accountSecurity = viewModel(key = activeAccountId) { SecurityViewModel() }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),

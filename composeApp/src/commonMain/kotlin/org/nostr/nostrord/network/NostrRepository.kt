@@ -1611,6 +1611,13 @@ class NostrRepository(
             try {
                 requestContactList()
             } catch (_: Exception) {}
+            // Re-open the DM inbox for the new account. resetContactListState() cleared the
+            // DM state and set dmInboxStarted=false, but the isLoggedIn collector that runs
+            // startDmInbox() on cold boot never re-fires on a warm swap (it stays logged in),
+            // so without this the new account shows no DMs until the app restarts.
+            try {
+                startDmInbox()
+            } catch (_: Exception) {}
         }
     }
 
