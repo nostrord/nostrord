@@ -63,6 +63,13 @@ class SqlDelightCacheStore(
         q.oldestMessageCreatedAt(account, groupId).executeAsOneOrNull()?.MIN
     }
 
+    override suspend fun loadByKind(
+        account: String,
+        kind: Int,
+    ): List<CachedMsg> = withContext(Dispatchers.Default) {
+        q.loadMessagesByKind(account, kind.toLong()).executeAsList().map(::toCachedMsg)
+    }
+
     override suspend fun upsertEvents(
         account: String,
         events: List<CachedEventRow>,

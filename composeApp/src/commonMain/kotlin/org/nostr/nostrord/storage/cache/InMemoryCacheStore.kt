@@ -66,6 +66,16 @@ class InMemoryCacheStore : CacheStore {
         groupMessages(account, groupId).minOfOrNull { it.createdAt }
     }
 
+    override suspend fun loadByKind(
+        account: String,
+        kind: Int,
+    ): List<CachedMsg> = mutex.withLock {
+        messages[account]?.values.orEmpty()
+            .flatMap { it.values }
+            .filter { it.kind == kind }
+            .sortedBy { it.createdAt }
+    }
+
     override suspend fun upsertEvents(
         account: String,
         events: List<CachedEventRow>,
@@ -104,7 +114,8 @@ class InMemoryCacheStore : CacheStore {
     ) = mutex.withLock {
         val rows = mutableListOf<Evictable>()
         messages[account]?.forEach { (_, byId) ->
-            byId.values.forEach { m ->
+            // DMs (kind 14) are excluded from the group-message byte budget, so they're never evicted.
+            byId.values.filter { it.kind != DM_CACHE_KIND }.forEach { m ->
                 rows.add(Evictable(m.createdAt, estimateBytes(m.content, m.tagsJson)) { byId.remove(m.id) })
             }
         }

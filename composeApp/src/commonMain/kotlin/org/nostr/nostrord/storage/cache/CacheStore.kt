@@ -1,6 +1,12 @@
 package org.nostr.nostrord.storage.cache
 
 /**
+ * NIP-17 direct-message kind. DMs are cached in the message table keyed by peer pubkey (group_id)
+ * and excluded from the group-message byte-budget eviction so conversations are never dropped.
+ */
+const val DM_CACHE_KIND = 14
+
+/**
  * Bulk, queryable, bounded cache for chat messages and generic events — the persistence
  * seam for "never wait on the relay for something you've seen". Separate from [SecureStorage]
  * (which stays for small KV slots and credentials): message/event history is large and needs
@@ -43,6 +49,16 @@ interface CacheStore {
         account: String,
         groupId: String,
     ): Long?
+
+    /**
+     * Every cached message of [kind] for [account], oldest-first. DMs are stored here as kind:14
+     * with the peer pubkey in `groupId`, so this hydrates the whole DM history in one call without
+     * knowing the peers up front. Excluded from byte-budget eviction so DMs are never dropped.
+     */
+    suspend fun loadByKind(
+        account: String,
+        kind: Int,
+    ): List<CachedMsg>
 
     // ── Generic events (kind:1/7/9/30023), keyed by id, immutable ────────────
     suspend fun upsertEvents(

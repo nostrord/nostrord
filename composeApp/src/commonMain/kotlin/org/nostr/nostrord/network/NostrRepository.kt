@@ -53,8 +53,11 @@ import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip17
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.DM_CACHE_KIND
 import org.nostr.nostrord.storage.clearCurrentRelayUrlFor
+import org.nostr.nostrord.storage.clearDmMessages
 import org.nostr.nostrord.storage.getLastActiveAt
+import org.nostr.nostrord.storage.isDmCacheMigratedFor
 import org.nostr.nostrord.storage.isGroupFetchLazy
 import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
@@ -63,11 +66,11 @@ import org.nostr.nostrord.storage.loadDmSyncCursor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveDmLastRead
-import org.nostr.nostrord.storage.saveDmMessages
 import org.nostr.nostrord.storage.saveDmProcessedWrapIds
 import org.nostr.nostrord.storage.saveDmSyncCursor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveRelayListFor
+import org.nostr.nostrord.storage.setDmCacheMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -107,6 +110,9 @@ class NostrRepository(
     private val connStats: ConnectionStats = ConnectionStats(),
     private val notificationHistoryStore: org.nostr.nostrord.notifications.NotificationHistoryStore? = null,
     private val notificationSettings: org.nostr.nostrord.settings.NotificationSettings? = null,
+    // DM history is persisted here (IndexedDB on web, SQLDelight on native) instead of the
+    // size-limited SecureStorage KV. Defaults to in-memory so tests construct without a backend.
+    private val cacheStore: org.nostr.nostrord.storage.cache.CacheStore = org.nostr.nostrord.storage.cache.InMemoryCacheStore(),
     private val scope: CoroutineScope,
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -1230,9 +1236,9 @@ class NostrRepository(
         val myPub = sessionManager.getPublicKey() ?: return
         dmInboxStarted = true
 
-        // Hydrate from disk before the inbox streams so old conversations render instantly and
-        // already-seen gift wraps are never re-decrypted.
-        dmManager.hydrate(SecureStorage.loadDmMessages(myPub), SecureStorage.loadDmLastRead(myPub))
+        // Hydrate from the CacheStore before the inbox streams so old conversations render instantly
+        // and already-seen gift wraps are never re-decrypted.
+        hydrateDmCache(myPub)
         wireDmPersistence(myPub)
 
         // Resume per-wrap decrypt progress, and reset the this-session sync bookkeeping.
@@ -1277,14 +1283,65 @@ class NostrRepository(
             }
     }
 
+    // Ids already written to the CacheStore, so the persistence collector upserts only new DMs
+    // instead of rewriting the whole history on every change. Seeded by hydrateDmCache.
+    private var dmPersistedIds: Set<String> = emptySet()
+
+    private fun DmMessage.toCachedMsg(): org.nostr.nostrord.storage.cache.CachedMsg = org.nostr.nostrord.storage.cache.CachedMsg(
+        id = id,
+        groupId = peerPubkey,
+        pubkey = senderPubkey,
+        createdAt = createdAt,
+        kind = DM_CACHE_KIND,
+        content = content,
+        tagsJson = "[]",
+    )
+
+    private fun org.nostr.nostrord.storage.cache.CachedMsg.toDmMessage(myPubkey: String): DmMessage = DmMessage(
+        id = id,
+        peerPubkey = groupId,
+        senderPubkey = pubkey,
+        content = content,
+        createdAt = createdAt,
+        mine = pubkey == myPubkey,
+    )
+
+    /**
+     * Load DM history from the CacheStore (migrating the legacy SecureStorage blob the first time).
+     * DMs are stored in the message cache as kind:14 keyed by peer pubkey, so one query rebuilds
+     * every conversation without knowing the peers up front.
+     */
+    private suspend fun hydrateDmCache(myPub: String) {
+        if (!SecureStorage.isDmCacheMigratedFor(myPub)) {
+            val legacy = SecureStorage.loadDmMessages(myPub)
+            if (legacy.isNotEmpty()) {
+                legacy.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                    cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                }
+            }
+            SecureStorage.setDmCacheMigratedFor(myPub)
+            SecureStorage.clearDmMessages(myPub)
+        }
+        val cached = cacheStore.loadByKind(myPub, DM_CACHE_KIND)
+        dmPersistedIds = cached.mapTo(HashSet()) { it.id }
+        dmManager.hydrate(cached.map { it.toDmMessage(myPub) }, SecureStorage.loadDmLastRead(myPub))
+    }
+
     /** Persist decrypted messages + read state whenever they change (one collector per session). */
     private fun wireDmPersistence(myPub: String) {
         if (dmPersistenceWired) return
         dmPersistenceWired = true
         dmPersistenceJobs +=
             scope.launch {
-                dmManager.messagesByPeer.drop(1).collect {
-                    SecureStorage.saveDmMessages(myPub, dmManager.allMessages())
+                dmManager.messagesByPeer.drop(1).collect { byPeer ->
+                    // Upsert only messages not yet cached; never rewrite the whole history.
+                    val fresh = byPeer.values.flatten().filter { it.id !in dmPersistedIds }
+                    if (fresh.isNotEmpty()) {
+                        fresh.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                            cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                        }
+                        dmPersistedIds = dmPersistedIds + fresh.map { it.id }
+                    }
                 }
             }
         dmPersistenceJobs +=

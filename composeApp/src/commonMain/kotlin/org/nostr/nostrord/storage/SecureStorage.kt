@@ -820,6 +820,25 @@ fun SecureStorage.saveDmMessages(
     }
 }
 
+private fun dmCacheMigratedKey(pubkey: String) = "dm_cache_migrated_${pubkeyDigest(pubkey)}"
+
+/**
+ * Whether the legacy DM blob ([loadDmMessages]) has been moved into the CacheStore. DM history now
+ * lives in the bulk message cache (IndexedDB / SQLDelight); this one-shot flag stops the migration
+ * from re-running and lets [clearDmMessages] free the old KV slot.
+ */
+fun SecureStorage.isDmCacheMigratedFor(pubkey: String): Boolean = getBooleanPref(dmCacheMigratedKey(pubkey), false)
+
+fun SecureStorage.setDmCacheMigratedFor(pubkey: String) {
+    saveBooleanPref(dmCacheMigratedKey(pubkey), true)
+}
+
+/** Drop the legacy DM message blob once it has been migrated into the CacheStore. */
+fun SecureStorage.clearDmMessages(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(dmMessagesKey(pubkey), "")
+}
+
 fun SecureStorage.loadDmLastRead(pubkey: String): Map<String, Long> {
     if (pubkey.isBlank()) return emptyMap()
     val raw = getStringPref(dmLastReadKey(pubkey), "")

@@ -53,13 +53,22 @@ LIMIT ?;
 oldestMessageCreatedAt:
 SELECT MIN(created_at) FROM message WHERE account = ? AND group_id = ?;
 
+-- Every cached message of a kind, account-wide (DMs are kind 14, keyed by peer in group_id).
+loadMessagesByKind:
+SELECT account, id, group_id, pubkey, created_at, kind, content, tags_json
+FROM message
+WHERE account = ? AND kind = ?
+ORDER BY created_at ASC;
+
+-- Byte budget + eviction cover group history only; DMs (kind 14) are excluded so the
+-- group-message budget never evicts a conversation.
 totalMessageBytes:
-SELECT COALESCE(SUM(length(content) + length(tags_json) + 120), 0) FROM message WHERE account = ?;
+SELECT COALESCE(SUM(length(content) + length(tags_json) + 120), 0) FROM message WHERE account = ? AND kind != 14;
 
 messageSizesOldestFirst:
 SELECT id, created_at, CAST(length(content) + length(tags_json) + 120 AS INTEGER) AS bytes
 FROM message
-WHERE account = ?
+WHERE account = ? AND kind != 14
 ORDER BY created_at ASC;
 
 deleteMessageById:

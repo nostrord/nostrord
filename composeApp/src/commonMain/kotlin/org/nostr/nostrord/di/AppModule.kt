@@ -522,6 +522,7 @@ object AppModule {
             connStats = connStats,
             notificationHistoryStore = notificationHistoryStore,
             notificationSettings = notificationSettings,
+            cacheStore = cacheStore,
             scope = appScope,
         )
     }

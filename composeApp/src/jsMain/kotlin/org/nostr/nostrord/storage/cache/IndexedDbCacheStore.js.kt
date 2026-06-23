@@ -105,6 +105,21 @@ class IndexedDbCacheStore : CacheStore {
         return (first.value.created_at.unsafeCast<Double>()).toLong()
     }
 
+    override suspend fun loadByKind(
+        account: String,
+        kind: Int,
+    ): List<CachedMsg> {
+        val database = db()
+        val store = database.transaction(MESSAGE, "readonly").objectStore(MESSAGE)
+        val out = ArrayList<CachedMsg>()
+        drainCursor(store.openCursor(boundAccount(account), "next")) { cursor ->
+            val v = cursor.value
+            if (v.kind.unsafeCast<Int>() == kind) out.add(toCachedMsg(v))
+            true
+        }
+        return out.sortedBy { it.createdAt }
+    }
+
     override suspend fun upsertEvents(
         account: String,
         events: List<CachedEventRow>,
@@ -227,8 +242,11 @@ class IndexedDbCacheStore : CacheStore {
         val out = ArrayList<SizeRow>()
         drainCursor(store.openCursor(boundAccount(account), "next")) { cursor ->
             val v = cursor.value
-            val bytes = (v.content.unsafeCast<String>().length + v.tags_json.unsafeCast<String>().length + 120).toLong()
-            out.add(SizeRow(storeName, v.id.unsafeCast<String>(), (v.created_at.unsafeCast<Double>()).toLong(), bytes))
+            // DMs (kind 14) are excluded from the byte budget so a conversation is never evicted.
+            if (!(storeName == MESSAGE && v.kind.unsafeCast<Int>() == DM_CACHE_KIND)) {
+                val bytes = (v.content.unsafeCast<String>().length + v.tags_json.unsafeCast<String>().length + 120).toLong()
+                out.add(SizeRow(storeName, v.id.unsafeCast<String>(), (v.created_at.unsafeCast<Double>()).toLong(), bytes))
+            }
             true
         }
         return out
