@@ -3441,9 +3441,14 @@ body {
     align-items: center;
     gap: 6px;
     margin-top: 8px;
+}
+
+/* Only the hostname is the link, so the row isn't a click target competing with the card. */
+.group-card-relay-host.link {
     cursor: pointer;
 }
-.group-card-relay:hover .group-card-relay-host {
+
+.group-card-relay-host.link:hover {
     color: var(--color-text-secondary);
     text-decoration: underline;
 }

@@ -433,16 +433,6 @@ internal fun ChildrenBuilder.discoverGroupCard(
         if (relayHost.isNotBlank() && showRelay) {
             div {
                 className = ClassName("group-card-relay")
-                // The relay link is inert where there is no relay route to open (onboarding):
-                // [enableRelayLink] = false leaves the row as a plain label.
-                if (enableRelayLink) {
-                    title = "Open relay"
-                    // Inside the card button, so stop the click from also opening the group.
-                    onClick = {
-                        it.stopPropagation()
-                        pushRoute(RelayRoute(dg.relayUrl))
-                    }
-                }
                 WebAvatar {
                     url = relayIconUrl
                     seed = dg.relayUrl
@@ -450,8 +440,17 @@ internal fun ChildrenBuilder.discoverGroupCard(
                     kind = AvatarKind.RELAY
                     cls = "group-card-relay-icon"
                 }
+                // Only the hostname is the relay link, never the whole row, so tapping the card
+                // body always opens the group. Inert where there is no relay route (onboarding).
                 span {
-                    className = ClassName("group-card-relay-host")
+                    className = ClassName(if (enableRelayLink) "group-card-relay-host link" else "group-card-relay-host")
+                    if (enableRelayLink) {
+                        title = "Open relay"
+                        onClick = {
+                            it.stopPropagation()
+                            pushRoute(RelayRoute(dg.relayUrl))
+                        }
+                    }
                     +relayHost
                 }
             }
