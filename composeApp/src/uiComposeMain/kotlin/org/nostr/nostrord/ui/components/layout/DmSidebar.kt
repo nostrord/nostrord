@@ -54,16 +54,15 @@ import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Second column on the DM section (prototype DMSidebar, obelisk-style): header with
- * search, Follows / Others tabs and the conversation list. There is no DM backend
- * yet, so the lists are empty; searching a valid npub/hex already opens that
- * conversation. Mirrors the web web/DmSidebar.
+ * search and the conversation list. The Follows / Others tabs (follows vs message
+ * requests) live in DmConversationList so they travel to the mobile page too; searching a
+ * valid npub/hex opens that conversation. Mirrors the web web/DmSidebar.
  */
 @Composable
 fun DmSidebar(
     onOpenConversation: (DmRoute) -> Unit,
     activePubkey: String? = null,
 ) {
-    var tab by remember { mutableStateOf(0) }
     var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
@@ -143,27 +142,6 @@ fun DmSidebar(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                listOf("Follows", "Others").forEachIndexed { index, label ->
-                    val selected = tab == index
-                    Text(
-                        label,
-                        color = if (selected) NostrordColors.Primary else NostrordColors.TextMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier =
-                        Modifier
-                            .clip(NostrordShapes.shapeSmall)
-                            .clickable { tab = index }
-                            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                    )
-                }
-            }
-            HorizontalDivider(color = NostrordColors.Divider)
-
             DmConversationList(
                 onOpenConversation = onOpenConversation,
                 activePubkey = activePubkey,
@@ -185,9 +163,13 @@ fun DmConversationList(
     onStartConversation: (() -> Unit)? = null,
 ) {
     val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
-    val conversations by dmVm.conversations.collectAsState()
+    var tab by remember { mutableStateOf(0) }
+    val follows by dmVm.followsConversations.collectAsState()
+    val others by dmVm.othersConversations.collectAsState()
+    val othersUnread by dmVm.othersUnread.collectAsState()
     val userMetadata by dmVm.userMetadata.collectAsState()
     val unreadByPeer by dmVm.unreadByPeer.collectAsState()
+    val conversations = if (tab == 0) follows else others
 
     fun nameOf(pubkey: String): String {
         val meta = userMetadata[pubkey]
@@ -196,53 +178,103 @@ fun DmConversationList(
             ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
     }
 
-    if (conversations.isEmpty()) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = Spacing.lg),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Follows = peers you follow, Others = message requests; the Others tab badges its unread.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier =
-                Modifier
-                    .size(64.dp)
-                    .clip(NostrordShapes.shapeXLarge)
-                    .background(NostrordColors.BackgroundFloating),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("✉️", fontSize = 30.sp)
-            }
-            Spacer(modifier = Modifier.height(Spacing.md))
-            Text(
-                "No messages yet",
-                color = NostrordColors.TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                "Your direct messages are end-to-end encrypted. Start one with someone you follow.",
-                color = NostrordColors.TextMuted,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 320.dp),
-            )
-            onStartConversation?.let { start ->
-                Spacer(modifier = Modifier.height(Spacing.md))
-                Text(
-                    "Start a conversation",
-                    color = NostrordColors.Primary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+            listOf("Follows", "Others").forEachIndexed { index, label ->
+                val selected = tab == index
+                Row(
                     modifier =
                     Modifier
                         .clip(NostrordShapes.shapeSmall)
-                        .clickable { start() }
-                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-                )
+                        .clickable { tab = index }
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Text(
+                        label,
+                        color = if (selected) NostrordColors.Primary else NostrordColors.TextMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (index == 1 && othersUnread > 0) {
+                        Box(
+                            modifier =
+                            Modifier
+                                .clip(CircleShape)
+                                .background(NostrordColors.Primary)
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                if (othersUnread > 99) "99+" else "$othersUnread",
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
             }
         }
-    } else {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(color = NostrordColors.Divider)
+
+        if (conversations.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = Spacing.lg),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier =
+                    Modifier
+                        .size(64.dp)
+                        .clip(NostrordShapes.shapeXLarge)
+                        .background(NostrordColors.BackgroundFloating),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(if (tab == 0) "✉️" else "📥", fontSize = 30.sp)
+                }
+                Spacer(modifier = Modifier.height(Spacing.md))
+                Text(
+                    if (tab == 0) "No messages yet" else "No message requests",
+                    color = NostrordColors.TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Text(
+                    if (tab == 0) {
+                        "Your direct messages are end-to-end encrypted. Start one with someone you follow."
+                    } else {
+                        "Messages from people you don't follow show up here."
+                    },
+                    color = NostrordColors.TextMuted,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 320.dp),
+                )
+                if (tab == 0) {
+                    onStartConversation?.let { start ->
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        Text(
+                            "Start a conversation",
+                            color = NostrordColors.Primary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier =
+                            Modifier
+                                .clip(NostrordShapes.shapeSmall)
+                                .clickable { start() }
+                                .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                        )
+                    }
+                }
+            }
+        } else {
             conversations.forEach { convo ->
                 ConversationRow(
                     pubkeyHex = convo.peerPubkey,

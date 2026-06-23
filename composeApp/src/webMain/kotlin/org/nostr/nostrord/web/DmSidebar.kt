@@ -25,13 +25,12 @@ external interface DmSidebarProps : Props {
 
 /**
  * Second column on the DM section (prototype DMSidebar, obelisk-style): header with
- * search, Follows / Others tabs and the conversation list. There is no DM backend
- * yet, so the lists are empty; searching a valid npub/hex already opens that
- * conversation. Mirrors the Compose ui/components/layout/DmSidebar.
+ * search and the conversation list. The Follows / Others tabs (follows vs message
+ * requests) live in DmConversationList so they travel to the mobile page too; searching a
+ * valid npub/hex opens that conversation. Mirrors the Compose ui/components/layout/DmSidebar.
  */
 val DmSidebar =
     FC<DmSidebarProps> { props ->
-        val (tab, setTab) = useState { 0 }
         val (searchOpen, setSearchOpen) = useState { false }
         val (query, setQuery) = useState { "" }
         val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
@@ -92,17 +91,6 @@ val DmSidebar =
                 }
             }
 
-            div {
-                className = ClassName("dm-tabs")
-                listOf("Follows", "Others").forEachIndexed { index, label ->
-                    button {
-                        className = ClassName(if (tab == index) "dm-tab selected" else "dm-tab")
-                        onClick = { setTab(index) }
-                        +label
-                    }
-                }
-            }
-
             DmConversationList {
                 activePubkey = props.activePubkey
                 onOpenConversation = props.onOpenConversation
@@ -126,9 +114,13 @@ external interface DmConversationListProps : Props {
 val DmConversationList =
     FC<DmConversationListProps> { props ->
         val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
-        val conversations = useStateFlow(dmVm.conversations)
+        val (tab, setTab) = useState { 0 }
+        val follows = useStateFlow(dmVm.followsConversations)
+        val others = useStateFlow(dmVm.othersConversations)
+        val othersUnread = useStateFlow(dmVm.othersUnread)
         val userMetadata = useStateFlow(dmVm.userMetadata)
         val unreadByPeer = useStateFlow(dmVm.unreadByPeer)
+        val conversations = if (tab == 0) follows else others
 
         fun nameOf(pubkey: String): String {
             val meta = userMetadata[pubkey]
@@ -137,26 +129,52 @@ val DmConversationList =
                 ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
         }
 
+        // Follows = peers you follow, Others = message requests; the Others tab badges its unread.
+        div {
+            className = ClassName("dm-tabs")
+            listOf("Follows", "Others").forEachIndexed { index, label ->
+                button {
+                    className = ClassName(if (tab == index) "dm-tab selected" else "dm-tab")
+                    onClick = { setTab(index) }
+                    +label
+                    if (index == 1 && othersUnread > 0) {
+                        span {
+                            className = ClassName("count-badge")
+                            +(if (othersUnread > 99) "99+" else othersUnread.toString())
+                        }
+                    }
+                }
+            }
+        }
+
         if (conversations.isEmpty()) {
             div {
                 className = ClassName("dm-empty")
                 div {
                     className = ClassName("dm-empty-tile")
-                    +"✉️"
+                    +(if (tab == 0) "✉️" else "📥")
                 }
                 div {
                     className = ClassName("dm-empty-title")
-                    +"No messages yet"
+                    +(if (tab == 0) "No messages yet" else "No message requests")
                 }
                 div {
                     className = ClassName("dm-empty-text")
-                    +"Your direct messages are end-to-end encrypted. Start one with someone you follow."
+                    +(
+                        if (tab == 0) {
+                            "Your direct messages are end-to-end encrypted. Start one with someone you follow."
+                        } else {
+                            "Messages from people you don't follow show up here."
+                        }
+                        )
                 }
-                props.onStartConversation?.let { start ->
-                    button {
-                        className = ClassName("dm-empty-cta")
-                        onClick = { start() }
-                        +"Start a conversation"
+                if (tab == 0) {
+                    props.onStartConversation?.let { start ->
+                        button {
+                            className = ClassName("dm-empty-cta")
+                            onClick = { start() }
+                            +"Start a conversation"
+                        }
                     }
                 }
             }

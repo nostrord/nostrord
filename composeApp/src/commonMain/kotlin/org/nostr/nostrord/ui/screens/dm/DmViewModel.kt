@@ -2,13 +2,24 @@ package org.nostr.nostrord.ui.screens.dm
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.network.managers.DmConversation
 
 /**
  * Shared DM screen logic (commonMain): the conversation list, per-peer message threads, and
  * sending. Both the web DM screens and the native ones consume this same VM so behavior stays in
  * one place. NIP-17 send/receive lives in the repository (DmManager); this is a thin layer over it.
+ *
+ * The list is split into two inboxes, mirroring how Nostr clients separate known contacts from
+ * unsolicited senders: [followsConversations] are peers in the user's NIP-02 follow list, and
+ * [othersConversations] is everyone else (message requests). Both update live as the contact list
+ * (kind:3) loads, so a peer moves between tabs the moment a follow is added or removed.
  */
 class DmViewModel(
     private val repo: NostrRepositoryApi,
@@ -18,6 +29,22 @@ class DmViewModel(
     val unreadByPeer = repo.dmUnreadByPeer
     val totalUnread = repo.totalDmUnread
     val userMetadata = repo.userMetadata
+
+    val followsConversations: StateFlow<List<DmConversation>> =
+        partition(keepFollowed = true)
+
+    val othersConversations: StateFlow<List<DmConversation>> =
+        partition(keepFollowed = false)
+
+    /** Unread total across the Others inbox, for the requests-tab badge. */
+    val othersUnread: StateFlow<Int> =
+        othersConversations
+            .map { list -> list.sumOf { it.unread } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), 0)
+
+    private fun partition(keepFollowed: Boolean): StateFlow<List<DmConversation>> = combine(repo.dmConversations, repo.following) { convos, follows ->
+        convos.filter { (it.peerPubkey in follows) == keepFollowed }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
     fun getPublicKey(): String? = repo.getPublicKey()
 
@@ -30,5 +57,9 @@ class DmViewModel(
     /** Clear the unread badge for a conversation when it is open on screen. */
     fun markRead(peerPubkey: String) {
         viewModelScope.launch { repo.markDmRead(peerPubkey) }
+    }
+
+    private companion object {
+        const val STOP_TIMEOUT_MS = 5000L
     }
 }
