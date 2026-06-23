@@ -96,10 +96,8 @@ val GroupSidebar =
                             +name
                         }
                         if (relayHost.isNotBlank()) {
-                            button {
+                            div {
                                 className = ClassName("group-side-banner-relay")
-                                title = "Open relay"
-                                onClick = { pushRoute(RelayRoute(route.relayUrl)) }
                                 WebAvatar {
                                     url = relayIconUrl
                                     seed = route.relayUrl
@@ -107,8 +105,14 @@ val GroupSidebar =
                                     kind = org.nostr.nostrord.web.components.AvatarKind.RELAY
                                     cls = "group-side-banner-relay-icon"
                                 }
+                                // Only the hostname opens the relay, so the row isn't a block link.
                                 span {
-                                    className = ClassName("group-side-banner-relay-host")
+                                    className = ClassName("group-side-banner-relay-host link")
+                                    title = "Open relay"
+                                    onClick = {
+                                        it.stopPropagation()
+                                        pushRoute(RelayRoute(route.relayUrl))
+                                    }
                                     +relayHost
                                 }
                             }

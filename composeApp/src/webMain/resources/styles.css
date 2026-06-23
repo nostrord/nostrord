@@ -1608,13 +1608,14 @@ body {
     gap: 5px;
     min-width: 0;
     padding: 2px 6px 2px 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    text-align: left;
 }
-.group-side-banner-relay:hover .group-side-banner-relay-host {
+
+/* Only the hostname is the link, so the row isn't a block click target. */
+.group-side-banner-relay-host.link {
+    cursor: pointer;
+}
+
+.group-side-banner-relay-host.link:hover {
     text-decoration: underline;
 }
 .group-side-banner-relay-icon {
