@@ -1314,15 +1314,32 @@ class NostrRepository(
     private suspend fun hydrateDmCache(myPub: String) {
         if (!SecureStorage.isDmCacheMigratedFor(myPub)) {
             val legacy = SecureStorage.loadDmMessages(myPub)
-            if (legacy.isNotEmpty()) {
-                legacy.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
-                    cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+            val migrated =
+                try {
+                    legacy.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                        cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                    }
+                    true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
                 }
+            // Only retire the legacy blob once it is safely in the cache; a failed migration retries
+            // next launch instead of losing history.
+            if (migrated) {
+                SecureStorage.setDmCacheMigratedFor(myPub)
+                SecureStorage.clearDmMessages(myPub)
             }
-            SecureStorage.setDmCacheMigratedFor(myPub)
-            SecureStorage.clearDmMessages(myPub)
         }
-        val cached = cacheStore.loadByKind(myPub, DM_CACHE_KIND)
+        val cached =
+            try {
+                cacheStore.loadByKind(myPub, DM_CACHE_KIND)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
         dmPersistedIds = cached.mapTo(HashSet()) { it.id }
         dmManager.hydrate(cached.map { it.toDmMessage(myPub) }, SecureStorage.loadDmLastRead(myPub))
     }
@@ -1337,10 +1354,19 @@ class NostrRepository(
                     // Upsert only messages not yet cached; never rewrite the whole history.
                     val fresh = byPeer.values.flatten().filter { it.id !in dmPersistedIds }
                     if (fresh.isNotEmpty()) {
-                        fresh.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
-                            cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                        try {
+                            fresh.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                                cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                            }
+                            dmPersistedIds = dmPersistedIds + fresh.map { it.id }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // A transient cache write error (e.g. SQLITE_BUSY while group writes hit
+                            // the same db) must NOT kill the collector: leave these ids unpersisted
+                            // so the next emission retries them, instead of stranding DMs at the
+                            // migrated count until restart.
                         }
-                        dmPersistedIds = dmPersistedIds + fresh.map { it.id }
                     }
                 }
             }

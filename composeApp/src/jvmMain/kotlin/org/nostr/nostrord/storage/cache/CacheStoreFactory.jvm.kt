@@ -11,6 +11,9 @@ import java.util.Properties
  */
 actual fun createCacheStore(): CacheStore {
     val dir = File(System.getProperty("user.home"), ".nostrord").apply { mkdirs() }
-    val driver = JdbcSqliteDriver("jdbc:sqlite:${File(dir, "cache.db").absolutePath}", Properties(), CacheDb.Schema)
+    // busy_timeout makes a connection wait for a held write lock instead of failing immediately
+    // with SQLITE_BUSY when group and DM writes hit the file concurrently.
+    val props = Properties().apply { setProperty("busy_timeout", "5000") }
+    val driver = JdbcSqliteDriver("jdbc:sqlite:${File(dir, "cache.db").absolutePath}", props, CacheDb.Schema)
     return SqlDelightCacheStore(driver)
 }
