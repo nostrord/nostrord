@@ -3948,7 +3948,10 @@ class NostrRepository(
     private fun reconnectDroppedNip29PoolRelays() {
         val primaryUrl = connectionManager.currentRelayUrl.value
         for (relayUrl in connectedPoolRelays.toList()) {
-            if (relayUrl == primaryUrl) continue
+            // Skip a blank (or platform-null) entry that leaked into the pool from a relay list,
+            // so it is never normalized or scheduled (the non-null receiver check would crash this
+            // worker coroutine).
+            if (relayUrl.isNullOrBlank() || relayUrl == primaryUrl) continue
             scope.launch {
                 val existing = connectionManager.getClientForRelay(relayUrl)
                 if (existing == null) {

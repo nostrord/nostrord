@@ -230,6 +230,10 @@ class ConnectionManager(
      * Converging on the shared singleflight deferred collapses that to one.
      */
     suspend fun getClientForRelay(relayUrl: String): NostrGroupClient? {
+        // A blank URL (or, via a platform-type leak in a relay list, a runtime null) has no
+        // client. Guard before normalizeRelayUrl, whose non-null receiver check would otherwise
+        // crash the caller; this is a suspend fun, so the parameter null-check is not emitted.
+        if (relayUrl.isNullOrBlank()) return null
         val normalized = relayUrl.normalizeRelayUrl()
         if (_currentRelayUrl.value == normalized) return primaryClient
         val (pooled, pending) =
