@@ -22,9 +22,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -81,6 +85,7 @@ fun ProfilePageScreen(
     onOpenGroup: (GroupRoute) -> Unit,
     onEditProfile: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenDrawer: (() -> Unit)? = null,
 ) {
     val vm = viewModel(key = "profile-$pubkey") { ProfilePageViewModel(AppModule.nostrRepository, pubkey) }
     val metadata by vm.metadata.collectAsState()
@@ -97,7 +102,24 @@ fun ProfilePageScreen(
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Spacing.lg),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            onOpenDrawer?.let { open ->
+                IconButton(onClick = open, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(18.dp),
+            )
             Text(
                 "Profile",
                 color = NostrordColors.TextPrimary,

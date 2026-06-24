@@ -18,6 +18,7 @@ shared VM = `commonMain/`.
 | Group / chat | `ui/screens/group/GroupScreen.kt` (+ `ui/components/chat/MessageItem.kt`) | `web/screens/ChatScreen.kt` (+ `ChatItems.kt`) | `ui/screens/group/GroupViewModel.kt` |
 | Notifications | `ui/screens/notifications/NotificationsScreen.kt` | `web/screens/NotificationsScreen.kt` | `ui/screens/notifications/NotificationsViewModel.kt` |
 | Settings | `ui/screens/settings/SettingsScreen.kt` (+ `RelayNip65PanelContent.kt`) | `web/screens/SettingsScreen.kt` (panels: Profile/Backup/Relays/Media/Notifications/Security/Experimental) | profile panel → `ui/screens/profile/EditProfileViewModel.kt`; other panels read settings stores directly |
+| User profile (view, #/u/:pubkey) | `ui/screens/profile/ProfilePageScreen.kt` | `web/screens/ProfilePage.kt` (+ `web/modals/UserProfileModal.kt` quick view) | `ui/screens/profile/ProfilePageViewModel.kt` |
 | Edit profile | `ui/screens/profile/EditProfileScreen.kt` | web settings `ProfilePanel` (in `SettingsScreen.kt`) | `ui/screens/profile/EditProfileViewModel.kt` |
 | Relay | `ui/screens/relay/` | no dedicated web screen yet | `ui/screens/relay/RelayViewModel.kt` |
 | Onboarding | `ui/screens/onboarding/` | `web/screens/OnboardingScreen.kt` | none (pure layout) |

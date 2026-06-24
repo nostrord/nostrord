@@ -551,6 +551,7 @@ private fun FrameContent(
                     pubkey = route.pubkey,
                     onOpenGroup = onNavigate,
                     onEditProfile = onEditProfile,
+                    onOpenDrawer = onOpenDrawer,
                 )
             is DmRoute ->
                 DmPageScreen(
