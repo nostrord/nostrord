@@ -364,7 +364,7 @@ val AppFrame =
                                 hub == 1 ->
                                     div {
                                         className = ClassName("sidebar-note")
-                                        +"Nothing saved yet."
+                                        +"Coming soon"
                                     }
                                 friendsLoading ->
                                     div {

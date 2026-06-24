@@ -714,7 +714,7 @@ private fun HomeHub(
         when {
             hub == 1 ->
                 Text(
-                    "Nothing saved yet.",
+                    "Coming soon",
                     color = NostrordColors.TextMuted,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
