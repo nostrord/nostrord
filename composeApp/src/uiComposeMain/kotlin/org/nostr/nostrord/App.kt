@@ -2,9 +2,14 @@ package org.nostr.nostrord
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -16,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
@@ -54,21 +60,27 @@ fun App() {
     val isLoggedIn by vm.isLoggedIn.collectAsState()
     val isBunkerVerifying by vm.isBunkerVerifying.collectAsState()
 
-    // Phase 2: Compute startup state synchronously from current values.
-    // The bunker-verifying gate only blocks the UI on cold-start restore, when
-    // the user is not yet logged in: it holds the loading screen until the
-    // restored signer is confirmed instead of flashing the login screen. Once
-    // logged in (e.g. switching to a bunker account), the signer reconnect runs
-    // in the background and its status shows through the bunker banner, so the
-    // app renders immediately rather than freezing on "Reconnecting to signer..."
-    // (mirrors the web shell, where loggedIn -> AppShell is checked before the
-    // verifying gate).
+    val activeId by AppModule.accountStore.activeId.collectAsState()
+    // Latches once the app has been shown for a logged-in account, and clears on a real logout
+    // (no active account). Once latched, a transient !isLoggedIn window with an account still
+    // active is an account switch / signer reconnect, NOT a cold start: the app stays on screen
+    // (its in-app bunker banner shows the reconnect) instead of the full-screen loading. The
+    // loading screen is for app open only.
+    var hasEnteredApp by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoggedIn) { if (isLoggedIn) hasEnteredApp = true }
+    LaunchedEffect(activeId) { if (activeId == null) hasEnteredApp = false }
+
+    // Compute startup state synchronously from current values.
     val startupState: AppStartState =
-        remember(isInitialized, isLoggedIn, isBunkerVerifying) {
-            if (isBunkerVerifying && !isLoggedIn) {
-                AppStartState.Initializing
-            } else {
-                StartupResolver.resolve(isInitialized, isLoggedIn)
+        remember(isInitialized, isLoggedIn, isBunkerVerifying, hasEnteredApp, activeId) {
+            when {
+                // Cold-start bunker restore (we've never entered the app): hold the loading
+                // screen until the restored signer confirms, instead of flashing login.
+                isBunkerVerifying && !isLoggedIn && !hasEnteredApp -> AppStartState.Initializing
+                // Account switch / signer reconnect after the app has been shown: keep the app
+                // on screen, never the full-screen loading or a login flash (mirrors the web).
+                !isLoggedIn && hasEnteredApp && activeId != null -> StartupResolver.resolve(true, true)
+                else -> StartupResolver.resolve(isInitialized, isLoggedIn)
             }
         }
 
@@ -92,19 +104,15 @@ fun App() {
             // Phase 3: Render based on resolved startup state
             when (startupState) {
                 is AppStartState.Initializing -> {
-                    val loadingMessage =
-                        when {
-                            isBunkerVerifying && !isLoggedIn -> "Logging out..."
-                            isBunkerVerifying -> "Reconnecting to signer..."
-                            else -> null
-                        }
+                    // App open (cold start) only: a switch / reconnect keeps the app on screen
+                    // instead (see startupState), so there is no per-switch message here.
                     if (hasWindowControls) {
                         Column(Modifier.fillMaxSize()) {
                             MinimalTitleBar()
-                            LoadingScreen(Modifier.weight(1f), message = loadingMessage)
+                            LoadingScreen(Modifier.weight(1f))
                         }
                     } else {
-                        LoadingScreen(message = loadingMessage)
+                        LoadingScreen()
                     }
                 }
 
@@ -243,26 +251,28 @@ private fun nostrordColorScheme() = if (NostrordColors.IsDark) {
     )
 }
 
-/** Plain background during bootstrap — HTML shell handles the spinner on web. */
+/** Bootstrap loading screen: the brand spinner over a label, mirroring the web HTML loading shell. */
 @Composable
-private fun LoadingScreen(
-    modifier: Modifier = Modifier,
-    message: String? = null,
-) {
-    Box(
+private fun LoadingScreen(modifier: Modifier = Modifier) {
+    Column(
         modifier =
         modifier
             .fillMaxSize()
             .background(NostrordColors.Background),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        if (message != null) {
-            Text(
-                text = message,
-                color = NostrordColors.TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
+        CircularProgressIndicator(
+            modifier = Modifier.size(48.dp),
+            color = NostrordColors.Primary,
+            strokeWidth = 4.dp,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Loading Nostrord…",
+            color = NostrordColors.TextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
