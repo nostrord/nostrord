@@ -3714,6 +3714,11 @@ body {
     overflow-y: auto;
 }
 
+.sidebar-friends-search {
+    /* No horizontal inset so the input spans the full sidebar width like the friend
+       rows below it; 12px top matches the native gap under the Friends/Saved tabs. */
+    padding: 12px 0 8px;
+}
 .sidebar-search {
     /* Native: search Box has `padding(vertical = 2.dp)` only — no extra top
        breathing. Horizontal 8 keeps the pill aligned with the section

@@ -30,6 +30,7 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.tabItem
 import org.nostr.nostrord.web.components.useTabBadge
 import org.nostr.nostrord.web.modals.AddAccountModal
@@ -88,6 +89,7 @@ val AppFrame =
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
         val (hub, setHub) = useState { 0 }
+        val (friendQuery, setFriendQuery) = useState { "" }
         val (menuOpen, setMenuOpen) = useState { false }
         val (confirmLogout, setConfirmLogout) = useState { false }
         val (logoutBusy, setLogoutBusy) = useState { false }
@@ -347,6 +349,17 @@ val AppFrame =
                                 tabItem(hub == 0, Ic.People, "Friends") { setHub(0) }
                                 tabItem(hub == 1, Ic.Bookmark, "Saved") { setHub(1) }
                             }
+                            if (hub == 0 && friends.isNotEmpty()) {
+                                div {
+                                    className = ClassName("sidebar-friends-search")
+                                    searchInput(
+                                        placeholder = "Search friends...",
+                                        value = friendQuery,
+                                        onChange = { setFriendQuery(it) },
+                                        compact = true,
+                                    )
+                                }
+                            }
                             when {
                                 hub == 1 ->
                                     div {
@@ -375,7 +388,25 @@ val AppFrame =
                                 else ->
                                     div {
                                         className = ClassName("sidebar-friends")
-                                        friends.forEach { friend ->
+                                        val filtered =
+                                            if (friendQuery.isBlank()) {
+                                                friends
+                                            } else {
+                                                friends.filter { f ->
+                                                    val n =
+                                                        f.metadata?.displayName?.takeIf { it.isNotBlank() }
+                                                            ?: f.metadata?.name?.takeIf { it.isNotBlank() }
+                                                            ?: Nip19.encodeNpub(f.pubkey)
+                                                    n.contains(friendQuery, ignoreCase = true)
+                                                }
+                                            }
+                                        if (filtered.isEmpty()) {
+                                            div {
+                                                className = ClassName("sidebar-note")
+                                                +"No friends match."
+                                            }
+                                        }
+                                        filtered.forEach { friend ->
                                             val friendName =
                                                 friend.metadata?.displayName?.takeIf { it.isNotBlank() }
                                                     ?: friend.metadata?.name?.takeIf { it.isNotBlank() }

@@ -86,7 +86,9 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.forms.AppSearchField
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.loading.SkeletonCircle
 import org.nostr.nostrord.ui.components.loading.SkeletonLine
@@ -693,6 +695,7 @@ private fun HomeHub(
     modifier: Modifier = Modifier,
 ) {
     var hub by remember { mutableStateOf(0) }
+    var friendQuery by remember { mutableStateOf("") }
     val friends by vm.friends.collectAsState()
     val friendsLoading by vm.friendsLoading.collectAsState()
     Column(
@@ -738,21 +741,50 @@ private fun HomeHub(
                 }
             else ->
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    friends.forEach { friend -> FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) }) }
+                    AppSearchField(
+                        value = friendQuery,
+                        onValueChange = { friendQuery = it },
+                        placeholder = "Search friends...",
+                        size = InputSize.Compact,
+                        // No extra horizontal inset: the field spans the full hub width so it
+                        // lines up with the friend rows below (which clip/click edge-to-edge).
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val filtered =
+                        remember(friends, friendQuery) {
+                            if (friendQuery.isBlank()) {
+                                friends
+                            } else {
+                                friends.filter { friendDisplayName(it).contains(friendQuery, ignoreCase = true) }
+                            }
+                        }
+                    if (filtered.isEmpty()) {
+                        Text(
+                            "No friends match.",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        )
+                    } else {
+                        filtered.forEach { friend -> FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) }) }
+                    }
                 }
         }
     }
 }
+
+/** Friend's display name for the sidebar list and its search filter. */
+private fun friendDisplayName(friend: Friend): String = friend.metadata?.displayName?.takeIf { it.isNotBlank() }
+    ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
+    ?: (Nip19.encodeNpub(friend.pubkey).take(12) + "…")
 
 @Composable
 private fun FriendRow(
     friend: Friend,
     onClick: () -> Unit,
 ) {
-    val name =
-        friend.metadata?.displayName?.takeIf { it.isNotBlank() }
-            ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
-            ?: (Nip19.encodeNpub(friend.pubkey).take(12) + "…")
+    val name = friendDisplayName(friend)
     Row(
         modifier =
         Modifier
