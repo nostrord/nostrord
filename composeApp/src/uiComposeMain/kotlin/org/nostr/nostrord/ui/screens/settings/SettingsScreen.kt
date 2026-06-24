@@ -64,7 +64,6 @@ import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
-import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.screens.backup.BackupKeysSections
@@ -107,11 +106,6 @@ fun SettingsScreen(
     onClose: () -> Unit,
     onNavigate: (Screen) -> Unit,
     onLogout: () -> Unit,
-    showToolbar: Boolean = false,
-    canGoBack: Boolean = false,
-    canGoForward: Boolean = false,
-    onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {},
     forceDesktop: Boolean = false,
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
@@ -334,11 +328,6 @@ fun SettingsScreen(
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
                 experimentalContent = experimentalContent,
-                showToolbar = showToolbar,
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                onHistoryBack = onHistoryBack,
-                onHistoryForward = onHistoryForward,
             )
         }
     }
@@ -362,22 +351,8 @@ private fun DesktopSettings(
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
-    showToolbar: Boolean = false,
-    canGoBack: Boolean = false,
-    canGoForward: Boolean = false,
-    onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        if (showToolbar) {
-            NavigationToolbar(
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                onBack = onHistoryBack,
-                onForward = onHistoryForward,
-            )
-        }
-
         // Centered layout: sidebar(218) + content(740) + close(80) = 1038dp center block.
         // Two equal fills extend the sidebar/content background colors to the screen edges,
         // mirroring the CSS: settings-sidebar-fill { flex:1 } / settings-content-fill { flex:1 }.

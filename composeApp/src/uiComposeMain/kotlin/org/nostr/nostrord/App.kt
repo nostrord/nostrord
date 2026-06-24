@@ -141,8 +141,10 @@ fun App() {
                     // The sidebar's "Follow people" action re-opens the wizard even for an
                     // account with groups or one that already skipped, so it overrides those.
                     val onboardingRequested by vm.onboardingRequested.collectAsState()
+                    val showingOnboarding =
+                        onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped)
                     val content: @Composable (Modifier) -> Unit =
-                        if (onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped)) {
+                        if (showingOnboarding) {
                             { m ->
                                 OnboardingFlowScreen(
                                     onSkip = vm::skipOnboarding,
@@ -157,7 +159,10 @@ fun App() {
                         } else {
                             { m -> Box(m) { AppFrame() } }
                         }
-                    if (hasWindowControls) {
+                    // Onboarding keeps the minimal drag bar; the AppFrame draws its own
+                    // NavigationToolbar (back/forward + window controls) at its top, so it
+                    // takes the full window with no extra title bar.
+                    if (hasWindowControls && showingOnboarding) {
                         Column(Modifier.fillMaxSize()) {
                             MinimalTitleBar()
                             content(Modifier.weight(1f))

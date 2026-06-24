@@ -80,9 +80,8 @@ enum class HomeTab { Groups, Friends, Recommended, People }
 /**
  * The Home page on a specific discovery tab: #/friends, #/recommended, #/people. The
  * default [HomeTab.Groups] is plain Home (root, no hash) and is represented by a null
- * route, so only the non-default tabs ever become a [HomeRoute]. Mirrored into the hash
- * (replaceState, not pushState) so a refresh or a shared link restores the tab without
- * piling tab switches onto the back stack.
+ * route, so only the non-default tabs ever become a [HomeRoute]. Mirrored into the URL
+ * hash so a refresh or a shared link restores the tab.
  */
 data class HomeRoute(val tab: HomeTab) : HashRoute
 

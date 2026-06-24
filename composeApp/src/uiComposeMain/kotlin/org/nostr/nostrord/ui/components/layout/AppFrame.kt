@@ -61,6 +61,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +90,7 @@ import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.loading.SkeletonCircle
 import org.nostr.nostrord.ui.components.loading.SkeletonLine
+import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
@@ -91,7 +98,9 @@ import org.nostr.nostrord.ui.navigation.HashRoute
 import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
+import org.nostr.nostrord.ui.navigation.NavigationHistory
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
+import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
@@ -112,6 +121,8 @@ import org.nostr.nostrord.ui.screens.relay.RelayPageScreen
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
+import org.nostr.nostrord.ui.window.onBackForwardMouseButtons
 import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
@@ -131,7 +142,6 @@ fun AppFrame() {
     val unreadCounts by vm.unreadCounts.collectAsState()
     val notificationUnread by vm.notificationUnread.collectAsState()
     val dmUnread by AppModule.nostrRepository.totalDmUnread.collectAsState()
-    var showSettings by remember { mutableStateOf(false) }
     var addGroupStep by remember { mutableStateOf<AddGroupStep?>(null) }
     // Friend tapped in the home sidebar: open the quick profile modal first (no
     // chat composer around, so no Mention action), with "View profile" inside it
@@ -140,9 +150,30 @@ fun AppFrame() {
     // Notifications page open over the content, with the filter sidebar; one shared VM
     // keeps the sidebar filters and the list in sync.
     val notifVm = viewModel { NotificationsViewModel(AppModule.nostrRepository) }
-    var showNotifications by remember { mutableStateOf(false) }
-    var route by remember { mutableStateOf<HashRoute?>(null) }
+    val history = remember { NavigationHistory() }
+    val nav by history.state.collectAsState()
+    val route = nav.current
     val groupRoute = route as? GroupRoute
+    // Notifications is a real route now; the rail and sidebar gate their layout on it.
+    val showNotifications = route is NotificationsRoute
+
+    // A genuine account switch resets navigation to Home so the previous account's open
+    // group or profile never leaks into the new session. The first activeId emission (the
+    // initial composition) is a no-op so a route seeded at startup survives.
+    val activeId by AppModule.accountStore.activeId.collectAsState()
+    var seenActiveId by remember { mutableStateOf(false) }
+    LaunchedEffect(activeId) {
+        if (seenActiveId) history.reset() else seenActiveId = true
+    }
+
+    // Desktop draws the NavigationToolbar (back/forward arrows + window controls) at the top
+    // of the frame; mobile has no window chrome. backHistory feeds the back arrow's
+    // long-press dropdown, most-recent first.
+    val hasWindowControls = LocalDesktopWindowControls.current != null
+    val backHistory =
+        nav.backStack.asReversed().map { entry ->
+            navEntryLabel(entry) { gid -> groups.firstOrNull { it.meta.id == gid }?.meta?.name }
+        }
 
     // Mirror the legacy AppShell: cross-relay navigation switches the relay first,
     // and the open group is tracked for notification suppression + unread clearing.
@@ -158,6 +189,21 @@ fun AppFrame() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val closeDrawer: () -> Unit = { drawerScope.launch { drawerState.close() } }
+
+    // Android system back / swipe-back: close an open drawer or modal first, otherwise step
+    // back through the shared history. At Home with nothing left to pop the handler is
+    // disabled, so the gesture leaves the app to the launcher as Android users expect (the
+    // session stays warm in the background). No-op on desktop and iOS.
+    PlatformBackHandler(
+        enabled = drawerState.isOpen || addGroupStep != null || profileUser != null || nav.canGoBack,
+    ) {
+        when {
+            drawerState.isOpen -> closeDrawer()
+            addGroupStep != null -> addGroupStep = null
+            profileUser != null -> profileUser = null
+            else -> history.back()
+        }
+    }
 
     // The 72px rail + 240px sidebar, shared by the desktop Row and the mobile drawer.
     val railContent: @Composable () -> Unit = {
@@ -179,8 +225,7 @@ fun AppFrame() {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 RailButton(icon = Icons.Default.Home, label = "Home", active = (route == null || route is HomeRoute) && !showNotifications) {
-                    route = null
-                    showNotifications = false
+                    history.navigate(null)
                     closeDrawer()
                 }
                 Column(
@@ -199,8 +244,7 @@ fun AppFrame() {
                             unread = unreadCounts[group.meta.id] ?: 0,
                             active = groupRoute?.groupId == group.meta.id && !showNotifications,
                         ) {
-                            route = GroupRoute(group.relayUrl, group.meta.id)
-                            showNotifications = false
+                            history.navigate(GroupRoute(group.relayUrl, group.meta.id))
                             closeDrawer()
                         }
                     }
@@ -213,8 +257,7 @@ fun AppFrame() {
             HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
             Box {
                 RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
-                    route = DmRoute()
-                    showNotifications = false
+                    history.navigate(DmRoute())
                     closeDrawer()
                 }
                 if (dmUnread > 0) {
@@ -230,7 +273,7 @@ fun AppFrame() {
                     label = "Notifications",
                     active = showNotifications,
                 ) {
-                    showNotifications = true
+                    history.navigate(NotificationsRoute)
                     closeDrawer()
                 }
                 if (notificationUnread > 0) {
@@ -260,15 +303,15 @@ fun AppFrame() {
                     GroupSidebar(
                         route = groupRoute,
                         onNavigateGroup = {
-                            route = it
+                            history.navigate(it)
                             closeDrawer()
                         },
                         onNavigateRelay = {
-                            route = RelayRoute(it)
+                            history.navigate(RelayRoute(it))
                             closeDrawer()
                         },
                         onNavigateHome = {
-                            route = null
+                            history.navigate(null)
                             closeDrawer()
                         },
                     )
@@ -277,10 +320,10 @@ fun AppFrame() {
                 Box(modifier = Modifier.weight(1f)) {
                     DmSidebar(
                         onOpenConversation = {
-                            route = it
+                            history.navigate(it)
                             closeDrawer()
                         },
-                        activePubkey = (route as DmRoute).pubkey,
+                        activePubkey = route.pubkey,
                     )
                 }
             } else {
@@ -307,140 +350,169 @@ fun AppFrame() {
                 )
             }
             AccountBar(
-                onOpenSettings = { showSettings = true },
-                onViewProfile = { pubkey -> route = UserRoute(pubkey) },
+                onOpenSettings = { history.navigate(SettingsRoute) },
+                onViewProfile = { pubkey -> history.navigate(UserRoute(pubkey)) },
             )
         }
     }
 
     val contentArea: @Composable (forceDesktop: Boolean, onOpenDrawer: (() -> Unit)?) -> Unit = { forceDesktop, onOpenDrawer ->
-        if (showNotifications) {
-            NotificationsPage(
-                vm = notifVm,
-                onOpenGroupAtRelay = { gid, _, relay, _ ->
-                    route = GroupRoute(relay, gid)
-                    showNotifications = false
-                },
-                onOpenDrawer = onOpenDrawer,
-            )
-        } else {
-            FrameContent(
-                route = route,
-                forceDesktop = forceDesktop,
-                onNavigate = { route = it },
-                onSelectHomeTab = { tab -> route = if (tab == HomeTab.Groups) null else HomeRoute(tab) },
-                onCloseGroup = { route = null },
-                onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
-                onEditProfile = { showSettings = true },
-                onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
-                onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
-                onOpenNotifications = { showNotifications = true },
-                onOpenDrawer = onOpenDrawer,
-            )
-        }
+        FrameContent(
+            route = route,
+            forceDesktop = forceDesktop,
+            notifVm = notifVm,
+            onNavigate = { history.navigate(it) },
+            onSelectHomeTab = { tab -> history.navigate(if (tab == HomeTab.Groups) null else HomeRoute(tab)) },
+            onCloseGroup = { history.navigate(null) },
+            onConsumeInvite = { (route as? GroupRoute)?.let { history.replace(it.copy(inviteCode = null)) } },
+            onEditProfile = { history.navigate(SettingsRoute) },
+            onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
+            onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
+            onOpenNotifications = { history.navigate(NotificationsRoute) },
+            onOpenDrawer = onOpenDrawer,
+        )
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // Below md (768) the rail + sidebar collapse into a slide-over drawer; a hamburger
-        // in each screen header opens it. At md+ they're persistent columns.
-        if (maxWidth < 768.dp) {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ModalDrawerSheet(
-                        drawerContainerColor = NostrordColors.BackgroundDark,
-                        modifier = Modifier.width(312.dp),
-                    ) {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            railContent()
-                            sidebarContent()
-                        }
-                    }
-                },
-            ) {
-                contentArea(false) { drawerScope.launch { drawerState.open() } }
-            }
-        } else {
-            Row(modifier = Modifier.fillMaxSize()) {
-                railContent()
-                sidebarContent()
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    contentArea(true, null)
-                }
-            }
-        }
-
-        // Add-group flow (rail "+"): the new-design chooser, then the existing
-        // create / join modals, landing on the group's chat afterwards.
-        when (addGroupStep) {
-            AddGroupStep.CHOOSER ->
-                AddGroupModal(
-                    onJoin = { addGroupStep = AddGroupStep.JOIN },
-                    onCreate = { addGroupStep = AddGroupStep.CREATE },
-                    onDismiss = { addGroupStep = null },
-                )
-            AddGroupStep.CREATE -> {
-                val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
-                val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
-                CreateGroupModal(
-                    currentRelayUrl = currentRelayUrl,
-                    userRelays = kind10009Relays,
-                    onDismiss = { addGroupStep = null },
-                    onGroupCreated = { relayUrl, groupId, _ ->
-                        addGroupStep = null
-                        route = GroupRoute(relayUrl, groupId)
-                    },
-                )
-            }
-            AddGroupStep.JOIN ->
-                JoinGroupModal(
-                    onJoin = { relayUrl, groupId, inviteCode ->
-                        addGroupStep = null
-                        // Open the group; the route effect switches relays and the
-                        // group screen consumes the invite code (auto-join). Normalized
-                        // so the route matches the relay keys used everywhere else.
-                        route = GroupRoute(relayUrl.normalizeRelayUrl(), groupId, inviteCode)
-                    },
-                    onDismiss = { addGroupStep = null },
-                )
-            null -> {}
-        }
-
-        // Quick profile modal for a friend tapped in the home sidebar. No onMention
-        // (we're not in a group chat, so the Mention row stays hidden); "View profile"
-        // and "Message" route through the frame navigator to the full page / DM.
-        profileUser?.let { pubkey ->
-            val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
-            CompositionLocalProvider(LocalFrameNavigator provides { route = it }) {
-                UserProfileModal(
-                    pubkey = pubkey,
-                    metadata = userMetadata[pubkey],
-                    userMetadata = userMetadata,
-                    onUserClick = { profileUser = it },
-                    onDismiss = { profileUser = null },
-                )
-            }
-        }
-
-        // Legacy Settings overlay, reachable from the account bar's gear until the
-        // new-design settings page is ported. Its internal confirm runs before
-        // onLogout, so the sign-out here is immediate.
-        if (showSettings) {
-            SettingsScreen(
-                onClose = { showSettings = false },
-                onNavigate = { showSettings = false },
-                onLogout = {
-                    showSettings = false
-                    AppModule.accountStore.activeId.value?.let {
-                        AppModule.accountManager.removeAccountAsync(it)
-                    }
-                },
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (hasWindowControls) {
+            NavigationToolbar(
+                canGoBack = nav.canGoBack,
+                canGoForward = nav.canGoForward,
+                onBack = { history.back() },
+                onForward = { history.forward() },
+                backHistory = backHistory,
+                onJumpBack = { stepsBack -> history.goToIndex(nav.index - 1 - stepsBack) },
             )
         }
+        BoxWithConstraints(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .onBackForwardMouseButtons(onBack = { history.back() }, onForward = { history.forward() })
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown && keyEvent.isAltPressed) {
+                        when (keyEvent.key) {
+                            Key.DirectionLeft -> {
+                                history.back()
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                history.forward()
+                                true
+                            }
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                },
+        ) {
+            // Below md (768) the rail + sidebar collapse into a slide-over drawer; a hamburger
+            // in each screen header opens it. At md+ they're persistent columns.
+            if (maxWidth < 768.dp) {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet(
+                            drawerContainerColor = NostrordColors.BackgroundDark,
+                            modifier = Modifier.width(312.dp),
+                        ) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                railContent()
+                                sidebarContent()
+                            }
+                        }
+                    },
+                ) {
+                    contentArea(false) { drawerScope.launch { drawerState.open() } }
+                }
+            } else {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    railContent()
+                    sidebarContent()
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        contentArea(true, null)
+                    }
+                }
+            }
 
-        // Zap modal host: mounted once so any ZapController.request(...) from a profile,
-        // profile modal or message renders the send-zap modal over the frame.
-        ZapModalHost()
+            // Add-group flow (rail "+"): the new-design chooser, then the existing
+            // create / join modals, landing on the group's chat afterwards.
+            when (addGroupStep) {
+                AddGroupStep.CHOOSER ->
+                    AddGroupModal(
+                        onJoin = { addGroupStep = AddGroupStep.JOIN },
+                        onCreate = { addGroupStep = AddGroupStep.CREATE },
+                        onDismiss = { addGroupStep = null },
+                    )
+                AddGroupStep.CREATE -> {
+                    val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
+                    val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
+                    CreateGroupModal(
+                        currentRelayUrl = currentRelayUrl,
+                        userRelays = kind10009Relays,
+                        onDismiss = { addGroupStep = null },
+                        onGroupCreated = { relayUrl, groupId, _ ->
+                            addGroupStep = null
+                            history.navigate(GroupRoute(relayUrl, groupId))
+                        },
+                    )
+                }
+                AddGroupStep.JOIN ->
+                    JoinGroupModal(
+                        onJoin = { relayUrl, groupId, inviteCode ->
+                            addGroupStep = null
+                            // Open the group; the route effect switches relays and the
+                            // group screen consumes the invite code (auto-join). Normalized
+                            // so the route matches the relay keys used everywhere else.
+                            history.navigate(GroupRoute(relayUrl.normalizeRelayUrl(), groupId, inviteCode))
+                        },
+                        onDismiss = { addGroupStep = null },
+                    )
+                null -> {}
+            }
+
+            // Quick profile modal for a friend tapped in the home sidebar. No onMention
+            // (we're not in a group chat, so the Mention row stays hidden); "View profile"
+            // and "Message" route through the frame navigator to the full page / DM.
+            profileUser?.let { pubkey ->
+                val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+                CompositionLocalProvider(
+                    LocalFrameNavigator provides {
+                        history.navigate(it)
+                        profileUser = null
+                    },
+                ) {
+                    UserProfileModal(
+                        pubkey = pubkey,
+                        metadata = userMetadata[pubkey],
+                        userMetadata = userMetadata,
+                        onUserClick = { profileUser = it },
+                        onDismiss = { profileUser = null },
+                    )
+                }
+            }
+
+            // Settings opens full-screen over the rail and sidebar (its own layout carries
+            // the close button); the toolbar above stays visible so back/forward still leave it.
+            if (route is SettingsRoute) {
+                SettingsScreen(
+                    onClose = { history.back() },
+                    // Legacy in-page navigation targets the old Screen graph the new frame
+                    // doesn't route; just close, like the old overlay did.
+                    onNavigate = { history.back() },
+                    onLogout = {
+                        history.back()
+                        AppModule.accountStore.activeId.value?.let { AppModule.accountManager.removeAccountAsync(it) }
+                    },
+                )
+            }
+
+            // Zap modal host: mounted once so any ZapController.request(...) from a profile,
+            // profile modal or message renders the send-zap modal over the frame.
+            ZapModalHost()
+        }
     }
 }
 
@@ -449,6 +521,7 @@ fun AppFrame() {
 private fun FrameContent(
     route: HashRoute?,
     forceDesktop: Boolean,
+    notifVm: NotificationsViewModel,
     onNavigate: (HashRoute) -> Unit,
     onSelectHomeTab: (HomeTab) -> Unit,
     onCloseGroup: () -> Unit,
@@ -486,11 +559,15 @@ private fun FrameContent(
                     onOpenConversation = onNavigate,
                     onOpenDrawer = onOpenDrawer,
                 )
-            // Native opens notifications and settings through full-screen overlays
-            // (showNotifications / showSettings), not the route (there is no URL bar), so
-            // these arms are unreachable; the web hash router is the only producer of
-            // NotificationsRoute / SettingsRoute.
-            is NotificationsRoute -> {}
+            // Notifications is a real route rendered here so back/forward traverse it like
+            // any page. Settings is a full-screen overlay in AppFrame (over the rail and
+            // sidebar), so its arm is empty.
+            is NotificationsRoute ->
+                NotificationsPage(
+                    vm = notifVm,
+                    onOpenGroupAtRelay = { gid, _, relay, _ -> onNavigate(GroupRoute(relay, gid)) },
+                    onOpenDrawer = onOpenDrawer,
+                )
             is SettingsRoute -> {}
             is RelayRoute ->
                 RelayPageScreen(
@@ -989,6 +1066,26 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
 
 /** Which step of the rail "+" add-group flow is open. */
 private enum class AddGroupStep { CHOOSER, CREATE, JOIN }
+
+/**
+ * A short human label for a route, for the desktop back arrow's history dropdown.
+ * [groupName] resolves a joined group's display name; falls back to the raw id.
+ */
+private fun navEntryLabel(route: HashRoute?, groupName: (String) -> String?): String = when (route) {
+    null -> "Home"
+    is HomeRoute -> when (route.tab) {
+        HomeTab.Groups -> "Home"
+        HomeTab.Friends -> "Friends"
+        HomeTab.Recommended -> "Recommended"
+        HomeTab.People -> "People"
+    }
+    is GroupRoute -> groupName(route.groupId) ?: route.groupId
+    is RelayRoute -> route.relayUrl.removePrefix("wss://").removePrefix("ws://")
+    is UserRoute -> runCatching { Nip19.encodeNpub(route.pubkey).take(12) + "…" }.getOrDefault("Profile")
+    is DmRoute -> if (route.pubkey == null) "Direct messages" else "Direct message"
+    is NotificationsRoute -> "Notifications"
+    is SettingsRoute -> "Settings"
+}
 
 /** Short signer label for the account chip (prototype AccountMenu). */
 private fun signerLabel(method: AuthMethod): String = when (method) {
