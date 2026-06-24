@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
@@ -227,7 +228,15 @@ private fun ReplyPreviewContainer(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .background(NostrordColors.Surface.copy(alpha = 0.5f))
+            // Reply background, matching the web .msg-reply: keep the good translucent dark
+            // (rgba(47,49,54,0.5)) in the dark theme, and the lighter floating surface in light.
+            .background(
+                if (NostrordColors.IsDark) {
+                    Color(0xFF2F3136).copy(alpha = 0.5f)
+                } else {
+                    NostrordColors.BackgroundFloating
+                },
+            )
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true)
             .padding(vertical = Spacing.xs),

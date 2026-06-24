@@ -100,6 +100,7 @@ val RelayScreen =
                     onClick = { props.onOpenDrawer() }
                     icon(Ic.Menu)
                 }
+                icon(Ic.Public)
                 span {
                     className = ClassName("relay-header-name")
                     +title

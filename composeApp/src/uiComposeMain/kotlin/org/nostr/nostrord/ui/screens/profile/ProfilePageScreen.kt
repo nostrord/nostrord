@@ -22,13 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mail
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,6 +59,7 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.buttons.FollowButton
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
@@ -105,14 +104,7 @@ fun ProfilePageScreen(
             horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             onOpenDrawer?.let { open ->
-                IconButton(onClick = open, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Menu",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                FrameMenuButton(onClick = open)
             }
             Icon(
                 imageVector = Icons.Default.Person,

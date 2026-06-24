@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.EmojiEmotions
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -72,6 +71,7 @@ import org.nostr.nostrord.network.upload.rememberClipboardImageReader
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.layout.DmConversationList
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
@@ -107,14 +107,7 @@ fun DmPageScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 onOpenDrawer?.let { open ->
-                    IconButton(onClick = open, modifier = Modifier.size(28.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Open menu",
-                            tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+                    FrameMenuButton(onClick = open)
                 }
                 Text(
                     "Direct messages",
@@ -241,14 +234,7 @@ fun DmPageScreen(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             onOpenDrawer?.let { open ->
-                IconButton(onClick = open, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Open menu",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+                FrameMenuButton(onClick = open)
             }
             Row(
                 modifier =

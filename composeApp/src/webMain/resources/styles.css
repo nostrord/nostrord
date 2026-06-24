@@ -3059,6 +3059,12 @@ body {
     padding: 0 16px;
     border-bottom: 1px solid var(--color-divider);
 }
+.relay-page-header > .ico {
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
 
 .relay-header-name {
     font-size: 16px;
@@ -6408,9 +6414,14 @@ body {
     gap: 8px;
     margin-bottom: 4px;
     padding: 4px 8px 4px 4px;
-    background: var(--color-floating);
+    /* Dark: the good translucent elevated box (reverted; var(--color-floating) read too dark). */
+    background: rgba(47, 49, 54, 0.5);
     border-radius: 4px;
     cursor: pointer;
+}
+[data-theme="light"] .msg-reply {
+    /* Light keeps the floating surface (the contrast fix). */
+    background: var(--color-floating);
 }
 .msg-reply:hover {
     background: var(--color-hover);
@@ -7073,7 +7084,7 @@ body {
     flex: 1;
     min-width: 0;
     font-size: 14px;
-    color: #ffffff;
+    color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -8332,6 +8343,13 @@ body {
 @media (max-width: 767px) {
     .chat-drawer-btn {
         display: inline-flex;
+    }
+}
+
+/* Group Info opens the same panel reachable via Members on mobile; hide it there. */
+@media (max-width: 767px) {
+    .chat-info-btn {
+        display: none;
     }
 }
 

@@ -18,11 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.notifications.NotificationEntry
 import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
@@ -80,14 +79,7 @@ fun NotificationsPage(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             onOpenDrawer?.let { open ->
-                IconButton(onClick = open, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Menu",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                FrameMenuButton(onClick = open)
             }
             Icon(
                 imageVector = Icons.Default.Notifications,

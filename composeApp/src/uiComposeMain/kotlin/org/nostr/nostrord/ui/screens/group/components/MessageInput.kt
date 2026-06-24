@@ -707,7 +707,7 @@ fun MessageInput(
                             // behaves inconsistently across platforms. The handler is
                             // the single source of truth for the in-flight lock.
                             interactionSource = textFieldInteractionSource,
-                            cursorBrush = SolidColor(Color.White),
+                            cursorBrush = SolidColor(NostrordColors.TextPrimary),
                             modifier = Modifier
                                 .weight(1f)
                                 .focusRequester(focusRequester)
@@ -878,7 +878,7 @@ fun MessageInput(
                                         else -> false
                                     }
                                 },
-                            textStyle = NostrordTypography.Input.copy(color = Color.White),
+                            textStyle = NostrordTypography.Input.copy(color = NostrordColors.TextPrimary),
                             singleLine = false,
                             // ~7 visible lines before internal scroll (prototype max-h-40).
                             maxLines = 7,

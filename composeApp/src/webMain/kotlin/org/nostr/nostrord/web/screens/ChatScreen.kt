@@ -1697,7 +1697,7 @@ val ChatScreen =
                             icon(Ic.Link)
                         }
                         button {
-                            className = ClassName("chat-icon-btn")
+                            className = ClassName("chat-icon-btn chat-info-btn")
                             title = "Group Info"
                             onClick = { setInfoOpen(true) }
                             icon(Ic.Info)

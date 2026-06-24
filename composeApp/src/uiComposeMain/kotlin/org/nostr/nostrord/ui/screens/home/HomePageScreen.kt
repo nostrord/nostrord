@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mail
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
@@ -54,6 +53,7 @@ import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
 import org.nostr.nostrord.ui.components.home.GroupCardSkeleton
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.onboarding.FollowAllButton
 import org.nostr.nostrord.ui.components.onboarding.FollowSuggestionRow
 import org.nostr.nostrord.ui.navigation.HomeTab
@@ -129,14 +129,7 @@ fun HomePageScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             onOpenDrawer?.let { open ->
-                IconButton(onClick = open) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Menu",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                FrameMenuButton(onClick = open)
                 Spacer(modifier = Modifier.width(4.dp))
             }
             Icon(

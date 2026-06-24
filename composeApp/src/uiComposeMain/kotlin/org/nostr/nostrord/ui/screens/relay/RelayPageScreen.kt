@@ -22,13 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +50,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.home.GroupCard
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -67,12 +66,9 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 @Composable
 fun RelayPageScreen(
     relayUrl: String,
-    onBack: () -> Unit,
     onOpenGroup: (relayUrl: String, groupId: String) -> Unit,
-    // Desktop keeps the persistent sidebar/rail for navigation, so the back button is
-    // only shown on compact (mobile) layouts.
-    forceDesktop: Boolean = false,
-    // On compact layouts the rail + sidebar collapse into a drawer; this opens it.
+    // On compact layouts the rail + sidebar collapse into a drawer; this opens it. On
+    // desktop it's null, so the hamburger hides and only the relay icon + name show.
     onOpenDrawer: (() -> Unit)? = null,
 ) {
     val repo = AppModule.nostrRepository
@@ -133,28 +129,19 @@ fun RelayPageScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (!forceDesktop) {
-                onOpenDrawer?.let { openDrawer ->
-                    IconButton(onClick = openDrawer) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open menu",
-                            tint = NostrordColors.TextSecondary,
-                        )
-                    }
-                }
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = NostrordColors.TextSecondary,
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
+            onOpenDrawer?.let { openDrawer ->
+                FrameMenuButton(onClick = openDrawer)
             }
+            Icon(
+                Icons.Default.Public,
+                contentDescription = null,
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(18.dp),
+            )
             Text(
                 title,
                 color = NostrordColors.TextPrimary,

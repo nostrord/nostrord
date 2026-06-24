@@ -3,7 +3,6 @@ package org.nostr.nostrord.ui.screens.group
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -25,6 +24,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.sidebars.MemberDrawerOverlay
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.GroupHeader
@@ -35,7 +35,6 @@ import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.Spacing
 import kotlin.math.abs
 
 /**
@@ -180,18 +179,9 @@ fun GroupScreenMobile(
                         onSearchClick = search.onToggle,
                         searchActive = search.active,
                         connectionState = connectionState,
+                        compact = true,
                         navigationIcon = {
-                            IconButton(
-                                onClick = onOpenDrawer,
-                                modifier = Modifier.size(Spacing.touchTargetMin),
-                            ) {
-                                Icon(
-                                    Icons.Default.Menu,
-                                    contentDescription = "Open sidebar",
-                                    tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                            FrameMenuButton(onClick = onOpenDrawer)
                         },
                         trailingIcon = {
                             IconButton(

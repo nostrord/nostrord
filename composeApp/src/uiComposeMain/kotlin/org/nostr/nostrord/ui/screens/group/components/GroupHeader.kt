@@ -73,6 +73,9 @@ fun GroupHeader(
     searchActive: Boolean = false,
     connectionState: ConnectionManager.ConnectionState? = null,
     modifier: Modifier = Modifier,
+    // Compact (mobile) header: hides the inline description and the Info button, and shows an
+    // icon-only Join, matching the web mobile chat header.
+    compact: Boolean = false,
     navigationIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
 ) {
@@ -158,7 +161,7 @@ fun GroupHeader(
                             Spacer(modifier = Modifier.width(8.dp))
                             RelayStatusDot(connectionState)
                         }
-                        if (!groupMetadata?.about.isNullOrBlank()) {
+                        if (!compact && !groupMetadata?.about.isNullOrBlank()) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = groupMetadata?.about ?: "",
@@ -268,16 +271,18 @@ fun GroupHeader(
                         }
                     }
 
-                    IconButton(
-                        onClick = onTitleClick,
-                        modifier = Modifier.size(30.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.Info,
-                            contentDescription = "Group info",
-                            tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
+                    if (!compact) {
+                        IconButton(
+                            onClick = onTitleClick,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Info,
+                                contentDescription = "Group info",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
 
@@ -329,19 +334,27 @@ fun GroupHeader(
                     Button(
                         onClick = { onJoinClick(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        contentPadding =
+                        if (compact) {
+                            PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                        } else {
+                            PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        },
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Icon(
                             Icons.Default.PersonAdd,
-                            contentDescription = null,
+                            contentDescription = if (isClosed) "Request to Join" else "Join",
                             modifier = Modifier.size(16.dp),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            if (isClosed) "Request to Join" else "Join",
-                            style = MaterialTheme.typography.labelMedium,
-                        )
+                        // Compact (mobile) shows an icon-only Join, like the web mobile header.
+                        if (!compact) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                if (isClosed) "Request to Join" else "Join",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
                     }
 
                     if (showInviteModal) {

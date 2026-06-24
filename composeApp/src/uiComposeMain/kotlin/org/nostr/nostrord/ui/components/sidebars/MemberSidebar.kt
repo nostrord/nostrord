@@ -449,7 +449,7 @@ private fun MemberItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = member.displayName,
-                    color = if (isOnline == false) NostrordColors.TextMuted else Color.White,
+                    color = if (isOnline == false) NostrordColors.TextMuted else NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

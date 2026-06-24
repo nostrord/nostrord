@@ -573,9 +573,7 @@ private fun FrameContent(
             is RelayRoute ->
                 RelayPageScreen(
                     relayUrl = route.relayUrl,
-                    onBack = onCloseGroup,
                     onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
-                    forceDesktop = forceDesktop,
                     onOpenDrawer = onOpenDrawer,
                 )
             is GroupRoute -> {
