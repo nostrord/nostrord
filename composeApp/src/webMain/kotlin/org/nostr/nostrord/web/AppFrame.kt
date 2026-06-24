@@ -121,6 +121,18 @@ val AppFrame =
         // Close the mobile nav drawer whenever the destination changes (a rail/sidebar tap
         // navigates or opens notifications), so it doesn't stay over the new screen.
         useEffect(route) { setDrawerOpen(false) }
+        // Switching accounts resets navigation to Home and strips the URL, so the previous
+        // account's open group doesn't linger or get reopened on refresh. useStateFlow seeds
+        // activeId synchronously, so the first run is the current account (no reset); only a
+        // genuine switch triggers it.
+        val prevActiveId = useRef(activeId)
+        useEffect(activeId) {
+            if (prevActiveId.current != activeId) {
+                prevActiveId.current = activeId
+                replaceHashRoute(null)
+                setRoute(null)
+            }
+        }
         val groupRoute = route as? GroupRoute
         val notificationsOpen = route is NotificationsRoute
         // Settings is its own deep-linkable page (#/settings), survives refresh.
