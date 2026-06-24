@@ -387,7 +387,14 @@ class FakeNostrRepository : NostrRepositoryApi {
     val _contactListLoaded = MutableStateFlow(true)
     override val contactListLoaded: StateFlow<Boolean> = _contactListLoaded
 
-    override suspend fun requestContactList() {}
+    /** Times [requestContactList] was called, so a test can assert the screen re-fetches
+     *  the contact list on cold start and again on every account switch. */
+    var requestContactListCount = 0
+        private set
+
+    override suspend fun requestContactList() {
+        requestContactListCount++
+    }
 
     override suspend fun followUser(pubkey: String): Result<Unit> {
         _following.value = _following.value + pubkey

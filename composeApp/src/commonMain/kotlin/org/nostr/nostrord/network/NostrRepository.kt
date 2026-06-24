@@ -2782,17 +2782,14 @@ class NostrRepository(
     // before either latches it (the guard is set only after the suspending relay
     // send), doubling the kind:3 REQ to every relay.
     override suspend fun requestContactList() {
-        val sentOrCached = contactListMutex.withLock {
-            requestContactListLocked()
-            contactListRequested
-        }
-        // Only declare the list "loaded" once a REQ actually went out (or we already
-        // had it): offline, leave it unloaded so the UI keeps showing the cache rather
-        // than a false "follows nobody". Mark loaded after the fetch resolves, even
-        // when it comes back empty.
-        if (!sentOrCached) return
-        withTimeoutOrNull(4_000L) { following.first { contactListCreatedAt > 0L } }
-        _contactListLoaded.value = true
+        contactListMutex.withLock { requestContactListLocked() }
+        // contactListLoaded is flipped by the kind:3 ingestion handler the moment this
+        // account's contact list lands (even an empty one), never on a timeout here. On a
+        // warm account switch the general-purpose relays that serve kind:3 are still
+        // reconnecting, so a blind flip would surface a false "follows nobody" and collapse
+        // the friends sidebar for an account that does have follows. An account that
+        // genuinely has no kind:3 is resolved by the screen's own loading cap instead, so
+        // the skeleton never hangs on a contact list that will never arrive.
     }
 
     /** Body of [requestContactList]; caller must hold [contactListMutex]. */
@@ -3405,9 +3402,18 @@ class NostrRepository(
                             connectionManager.getPrimaryClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
                         }
                         val handled = dmDecryptSemaphore.withPermit {
-                            kotlinx.coroutines.withTimeoutOrNull(DM_DECRYPT_TIMEOUT_MS) {
-                                dmManager.ingestGiftWrap(giftWrap, myPub, signer)
-                            } ?: false
+                            // This wrap captured myPub/signer when it arrived; the AUTH grace and
+                            // semaphore queue above can take seconds (bunker round-trips), so the
+                            // active account may have switched meanwhile. A previous account's wrap
+                            // must never land in (and then get persisted under) the new account's
+                            // inbox, so drop it once the active pubkey no longer matches.
+                            if (sessionManager.getPublicKey() != myPub) {
+                                false
+                            } else {
+                                kotlinx.coroutines.withTimeoutOrNull(DM_DECRYPT_TIMEOUT_MS) {
+                                    dmManager.ingestGiftWrap(giftWrap, myPub, signer)
+                                } ?: false
+                            }
                         }
                         if (handled && wrapId != null && wrapId !in dmProcessedWrapIds) {
                             dmProcessedWrapIds = dmProcessedWrapIds + wrapId

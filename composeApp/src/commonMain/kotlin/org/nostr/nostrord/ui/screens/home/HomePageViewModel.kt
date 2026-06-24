@@ -93,6 +93,16 @@ data class DiscoverGroup(
 class HomePageViewModel(
     private val repo: NostrRepositoryApi,
     notificationHistoryStore: NotificationHistoryStore = NotificationHistoryStore(),
+    // Loads an account's on-disk friends cache (kind:3 pubkeys -> rows, metadata seeded from
+    // the global store). Injectable so a test drives the per-account cache without touching
+    // SecureStorage; the friends sidebar shows these rows instantly while kind:3 re-arrives.
+    private val loadFriendsCache: (String?) -> List<Friend> = { pubkey ->
+        if (pubkey.isNullOrBlank()) {
+            emptyList()
+        } else {
+            SecureStorage.loadFollowingCacheFor(pubkey).map { pk -> Friend(pk, repo.userMetadata.value[pk]) }
+        }
+    },
 ) : ViewModel() {
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -235,66 +245,75 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
-     * Last-known followed users for the active account, so the sidebar shows its rows
-     * instantly instead of waiting for kind:3 to re-arrive. The live kind:3 fetch is not
-     * guaranteed to land on a warm account switch (the general relays may still be
-     * connecting), and an empty live result must NOT collapse the sidebar to "follows
-     * nobody" when the account does have follows on disk. This is a `var`: the
-     * activePubkey collector in [init] reloads it for the switched-to account, and the
-     * [friends] flow reads it live. Only the identities are persisted (see
-     * [saveFollowingCacheFor]); each row's avatar/name comes from the global
-     * user-metadata store, so metadata is not duplicated.
+     * The active account's on-disk friends cache, TAGGED with the pubkey it belongs to. The
+     * [friends] flow renders it only while its tag matches the live [NostrRepositoryApi.activePubkey],
+     * so a switch can never surface the previous account's rows even in the window where the repo
+     * reset and this VM's cache reload race. Reloaded for the switched-to account by the activePubkey
+     * collector in [init]. Only identities are persisted (see [saveFollowingCacheFor]); each row's
+     * avatar/name comes from the global user-metadata store, so metadata is not duplicated.
      */
-    private var cachedFriends: List<Friend> = loadFriendsCache(repo.getPublicKey())
+    private val cachedFriends =
+        MutableStateFlow(repo.activePubkey.value to loadFriendsCache(repo.activePubkey.value))
 
-    private fun loadFriendsCache(pubkey: String?): List<Friend> = if (pubkey.isNullOrBlank()) {
-        emptyList()
-    } else {
-        SecureStorage.loadFollowingCacheFor(pubkey)
-            .map { pk -> Friend(pk, repo.userMetadata.value[pk]) }
-    }
-
-    /** Friends with resolved avatars first, then by display name. */
+    /**
+     * Stable order by display name (npub until kind:0 lands), then pubkey. Deliberately NOT
+     * avatars-first: a metadata-keyed primary sort makes rows jump as kind:0 streams in, but we
+     * want each row to keep its slot and hydrate its name/avatar in place.
+     */
     private fun sortFriends(list: List<Friend>): List<Friend> = list.sortedWith(
-        compareByDescending<Friend> { it.metadata?.picture?.isNotBlank() == true }
-            .thenBy { (it.metadata?.displayName ?: it.metadata?.name ?: it.pubkey).lowercase() },
+        compareBy<Friend> { (it.metadata?.displayName ?: it.metadata?.name ?: it.pubkey).lowercase() }
+            .thenBy { it.pubkey },
     )
 
     /**
-     * The users the active account follows (kind:3), each enriched with their kind:0
-     * metadata (live, or the disk cache until it re-arrives), avatars first. Falls back
-     * to the cached list while kind:3 is still loading so the sidebar isn't empty.
+     * Backstop "the new account's follow list has resolved" gate. Driven by [armContactsResolve]
+     * (waits for contactListLoaded to cycle false->true on a switch, 15s cap) and forced false on
+     * every switch by the activePubkey collector, so a stale "resolved" can't surface the previous
+     * account's live `following`. [friends] trusts the live `following` only once this is true;
+     * until then it shows the tagged on-disk cache (or nothing), never the racing live list.
      */
-    val friends: StateFlow<List<Friend>> =
-        combine(repo.following, repo.userMetadata, repo.contactListLoaded) { following, meta, loaded ->
-            when {
-                // Until THIS account's kind:3 has loaded, show only its on-disk cache, never
-                // the live `following`: on a switch `following` briefly still holds the previous
-                // account's follows, and surfacing it would leak their rows into the new account
-                // (the friends sidebar showing the prior user while the new one loads).
-                !loaded -> sortFriends(cachedFriends)
-                following.isNotEmpty() -> {
-                    val cacheByPk = cachedFriends.associateBy { it.pubkey }
-                    sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
-                }
-                // Loaded and genuinely follows nobody (e.g. just unfollowed everyone):
-                // show empty, never the now-stale cache.
-                else -> emptyList()
-            }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, sortFriends(cachedFriends))
+    private val _contactsResolved = MutableStateFlow(false)
 
     /**
-     * False while this account's follow list is still being resolved: the sidebar renders a
-     * skeleton rather than rows or the "You don't follow anyone yet." empty state. Seeded from
-     * the cache at cold start (a cached account shows its rows immediately, no skeleton) and
-     * forced back to false on every account switch, so switching always shows the skeleton
-     * until the new account's kind:3 resolves instead of flashing the previous user's rows.
+     * The users the active account follows (kind:3), each enriched with kind:0 metadata (live, or
+     * the disk cache until it arrives). While the account's list is still resolving it shows the
+     * tagged on-disk cache so rows paint immediately (identicon + npub placeholders that hydrate in
+     * place); it switches to the live `following` only once [_contactsResolved] confirms the list is
+     * the new account's, so a switch never leaks the previous account's rows.
      */
-    private val _contactsResolved = MutableStateFlow(cachedFriends.isNotEmpty())
+    val friends: StateFlow<List<Friend>> =
+        combine(
+            repo.following,
+            repo.userMetadata,
+            repo.activePubkey,
+            cachedFriends,
+            _contactsResolved,
+        ) { following, meta, activePk, cached, resolved ->
+            // Trust the cache only under the account it was loaded for (tag == active pubkey).
+            val safeCache = if (cached.first == activePk) cached.second else emptyList()
+            when {
+                // Not yet resolved for this account: show its tagged cache, hydrating each row's
+                // metadata live. Never the racing `following` (it briefly holds the prior account's).
+                !resolved -> sortFriends(safeCache.map { f -> Friend(f.pubkey, meta[f.pubkey] ?: f.metadata) })
+                following.isNotEmpty() -> {
+                    val cacheByPk = safeCache.associateBy { it.pubkey }
+                    sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
+                }
+                // Resolved and genuinely follows nobody: empty, never the now-stale cache.
+                else -> emptyList()
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, sortFriends(cachedFriends.value.second))
+
+    /**
+     * Show the friends skeleton only until there are rows to paint: the moment the tagged cache
+     * loads OR the live list resolves, [friends] is non-empty and the skeleton drops (rows render
+     * with placeholders, names/avatars hydrate in place). It stays up on a switch to an uncached
+     * account until its kind:3 resolves, and [_contactsResolved] bounds that wait, so the skeleton
+     * can neither flash the previous user's rows nor hang forever.
+     */
     val friendsLoading: StateFlow<Boolean> =
-        _contactsResolved
-            .map { resolved -> !resolved }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, cachedFriends.isEmpty())
+        combine(_contactsResolved, friends) { resolved, fr -> !resolved && fr.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, cachedFriends.value.second.isEmpty())
 
     // Frozen first-seen display order for From friends (groupId -> slot), so the grid
     // doesn't reshuffle as member counts and new groups stream in.
@@ -597,9 +616,11 @@ class HomePageViewModel(
         // already handled by the initial arming above.
         viewModelScope.launch {
             repo.activePubkey.drop(1).collect { pk ->
-                cachedFriends = loadFriendsCache(pk)
-                // Always skeleton on switch (not cachedFriends.isNotEmpty()): the previous
-                // account's rows must not linger while the new account's kind:3 resolves.
+                // Reload the cache TAGGED with the new pubkey, so the friends flow renders it only
+                // under this account (the tag != active pubkey guard blocks the previous account's).
+                cachedFriends.value = pk to loadFriendsCache(pk)
+                // Force the resolved gate false so the tagged cache (or the skeleton), never the
+                // previous account's racing live `following`, shows until the new kind:3 resolves.
                 _contactsResolved.value = false
                 _myGroupsResolved.value = false
                 _friendsGroupsResolved.value = false
@@ -609,6 +630,11 @@ class HomePageViewModel(
                 requestedFriendLists.clear()
                 armMyGroupsResolve()
                 armContactsResolve()
+                // Re-request the switched-to account's kind:3 (init does this on cold
+                // start). reloadForActiveAccount also requests it, but only after the relay
+                // reconnect; this screen-timed retry closes the gap where that single
+                // attempt races the reconnect and the new account's follows never repopulate.
+                viewModelScope.launch { repo.requestContactList() }
             }
         }
         // Persist the followed pubkey list so the next launch shows the sidebar rows

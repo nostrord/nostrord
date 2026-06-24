@@ -11,6 +11,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.notifications.NotificationEntry
 import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.notifications.NotificationType
+import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -206,6 +207,45 @@ class HomePageViewModelTest {
         fake._activePubkey.value = "b".repeat(64)
         testDispatcher.scheduler.runCurrent()
         assertEquals(true, vm.myGroupsLoading.value)
+    }
+
+    @Test
+    fun `switching account re-requests the contact list`() = runTest {
+        // The VM outlives switches, so init's single requestContactList only covers cold
+        // start. Each switch must re-fire it for the new account, or the new account's
+        // kind:3 (and thus its friends) may never repopulate when the repo's own reload
+        // races the relay reconnect.
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, fake.requestContactListCount)
+
+        fake._activePubkey.value = "b".repeat(64)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(2, fake.requestContactListCount)
+    }
+
+    @Test
+    fun `switching account never leaks the previous account's cached friends`() = runTest {
+        // The friends flow must never render account A's cached rows under account B. The cache is
+        // tagged with its pubkey; on a switch the tag stops matching the active pubkey, so A's rows
+        // vanish even before B's own cache/kind:3 loads. runCurrent (no virtual-time advance) keeps
+        // the resolved backstop from firing so we observe the cache branch, where the leak lived.
+        val cacheA = listOf(Friend("a1", null), Friend("a2", null))
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        val vm = HomePageViewModel(fake, loadFriendsCache = { pk -> if (pk == "a".repeat(64)) cacheA else emptyList() })
+        testDispatcher.scheduler.runCurrent()
+        // Account A's cached friends paint immediately (placeholders), no skeleton.
+        assertEquals(setOf("a1", "a2"), vm.friends.value.map { it.pubkey }.toSet())
+        assertEquals(false, vm.friendsLoading.value)
+
+        // Switch to B (no cache): A's rows must be gone, not leaked under B; skeleton returns.
+        fake._activePubkey.value = "b".repeat(64)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(emptyList(), vm.friends.value.map { it.pubkey })
+        assertEquals(true, vm.friendsLoading.value)
     }
 
     @Test
