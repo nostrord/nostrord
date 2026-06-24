@@ -717,6 +717,9 @@ class NostrRepository(
                             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, restoredRelays)
                             groupManager.restoreGroupMembershipFromStorage(pubkey)
                             groupManager.migrateMessageBlobsToCache(pubkey)
+                            // Arm catch-up right before connect (fresh TTL) so the
+                            // first mux refresh replays the closed-app backlog.
+                            applyCatchUpSinceFor(pubkey)
                             connect(primaryRelay)
                             scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
                         }
@@ -756,6 +759,11 @@ class NostrRepository(
                 unreadManager.initialize(pubkey)
                 notificationSettings?.initialize(pubkey)
                 notificationHistoryStore?.initialize(pubkey)
+                // Arm catch-up so the first mux refresh after connect replays
+                // messages that arrived while the app was closed (notifications
+                // + unread). Must run after notificationHistoryStore.initialize
+                // so the newest-notification data point is loaded.
+                applyCatchUpSinceFor(pubkey)
             }
             initializeOutboxModel()
 
@@ -1079,6 +1087,11 @@ class NostrRepository(
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
+            // Arm catch-up so the first mux refresh after connect() replays the
+            // backlog accumulated while this identity was logged out. A fresh
+            // identity has no backlog, so skip it there. Must run after
+            // notificationHistoryStore.initialize so the data point is loaded.
+            if (!isNewIdentity) applyCatchUpSinceFor(newPubkey)
             // Skip the outbox bootstrap for a freshly generated identity:
             // nothing has been published yet, so kind:10002 / kind:10009 fetches
             // would only delay landing the user on the onboarding screen.
@@ -1533,18 +1546,21 @@ class NostrRepository(
         sessionManager.forgetBunkerConnection()
     }
 
-    override suspend fun reloadForActiveAccount() {
-        val pubkey = sessionManager.getPublicKey() ?: return
-        // The contact list is per-account; drop the prior account's before the swap.
-        resetContactListState()
-        val activeRelay = connectionManager.currentRelayUrl.value
-        val savedRelays = SecureStorage.loadRelayListFor(pubkey)
-
-        // Compute a one-shot catch-up `since` for the upcoming mux refresh:
-        // earliest of the account's last-active timestamp and the newest
-        // notification it already has, minus a small overlap. Skipped when
-        // this account has never been active before (no data point exists,
-        // so the default per-group windowing in LiveCursorStore is correct).
+    /**
+     * Arm a one-shot catch-up `since` for the upcoming mux refresh so the first
+     * subscription after connect replays everything that arrived for [pubkey]
+     * while it was inactive (account switched away, or the app was closed).
+     *
+     * The window starts at the earliest of the account's last-active heartbeat
+     * and the newest notification it already has, minus a small overlap. When
+     * the account has never been active before (no data point exists) the
+     * default per-group windowing in LiveCursorStore is left in charge.
+     *
+     * Used on both warm account swaps ([reloadForActiveAccount]) and cold start
+     * ([initialize] / cold-start [finishLoginInit]) — without it, a real
+     * close+reopen would only surface realtime events, never the missed backlog.
+     */
+    private fun applyCatchUpSinceFor(pubkey: String) {
         val lastActiveAt = SecureStorage.getLastActiveAt(pubkey)
         val newestNotif = notificationHistoryStore?.entries?.value?.firstOrNull()?.createdAt ?: 0L
         if (lastActiveAt > 0L || newestNotif > 0L) {
@@ -1564,6 +1580,16 @@ class NostrRepository(
             groupManager.setCatchUpSince(null)
             unreadManager.setCatchUpAnchor(null)
         }
+    }
+
+    override suspend fun reloadForActiveAccount() {
+        val pubkey = sessionManager.getPublicKey() ?: return
+        // The contact list is per-account; drop the prior account's before the swap.
+        resetContactListState()
+        val activeRelay = connectionManager.currentRelayUrl.value
+        val savedRelays = SecureStorage.loadRelayListFor(pubkey)
+
+        applyCatchUpSinceFor(pubkey)
 
         // Pre-fill the rail for the new account before the kind:10009 fetch
         // returns; without this the sidebar would show empty until the network
