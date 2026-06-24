@@ -115,7 +115,7 @@ fun NotificationsPage(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 672.dp).align(Alignment.TopCenter),
+                    modifier = Modifier.widthIn(max = 672.dp).fillMaxWidth().align(Alignment.TopCenter),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
