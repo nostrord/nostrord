@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +40,7 @@ import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.notifications.NotificationEntry
 import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
-import org.nostr.nostrord.ui.components.layout.FrameMenuButton
+import org.nostr.nostrord.ui.components.layout.PageHeader
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
@@ -72,27 +71,11 @@ fun NotificationsPage(
     }
 
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        PageHeader(
+            icon = Icons.Default.Notifications,
+            title = "Notifications",
+            onOpenDrawer = onOpenDrawer,
         ) {
-            onOpenDrawer?.let { open ->
-                FrameMenuButton(onClick = open)
-            }
-            Icon(
-                imageVector = Icons.Default.Notifications,
-                contentDescription = null,
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                "Notifications",
-                color = NostrordColors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
             if (unread > 0) {
                 Box(
                     modifier =
@@ -120,7 +103,6 @@ fun NotificationsPage(
                 Text("Mark all as read", color = tint, fontSize = 13.sp)
             }
         }
-        HorizontalDivider(color = NostrordColors.Divider)
 
         if (shown.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

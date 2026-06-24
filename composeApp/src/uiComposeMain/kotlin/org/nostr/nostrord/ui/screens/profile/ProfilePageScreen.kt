@@ -25,8 +25,6 @@ import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +57,7 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.buttons.FollowButton
-import org.nostr.nostrord.ui.components.layout.FrameMenuButton
+import org.nostr.nostrord.ui.components.layout.PageHeader
 import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
@@ -98,28 +96,11 @@ fun ProfilePageScreen(
             ?: vm.npub.take(12) + "..."
 
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Spacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        ) {
-            onOpenDrawer?.let { open ->
-                FrameMenuButton(onClick = open)
-            }
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                "Profile",
-                color = NostrordColors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        HorizontalDivider(color = NostrordColors.Divider)
+        PageHeader(
+            icon = Icons.Default.Person,
+            title = "Profile",
+            onOpenDrawer = onOpenDrawer,
+        )
 
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),

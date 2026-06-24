@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -72,6 +73,7 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.layout.DmConversationList
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
+import org.nostr.nostrord.ui.components.layout.PageHeader
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
@@ -101,22 +103,11 @@ fun DmPageScreen(
 ) {
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
         if (pubkey == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Spacing.lg),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                onOpenDrawer?.let { open ->
-                    FrameMenuButton(onClick = open)
-                }
-                Text(
-                    "Direct messages",
-                    color = NostrordColors.TextPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            HorizontalDivider(color = NostrordColors.Divider)
+            PageHeader(
+                icon = Icons.Default.Mail,
+                title = "Direct messages",
+                onOpenDrawer = onOpenDrawer,
+            )
             if (onOpenDrawer != null) {
                 // Compact / mobile: the DM sidebar is in the drawer, so show the conversation list
                 // in the page body (web `.dm-page-convos`). The empty-state CTA opens the drawer,
@@ -229,7 +220,7 @@ fun DmPageScreen(
                 ?: vm.npub.take(12) + "..."
 
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Spacing.lg),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {

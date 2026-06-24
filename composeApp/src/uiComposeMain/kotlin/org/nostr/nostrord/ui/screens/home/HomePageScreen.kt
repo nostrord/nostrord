@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -53,7 +52,7 @@ import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
 import org.nostr.nostrord.ui.components.home.GroupCardSkeleton
-import org.nostr.nostrord.ui.components.layout.FrameMenuButton
+import org.nostr.nostrord.ui.components.layout.PageHeader
 import org.nostr.nostrord.ui.components.onboarding.FollowAllButton
 import org.nostr.nostrord.ui.components.onboarding.FollowSuggestionRow
 import org.nostr.nostrord.ui.navigation.HomeTab
@@ -123,28 +122,11 @@ fun HomePageScreen(
     }
 
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
-        // Header bar
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        PageHeader(
+            icon = Icons.Default.Home,
+            title = "Home",
+            onOpenDrawer = onOpenDrawer,
         ) {
-            onOpenDrawer?.let { open ->
-                FrameMenuButton(onClick = open)
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-            Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = null,
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                "Home",
-                color = NostrordColors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
             Spacer(modifier = Modifier.weight(1f))
             IconButton(onClick = onOpenDms) {
                 Icon(
@@ -163,7 +145,6 @@ fun HomePageScreen(
                 )
             }
         }
-        HorizontalDivider(color = NostrordColors.Divider)
 
         BoxWithConstraints(modifier = Modifier.weight(1f)) {
             val columns =

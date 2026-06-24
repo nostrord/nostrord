@@ -25,8 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,7 +48,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.home.GroupCard
-import org.nostr.nostrord.ui.components.layout.FrameMenuButton
+import org.nostr.nostrord.ui.components.layout.PageHeader
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -128,30 +126,11 @@ fun RelayPageScreen(
         .distinctBy { it.meta.id }
 
     Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            onOpenDrawer?.let { openDrawer ->
-                FrameMenuButton(onClick = openDrawer)
-            }
-            Icon(
-                Icons.Default.Public,
-                contentDescription = null,
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                title,
-                color = NostrordColors.TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        HorizontalDivider(color = NostrordColors.Divider)
+        PageHeader(
+            icon = Icons.Default.Public,
+            title = title,
+            onOpenDrawer = onOpenDrawer,
+        )
 
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             // Match the web .card-grid breakpoints (1 / 2 / 3 columns) off the content width.
