@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.components.buttons
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,6 +53,9 @@ fun AppButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    // Hover only counts when the button is actually interactive: a disabled button (Mute /
+    // Report before they're wired) must not light up its background or content on hover.
+    val hovered = isHovered && enabled && !loading
 
     // Variant colors mirror styles.css .btn-* and the prototype's Button component.
     val container: Color
@@ -71,7 +75,7 @@ fun AppButton(
         AppButtonVariant.Ghost -> {
             container = Color.Transparent
             containerHover = NostrordColors.HoverBackground
-            content = if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary
+            content = if (hovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary
         }
         AppButtonVariant.Danger -> {
             container = NostrordColors.Error
@@ -97,6 +101,22 @@ fun AppButton(
             AppButtonSize.Medium -> 14.sp
             AppButtonSize.Large -> 15.sp
         }
+    // Horizontal padding + icon size mirror the web .btn-* / .profile-btn (sm 12px/16px,
+    // base 18px/18px). Vertical content padding is 0 so the label is never squeezed inside the
+    // fixed height: the height centers the content with room to spare instead of clipping it.
+    val horizontalPadding =
+        when (size) {
+            AppButtonSize.Small -> 12.dp
+            AppButtonSize.Medium -> 18.dp
+            AppButtonSize.Large -> 20.dp
+        }
+    val iconSize =
+        when (size) {
+            AppButtonSize.Small -> 16.dp
+            AppButtonSize.Medium -> 18.dp
+            AppButtonSize.Large -> 20.dp
+        }
+    val iconGap = if (size == AppButtonSize.Small) 6.dp else 8.dp
 
     Button(
         onClick = { if (enabled && !loading) onClick() },
@@ -105,11 +125,12 @@ fun AppButton(
         shape = NostrordShapes.buttonShape,
         colors =
         ButtonDefaults.buttonColors(
-            containerColor = if (isHovered) containerHover else container,
+            containerColor = if (hovered) containerHover else container,
             contentColor = content,
             disabledContainerColor = container.copy(alpha = if (variant == AppButtonVariant.Ghost) 0f else 0.5f),
             disabledContentColor = content.copy(alpha = 0.7f),
         ),
+        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 0.dp),
         modifier =
         modifier
             .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier)
@@ -128,9 +149,9 @@ fun AppButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(iconSize),
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(iconGap))
         }
         Text(text, fontSize = fontSize, fontWeight = FontWeight.SemiBold)
     }
