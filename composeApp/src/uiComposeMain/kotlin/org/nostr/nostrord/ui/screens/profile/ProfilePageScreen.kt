@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +24,7 @@ import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,14 +110,26 @@ fun ProfilePageScreen(
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(modifier = Modifier.widthIn(max = 672.dp).padding(Spacing.xl)) {
+            Column(modifier = Modifier.widthIn(max = 672.dp).padding(horizontal = Spacing.lg, vertical = Spacing.xxl)) {
                 // Identity card: banner + avatar + name + about + npub.
                 Surface(shape = NostrordShapes.shapeXLarge, color = NostrordColors.Surface) {
                     Column {
                         ProfileBanner(seed = pubkey, bannerUrl = metadata?.banner)
                         Column(modifier = Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.xl)) {
                             Row(
-                                modifier = Modifier.fillMaxWidth().offset(y = (-40).dp),
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .layout { measurable, constraints ->
+                                        // Overlap the banner by 40dp (web .profile-page-avatar-row
+                                        // margin-top:-40), reserving only the part below it so the
+                                        // content reflows and the card keeps no extra bottom space.
+                                        val placeable = measurable.measure(constraints)
+                                        val overlap = 40.dp.roundToPx()
+                                        layout(placeable.width, (placeable.height - overlap).coerceAtLeast(0)) {
+                                            placeable.place(0, -overlap)
+                                        }
+                                    },
                                 verticalAlignment = Alignment.Bottom,
                             ) {
                                 Box(
@@ -158,7 +174,8 @@ fun ProfilePageScreen(
                                 }
                             }
 
-                            Column(modifier = Modifier.offset(y = (-28).dp)) {
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                            Column {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -216,6 +233,7 @@ fun ProfilePageScreen(
                                             enabled = false,
                                             variant = AppButtonVariant.Ghost,
                                             size = AppButtonSize.Small,
+                                            icon = Icons.Outlined.NotificationsOff,
                                         )
                                         AppButton(
                                             text = "Report",
@@ -242,12 +260,30 @@ fun ProfilePageScreen(
                 )
                 Spacer(modifier = Modifier.height(Spacing.sm))
                 if (groups.isEmpty()) {
-                    Text(
-                        "No groups to show.",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 13.sp,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xxl),
-                    )
+                    val dividerColor = NostrordColors.Divider
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .drawBehind {
+                                drawRoundRect(
+                                    color = dividerColor,
+                                    cornerRadius = CornerRadius(16.dp.toPx()),
+                                    style = Stroke(
+                                        width = 1.dp.toPx(),
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())),
+                                    ),
+                                )
+                            }
+                            .padding(vertical = Spacing.xxxl),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No groups to show.",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 13.sp,
+                        )
+                    }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         groups.forEach { group ->

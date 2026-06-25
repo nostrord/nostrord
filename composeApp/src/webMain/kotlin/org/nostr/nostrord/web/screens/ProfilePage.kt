@@ -189,7 +189,7 @@ val ProfilePage =
                                         className = ClassName("btn-ghost profile-btn sm")
                                         disabled = true
                                         title = "Coming soon"
-                                        span { +"🔕" }
+                                        icon(Ic.NotificationsOff)
                                         +"Mute"
                                     }
                                     button {
