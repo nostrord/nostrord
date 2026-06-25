@@ -81,9 +81,11 @@ val AppFrame =
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val dmUnread = useStateFlow(repo.totalDmUnread)
-        // Telegram-style browser-tab badge: total unread messages (groups + DMs) drawn on
-        // the favicon and prefixed onto the title. Web only; native uses OS notifications.
-        useTabBadge(unreadCounts.values.sum() + dmUnread)
+        // Browser-tab badge = unread notifications + unread DMs, so the favicon alerts for both,
+        // using the notification count (not the old per-group message-unread total, which
+        // over-counted vs the Notifications bell). Web only; native uses OS notifications;
+        // per-group message unread stays on the rail badges.
+        useTabBadge(notificationUnread + dmUnread)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeId = useStateFlow(AppModule.accountStore.activeId)
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
