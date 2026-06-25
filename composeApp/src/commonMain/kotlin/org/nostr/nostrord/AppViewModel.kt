@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -16,6 +18,11 @@ import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.utils.parseGroupJoinInput
 import org.nostr.nostrord.utils.toKotlinResult
 
+// Grace before deciding the active account "needs onboarding": the kind:10009 list resolves the
+// moment the first group arrives, but a genuinely group-less account only resolves after this, so
+// a switch never flashes the wizard before the new account's list has loaded.
+private const val GROUP_RESOLVE_GRACE_MS = 3_000L
+
 class AppViewModel(
     private val repo: NostrRepositoryApi,
 ) : ViewModel() {
@@ -23,16 +30,41 @@ class AppViewModel(
     val isLoggedIn = repo.isLoggedIn
     val isBunkerVerifying = repo.isBunkerVerifying
 
+    // Group-list resolved gate: true once the active account's kind:10009 has actually loaded
+    // (the first joined group arrived) or [GROUP_RESOLVE_GRACE_MS] elapsed. Reset + re-armed on
+    // every account switch (the activePubkey collector in init), so the onboarding decision is
+    // never made while the new account's list is still empty mid-reload.
+    private val _groupsResolved = MutableStateFlow(false)
+
+    private fun armGroupsResolve() {
+        viewModelScope.launch {
+            withTimeoutOrNull(GROUP_RESOLVE_GRACE_MS) {
+                repo.joinedGroupsByRelay.first { byRelay -> byRelay.values.any { it.isNotEmpty() } }
+            }
+            _groupsResolved.value = true
+        }
+    }
+
     /**
-     * Onboarding gate: true while the active account's kind:10009 lists no groups at
-     * all on any relay (and relay discovery is not still running, so a returning
-     * account doesn't flash the onboarding before its list arrives). Accounts with
-     * groups land straight on Home.
+     * Onboarding gate: true once we've resolved that the active account's kind:10009 lists no
+     * groups at all on any relay (and relay discovery is not still running). Accounts with groups
+     * land straight on Home; while the list is still resolving, [onboardingDecisionPending] holds
+     * the loading screen instead of guessing.
      */
     val needsOnboarding: StateFlow<Boolean> =
-        combine(repo.joinedGroupsByRelay, repo.isDiscoveringRelays) { joined, discovering ->
-            !discovering && joined.values.all { it.isEmpty() }
+        combine(repo.joinedGroupsByRelay, repo.isDiscoveringRelays, _groupsResolved) { joined, discovering, resolved ->
+            resolved && !discovering && joined.values.all { it.isEmpty() }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /**
+     * True during the post-login window where we don't yet know whether the active account has
+     * groups: its list hasn't resolved and currently looks empty. Both UIs show the loading screen
+     * here (rather than the home skeleton), then route to Home or onboarding once it resolves.
+     */
+    val onboardingDecisionPending: StateFlow<Boolean> =
+        combine(repo.joinedGroupsByRelay, _groupsResolved) { joined, resolved ->
+            !resolved && joined.values.all { it.isEmpty() }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     // Session-level "Skip for now": the gate is state-derived, so skipping needs an
     // explicit override or the user could never reach Home without joining a group.
@@ -97,6 +129,19 @@ class AppViewModel(
     }
 
     init {
+        armGroupsResolve()
+        // The VM outlives account switches: re-arm the onboarding decision per account so a switch
+        // never flashes the wizard (or carries a prior account's Skip) before the new account's
+        // group list loads. drop(1): the current account is covered by the arming above.
+        viewModelScope.launch {
+            repo.activePubkey.drop(1).collect {
+                _groupsResolved.value = false
+                _onboardingSkipped.value = false
+                _stayInOnboarding.value = false
+                AppModule.clearOnboardingRequest()
+                armGroupsResolve()
+            }
+        }
         viewModelScope.launch {
             withTimeoutOrNull(30_000) {
                 repo.initialize()

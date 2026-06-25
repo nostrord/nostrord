@@ -7,6 +7,7 @@ import org.nostr.nostrord.notifications.installPlatformFocusListeners
 import org.nostr.nostrord.ui.theme.paletteForTheme
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
+import org.nostr.nostrord.web.components.AppLoading
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.modals.UnlockModal
 import org.nostr.nostrord.web.navigation.WebRoute
@@ -108,6 +109,9 @@ val WebApp =
         // The sidebar's "Follow people" action re-opens the wizard even for an account
         // with groups or one that already skipped, so it overrides those gates.
         val onboardingRequested = useStateFlow(vm.onboardingRequested)
+        // True while we don't yet know whether the active account has groups (its list hasn't
+        // resolved): show the loading screen instead of guessing Home vs onboarding.
+        val onboardingPending = useStateFlow(vm.onboardingDecisionPending)
         val showingOnboarding =
             loggedIn && (onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped))
 
@@ -141,18 +145,21 @@ val WebApp =
             // and only fades out once data-app-ready is set above.
             !initialized -> null
             loggedIn ->
-                if (showingOnboarding) {
-                    OnboardingFlow {
-                        onSkip = { vm.skipOnboarding() }
-                        onJoin = { input, onResult -> vm.joinGroupFromInput(input, onResult) }
-                        // Discovered-group join: keep the wizard up so several can be joined.
-                        onJoinGroup = { relayUrl, groupId ->
-                            vm.keepOnboarding()
-                            vm.joinGroupFromInput("$relayUrl'$groupId") {}
+                when {
+                    showingOnboarding ->
+                        OnboardingFlow {
+                            onSkip = { vm.skipOnboarding() }
+                            onJoin = { input, onResult -> vm.joinGroupFromInput(input, onResult) }
+                            // Discovered-group join: keep the wizard up so several can be joined.
+                            onJoinGroup = { relayUrl, groupId ->
+                                vm.keepOnboarding()
+                                vm.joinGroupFromInput("$relayUrl'$groupId") {}
+                            }
                         }
-                    }
-                } else {
-                    AppFrame()
+                    // Still resolving the new account's group list (e.g. just switched): hold the
+                    // loading screen, then route to Home or onboarding once it resolves.
+                    onboardingPending -> AppLoading()
+                    else -> AppFrame()
                 }
             // A bunker signer is still being (re)connected on cold start: hold the loading
             // shell instead of flashing LoginScreen during the async handshake. This is the

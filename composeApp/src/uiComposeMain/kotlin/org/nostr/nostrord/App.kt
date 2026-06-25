@@ -151,9 +151,12 @@ fun App() {
                     val onboardingRequested by vm.onboardingRequested.collectAsState()
                     val showingOnboarding =
                         onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped)
+                    // While the new account's group list is still resolving (e.g. just switched),
+                    // show the loading screen rather than guessing Home vs onboarding, then route.
+                    val onboardingPending by vm.onboardingDecisionPending.collectAsState()
                     val content: @Composable (Modifier) -> Unit =
-                        if (showingOnboarding) {
-                            { m ->
+                        when {
+                            showingOnboarding -> { m ->
                                 OnboardingFlowScreen(
                                     onSkip = vm::skipOnboarding,
                                     onJoin = vm::joinGroupFromInput,
@@ -164,13 +167,13 @@ fun App() {
                                     modifier = m,
                                 )
                             }
-                        } else {
-                            { m -> Box(m) { AppFrame() } }
+                            onboardingPending -> { m -> LoadingScreen(m) }
+                            else -> { m -> Box(m) { AppFrame() } }
                         }
-                    // Onboarding keeps the minimal drag bar; the AppFrame draws its own
-                    // NavigationToolbar (back/forward + window controls) at its top, so it
-                    // takes the full window with no extra title bar.
-                    if (hasWindowControls && showingOnboarding) {
+                    // Onboarding / loading keep the minimal drag bar; the AppFrame draws its own
+                    // NavigationToolbar (back/forward + window controls) at its top, so it takes
+                    // the full window with no extra title bar.
+                    if (hasWindowControls && (showingOnboarding || onboardingPending)) {
                         Column(Modifier.fillMaxSize()) {
                             MinimalTitleBar()
                             content(Modifier.weight(1f))

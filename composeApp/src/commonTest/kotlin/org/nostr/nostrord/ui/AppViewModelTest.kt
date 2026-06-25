@@ -91,4 +91,29 @@ class AppViewModelTest {
         vm.skipOnboarding()
         assertTrue(vm.onboardingSkipped.value)
     }
+
+    @Test
+    fun `switching account re-pends the onboarding decision until the new list resolves`() = runTest {
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
+        val vm = AppViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Account A has groups: resolved, so neither pending (loading) nor onboarding.
+        assertFalse(vm.onboardingDecisionPending.value)
+        assertFalse(vm.needsOnboarding.value)
+
+        // Switch to B whose list is empty and unresolved: the decision re-pends (loading
+        // screen), never flashing the wizard. runCurrent so the resolve grace doesn't fire.
+        fake._activePubkey.value = "b".repeat(64)
+        fake._joinedGroupsByRelay.value = emptyMap()
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(vm.onboardingDecisionPending.value)
+        assertFalse(vm.needsOnboarding.value)
+
+        // B's list resolves still-empty (grace elapses): now onboarding, no longer pending.
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.onboardingDecisionPending.value)
+        assertTrue(vm.needsOnboarding.value)
+    }
 }

@@ -54,6 +54,20 @@
     </script>
 
     <link type="text/css" rel="stylesheet" href="styles.css?v=__BUILD_VERSION__">
+
+    <!-- No-flash theme: stamp data-theme from the persisted preference (or the system scheme)
+         before the loading shell paints, so a light-theme user never gets a dark first frame.
+         applyColorTokens() re-stamps it (and injects the full palette) once the bundle runs. -->
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('appearance_theme');
+                var dark = t === 'DARK' ||
+                    (t !== 'LIGHT' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
     <!-- Crypto libraries - defer loading to not block render -->
     <script defer src="aes-js.min.js?v=__BUILD_VERSION__"></script>
     <script defer src="noble-crypto.min.js?v=__BUILD_VERSION__"></script>
@@ -97,21 +111,12 @@
 <!-- Loading shell — visible from HTML parse until WebApp signals
      data-app-ready (after repo.isInitialized flips true). Bridges the full
      cold-start so the user sees one spinner, not the canvas-era pair. -->
-<div id="loading-shell" style="
-    position:fixed; inset:0; z-index:9999;
-    display:flex; flex-direction:column;
-    align-items:center; justify-content:center;
-    background:#1E1F22; color:#B5BAC1;
-    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-">
-    <svg width="48" height="48" viewBox="0 0 48 48" style="animation:spin 1s linear infinite">
-        <circle cx="24" cy="24" r="20" fill="none" stroke="#7A5AF8"
-                stroke-width="4" stroke-dasharray="80 40"
-                stroke-linecap="round"/>
-    </svg>
-    <p style="margin-top:16px;font-size:14px">Loading Nostrord…</p>
+<!-- Same .app-loading markup the React AppLoading renders, so the cold-start and in-app
+     (account-switch) loading are one visual; theme-aware via the data-theme stamped above. -->
+<div id="loading-shell" class="app-loading">
+    <div class="app-loading-spinner"></div>
+    <p>Loading Nostrord…</p>
 </div>
-<style>@keyframes spin { to { transform: rotate(360deg) } }</style>
 <div id="composeApplication"></div>
 <script>
 function removeShell() {
