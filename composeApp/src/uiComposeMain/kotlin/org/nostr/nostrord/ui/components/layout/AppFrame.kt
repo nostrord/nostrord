@@ -1066,6 +1066,10 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                         displayName,
                         color = NostrordColors.TextPrimary,
                         fontSize = 13.sp,
+                        // Tight line height (web .account-bar-meta line-height: 1.25) so the name
+                        // and status hug each other; the font's default leading is what was
+                        // inflating the gap and pushing the trigger taller than the avatar.
+                        lineHeight = 16.25.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1074,6 +1078,7 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                         "online",
                         color = NostrordColors.Success,
                         fontSize = 11.sp,
+                        lineHeight = 13.75.sp,
                     )
                 }
                 Icon(
