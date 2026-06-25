@@ -31,7 +31,7 @@ fun JoinGroupModal(
         title = {
             Text(
                 "Join Group",
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleMedium,
             )
         },
@@ -114,8 +114,8 @@ fun JoinGroupModal(
 
 @Composable
 private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
+    focusedTextColor = NostrordColors.TextContent,
+    unfocusedTextColor = NostrordColors.TextContent,
     focusedBorderColor = NostrordColors.Primary,
     unfocusedBorderColor = NostrordColors.SurfaceVariant,
     cursorColor = NostrordColors.Primary,

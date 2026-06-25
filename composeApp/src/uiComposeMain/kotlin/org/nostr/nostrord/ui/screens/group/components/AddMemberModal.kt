@@ -159,7 +159,7 @@ fun AddMemberModal(
                         },
                         textStyle =
                         TextStyle(
-                            color = Color.White,
+                            color = NostrordColors.TextContent,
                             fontSize = 14.sp,
                         ),
                         singleLine = true,

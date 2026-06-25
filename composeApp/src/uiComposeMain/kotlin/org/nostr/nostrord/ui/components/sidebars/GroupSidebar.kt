@@ -66,7 +66,7 @@ fun GroupSidebar(
             Text(
                 text = groupName ?: "Unknown Group",
                 style = NostrordTypography.ServerHeader,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

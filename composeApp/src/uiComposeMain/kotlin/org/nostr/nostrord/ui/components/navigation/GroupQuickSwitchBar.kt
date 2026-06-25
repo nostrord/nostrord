@@ -85,7 +85,7 @@ fun GroupQuickSwitchBar(
             Icon(
                 imageVector = Icons.Default.Home,
                 contentDescription = "Home",
-                tint = if (activeGroupId == null) NostrordColors.Primary else Color.White,
+                tint = if (activeGroupId == null) NostrordColors.Primary else NostrordColors.TextSecondary,
                 modifier = Modifier.size(24.dp),
             )
         }

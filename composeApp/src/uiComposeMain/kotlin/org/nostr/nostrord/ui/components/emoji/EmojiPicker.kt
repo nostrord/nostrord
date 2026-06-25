@@ -152,8 +152,8 @@ fun EmojiPicker(
                 TextFieldDefaults.colors(
                     focusedContainerColor = NostrordColors.InputBackground,
                     unfocusedContainerColor = NostrordColors.InputBackground,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedTextColor = NostrordColors.TextContent,
+                    unfocusedTextColor = NostrordColors.TextContent,
                     cursorColor = NostrordColors.Primary,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,

@@ -158,7 +158,7 @@ fun YouTubeLinkCard(
 
             Text(
                 text = "youtube.com",
-                color = Color.Gray,
+                color = NostrordColors.TextMuted,
                 fontSize = 11.sp,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 4.dp),

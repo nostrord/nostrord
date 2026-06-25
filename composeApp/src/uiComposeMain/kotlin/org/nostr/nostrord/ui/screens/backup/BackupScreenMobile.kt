@@ -21,7 +21,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.components.cards.InfoCard
@@ -34,7 +33,7 @@ fun BackupScreenMobile(vm: BackupViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Backup Keys", color = Color.White) },
+                title = { Text("Backup Keys", color = NostrordColors.TextPrimary) },
                 colors =
                 TopAppBarDefaults.topAppBarColors(
                     containerColor = NostrordColors.BackgroundDark,
@@ -64,7 +63,7 @@ fun BackupScreenMobile(vm: BackupViewModel) {
 
             Text(
                 "Backup Your Keys",
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )

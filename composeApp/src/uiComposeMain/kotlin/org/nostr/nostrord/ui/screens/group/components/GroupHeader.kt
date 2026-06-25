@@ -413,7 +413,7 @@ fun InviteCodeJoinModal(
         title = {
             Text(
                 "Join with Invite Code",
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleMedium,
             )
         },
@@ -432,8 +432,8 @@ fun InviteCodeJoinModal(
                 modifier = Modifier.fillMaxWidth(),
                 colors =
                 OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedTextColor = NostrordColors.TextContent,
+                    unfocusedTextColor = NostrordColors.TextContent,
                     focusedBorderColor = NostrordColors.Primary,
                     unfocusedBorderColor = NostrordColors.SurfaceVariant,
                     cursorColor = NostrordColors.Primary,

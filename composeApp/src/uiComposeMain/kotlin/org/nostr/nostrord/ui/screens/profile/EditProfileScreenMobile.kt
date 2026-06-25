@@ -52,7 +52,7 @@ fun EditProfileScreenMobile(
                     Text(
                         "Edit Profile",
                         style = NostrordTypography.ServerHeader,
-                        color = Color.White,
+                        color = NostrordColors.TextPrimary,
                     )
                 },
                 actions = {
@@ -262,8 +262,8 @@ private fun ProfileTextField(
                 focusedContainerColor = NostrordColors.InputBackground,
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = NostrordColors.TextContent,
+                unfocusedTextColor = NostrordColors.TextContent,
             ),
             shape = NostrordShapes.shapeSmall,
         )

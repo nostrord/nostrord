@@ -47,7 +47,7 @@ fun InfoCard(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 content,
-                color = Color.White,
+                color = NostrordColors.TextContent,
                 style = if (isCompact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodySmall,
             )
         }

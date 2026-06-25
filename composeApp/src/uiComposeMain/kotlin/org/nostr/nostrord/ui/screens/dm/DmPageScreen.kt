@@ -336,8 +336,8 @@ fun DmPageScreen(
                 BasicTextField(
                     value = textFieldValue,
                     onValueChange = { textFieldValue = it },
-                    cursorBrush = SolidColor(Color.White),
-                    textStyle = NostrordTypography.Input.copy(color = Color.White),
+                    cursorBrush = SolidColor(NostrordColors.TextContent),
+                    textStyle = NostrordTypography.Input.copy(color = NostrordColors.TextContent),
                     maxLines = 7,
                     modifier =
                     Modifier

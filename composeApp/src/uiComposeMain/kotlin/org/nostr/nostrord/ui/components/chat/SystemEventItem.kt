@@ -20,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -130,7 +129,7 @@ fun SystemEventItem(
                 val displayName = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey)
                 Text(
                     text = displayName,
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -147,7 +146,7 @@ fun SystemEventItem(
             } else {
                 Text(
                     text = "$totalUsers members",
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,

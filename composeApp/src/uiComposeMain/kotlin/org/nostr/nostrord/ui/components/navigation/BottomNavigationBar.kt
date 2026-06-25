@@ -81,7 +81,7 @@ fun BottomNavigationBar(
     NavigationBar(
         modifier = modifier,
         containerColor = NostrordColors.BackgroundDark,
-        contentColor = Color.White,
+        contentColor = NostrordColors.TextPrimary,
         tonalElevation = 0.dp,
     ) {
         BottomNavItem.entries.forEach { item ->

@@ -110,7 +110,7 @@ fun GroupCard(
             // Group name - bold white
             Text(
                 text = groupName,
-                color = if (unreadCount > 0) NostrordColors.ChannelUnread else Color.White,
+                color = if (unreadCount > 0) NostrordColors.ChannelUnread else NostrordColors.TextPrimary,
                 style = if (unreadCount > 0) NostrordTypography.ChannelNameUnread else NostrordTypography.ChannelName,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

@@ -105,7 +105,7 @@ fun InviteCodesModal(
                     ) {
                         Text(
                             text = "Invite Codes",
-                            color = Color.White,
+                            color = NostrordColors.TextPrimary,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f),

@@ -120,7 +120,7 @@ fun RelayCard(
                 // Domain name (prominent)
                 Text(
                     text = extractDomain(relay.url),
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,

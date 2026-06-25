@@ -849,8 +849,8 @@ private fun ProfileField(
                 focusedContainerColor = NostrordColors.InputBackground,
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = NostrordColors.TextContent,
+                unfocusedTextColor = NostrordColors.TextContent,
             ),
             shape = NostrordShapes.shapeSmall,
         )
@@ -1630,8 +1630,8 @@ private fun PassphraseField(
                 focusedContainerColor = NostrordColors.InputBackground,
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = NostrordColors.TextContent,
+                unfocusedTextColor = NostrordColors.TextContent,
             ),
             shape = NostrordShapes.shapeSmall,
         )

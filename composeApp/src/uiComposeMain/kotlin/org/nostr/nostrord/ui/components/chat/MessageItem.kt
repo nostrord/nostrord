@@ -253,7 +253,7 @@ fun MessageItem(
         if (!isFirstInGroup) {
             androidx.compose.material3.HorizontalDivider(
                 thickness = Spacing.dividerThickness,
-                color = Color.White.copy(alpha = 0.05f),
+                color = NostrordColors.Divider,
                 modifier =
                 Modifier.padding(
                     start = Spacing.avatarColumnWidth,
@@ -399,7 +399,7 @@ fun MessageItem(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = displayName,
-                                color = Color.White,
+                                color = NostrordColors.TextPrimary,
                                 style = NostrordTypography.Username,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,

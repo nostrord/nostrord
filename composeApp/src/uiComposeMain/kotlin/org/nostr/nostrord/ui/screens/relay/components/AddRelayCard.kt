@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -72,7 +71,7 @@ fun AddRelayCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Add New Relay",
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )

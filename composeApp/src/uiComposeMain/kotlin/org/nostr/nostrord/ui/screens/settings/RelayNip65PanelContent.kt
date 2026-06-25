@@ -193,8 +193,8 @@ fun RelayNip65PanelContent(
                         focusedContainerColor = NostrordColors.InputBackground,
                         unfocusedContainerColor = NostrordColors.InputBackground,
                         cursorColor = NostrordColors.Primary,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
+                        focusedTextColor = NostrordColors.TextContent,
+                        unfocusedTextColor = NostrordColors.TextContent,
                     ),
                     shape = NostrordShapes.shapeSmall,
                 )

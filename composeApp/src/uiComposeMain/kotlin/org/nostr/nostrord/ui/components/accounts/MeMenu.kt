@@ -342,7 +342,7 @@ private fun MeHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 displayName,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -420,7 +420,7 @@ private fun AccountRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 displayName,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
@@ -458,7 +458,7 @@ private fun ActionRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
-    tint: Color = Color.White,
+    tint: Color = NostrordColors.TextPrimary,
 ) {
     Row(
         modifier =
@@ -494,7 +494,7 @@ private fun RemoveAccountDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NostrordColors.Surface,
-        titleContentColor = Color.White,
+        titleContentColor = NostrordColors.TextPrimary,
         textContentColor = NostrordColors.TextSecondary,
         title = { Text(title) },
         text = { Text(body) },
