@@ -157,6 +157,45 @@ body {
     }
 }
 
+/* Mobile pull-to-refresh indicator (installPullToRefresh): a spinner pulled in from above the
+   top edge. JS drives its transform / opacity per touch frame; it ignores pointer events so it
+   never blocks taps. */
+.ptr-indicator {
+    position: fixed;
+    top: -44px;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--color-floating);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.35);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ptr-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--color-surface-variant);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+}
+
+/* Past the trigger threshold: the whole ring turns brand colour as a "release to refresh" cue. */
+.ptr-indicator.ptr-ready .ptr-spinner {
+    border-color: var(--color-primary);
+}
+
+/* While the reload is in flight, spin continuously (the JS clears the manual rotation first). */
+.ptr-indicator.ptr-refreshing .ptr-spinner {
+    animation: app-spin 0.7s linear infinite;
+}
+
 /* Shared spinner object: every app-spin ring carries the same shape and motion;
    each variant only sets its own size and border colours below. */
 .app-loading-spinner,

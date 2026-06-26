@@ -9,6 +9,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AppLoading
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
+import org.nostr.nostrord.web.components.installPullToRefresh
 import org.nostr.nostrord.web.modals.UnlockModal
 import org.nostr.nostrord.web.navigation.WebRoute
 import org.nostr.nostrord.web.navigation.applyWebRoute
@@ -70,6 +71,9 @@ val WebApp =
             // modal so Tab / Shift+Tab cycle through its controls instead of leaking back to the
             // page behind the backdrop. One install covers every current and future modal.
             installGlobalModalFocusTrap()
+            // Mobile pull-to-refresh: the document is scroll-locked so the browser's own
+            // gesture never fires; install it manually (swipe down at the top to reload).
+            installPullToRefresh()
             // Drive the repository lifecycle from page visibility, mirroring native App.kt's
             // ON_PAUSE → onBackground / ON_RESUME → onForeground. The Compose web got this for
             // free via the shared Lifecycle observer; the React shell must wire it explicitly.
