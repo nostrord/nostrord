@@ -142,5 +142,29 @@ class ProfilePageViewModel(
         viewModelScope.launch { repo.requestUserMetadata(setOf(pubkey), forceStale = true) }
         viewModelScope.launch { repo.requestUserGroupList(pubkey) }
         viewModelScope.launch { repo.requestContactList() }
+
+        // Proactively fetch kind:39000 metadata for the user's listed groups we don't
+        // already have cached, batched per relay (one pooled connection + REQ each).
+        // Without this a group the active account never browsed renders as a raw id
+        // until opened. previewRequested dedups so a relay that has no metadata for a
+        // group is not re-queried on every recomposition of the list.
+        val previewRequested = mutableSetOf<String>()
+        viewModelScope.launch {
+            combine(
+                repo.userGroupLists.map { it[pubkey].orEmpty() },
+                repo.groupsByRelay,
+            ) { refs, byRelay ->
+                refs.filter { ref ->
+                    byRelay.values.none { groups -> groups.any { it.id == ref.groupId } } &&
+                        previewRequested.add("${ref.relayUrl}'${ref.groupId}")
+                }
+            }.collect { missing ->
+                if (missing.isEmpty()) return@collect
+                val relayToGroups =
+                    missing.groupBy { it.relayUrl }
+                        .mapValues { (_, refs) -> refs.map { it.groupId }.toSet() }
+                repo.fetchGroupPreviews(relayToGroups)
+            }
+        }
     }
 }
