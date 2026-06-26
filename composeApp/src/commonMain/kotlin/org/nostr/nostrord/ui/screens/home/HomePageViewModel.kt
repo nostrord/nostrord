@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,10 +13,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrRepositoryApi
@@ -224,7 +227,11 @@ class HomePageViewModel(
                     }
                 }
                 .distinctBy { it.meta.id }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            // Off Main: the previewPeople / associateBy / distinctBy transform is O(groups x members)
+            // and re-runs for each of the ~50 metadata events that arrive in waves on home open;
+            // running it on viewModelScope's Main dispatcher made it compete with composition. The
+            // transform is pure, so flowOn is correctness-safe; stateIn still publishes on Main.
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
      * [myGroups] filtered by the search [query] over name + description. The Home page's "My groups"
@@ -252,8 +259,12 @@ class HomePageViewModel(
      * collector in [init]. Only identities are persisted (see [saveFollowingCacheFor]); each row's
      * avatar/name comes from the global user-metadata store, so metadata is not duplicated.
      */
+    // Seeded empty (not by a synchronous loadFriendsCache): on Android that read is an
+    // EncryptedSharedPreferences decrypt + JSON parse, and doing it in the constructor blocked the
+    // first composition of the home shell. The init block hydrates it off the Main thread; until
+    // then [friendsLoading] keeps the skeleton up.
     private val cachedFriends =
-        MutableStateFlow(repo.activePubkey.value to loadFriendsCache(repo.activePubkey.value))
+        MutableStateFlow(repo.activePubkey.value to emptyList<Friend>())
 
     /**
      * Stable order by display name (npub until kind:0 lands), then pubkey. Deliberately NOT
@@ -494,7 +505,11 @@ class HomePageViewModel(
                 .filter { !it.meta.isHidden }
                 .filter { matchesQuery(it.meta, needle) }
                 .distinctBy { it.meta.id }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            // Off Main: the previewPeople / associateBy / distinctBy transform is O(groups x members)
+            // and re-runs for each of the ~50 metadata events that arrive in waves on home open;
+            // running it on viewModelScope's Main dispatcher made it compete with composition. The
+            // transform is pure, so flowOn is correctness-safe; stateIn still publishes on Main.
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Each tab shows skeletons while empty AND unresolved; the empty-state message
     // appears only once resolved (first group arrived, or the grace period elapsed).
@@ -601,6 +616,13 @@ class HomePageViewModel(
 
     init {
         armMyGroupsResolve()
+        // Hydrate the on-disk friends cache off the Main thread (see [cachedFriends]); the tag guard
+        // (cached.first == active pubkey) keeps it scoped to this account if a switch races in.
+        viewModelScope.launch(Dispatchers.Default) {
+            val pk = repo.activePubkey.value
+            val rows = loadFriendsCache(pk)
+            if (rows.isNotEmpty() && repo.activePubkey.value == pk) cachedFriends.value = pk to rows
+        }
         // Load the own contact list and resolve names for each followed user so the
         // Friends list renders display names rather than bare npubs.
         viewModelScope.launch { repo.requestContactList() }
@@ -616,11 +638,9 @@ class HomePageViewModel(
         // already handled by the initial arming above.
         viewModelScope.launch {
             repo.activePubkey.drop(1).collect { pk ->
-                // Reload the cache TAGGED with the new pubkey, so the friends flow renders it only
-                // under this account (the tag != active pubkey guard blocks the previous account's).
-                cachedFriends.value = pk to loadFriendsCache(pk)
-                // Force the resolved gate false so the tagged cache (or the skeleton), never the
-                // previous account's racing live `following`, shows until the new kind:3 resolves.
+                // Reset the gates SYNCHRONOUSLY first (the friends flow reads _contactsResolved), so
+                // the skeleton shows instantly and the previous account's tagged cache / live follows
+                // are gated out. Forcing the resolved gate false until the new kind:3 resolves.
                 _contactsResolved.value = false
                 _myGroupsResolved.value = false
                 _friendsGroupsResolved.value = false
@@ -635,6 +655,11 @@ class HomePageViewModel(
                 // reconnect; this screen-timed retry closes the gap where that single
                 // attempt races the reconnect and the new account's follows never repopulate.
                 viewModelScope.launch { repo.requestContactList() }
+                // Then hydrate the cache off the Main thread, TAGGED with the new pubkey (the tag !=
+                // active pubkey guard blocks the previous account's rows). Re-check the active pubkey
+                // after the load so a fast second switch doesn't clobber it with stale rows.
+                val rows = withContext(Dispatchers.Default) { loadFriendsCache(pk) }
+                if (repo.activePubkey.value == pk) cachedFriends.value = pk to rows
             }
         }
         // Persist the followed pubkey list so the next launch shows the sidebar rows
