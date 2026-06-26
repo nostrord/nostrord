@@ -825,7 +825,7 @@ private val ManageRequestsSection =
                     } else {
                         "No pending requests"
                     }
-                )
+                    )
             }
         } else {
             // Header with the count and a one-tap Accept all. Open groups still surface these

@@ -68,24 +68,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1026,142 +1026,142 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                     shadowElevation = 8.dp,
                 ) {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-            Text(
-                "ACCOUNTS",
-                color = NostrordColors.TextMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-            accounts.forEach { account ->
-                val isActiveAccount = account.id == activeId
-                val m = userMetadata[account.pubkey]
-                val npub = runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
-                // Fall back to the npub (not the generic "Account N" label) when the
-                // account has no name metadata.
-                val name =
-                    m?.displayName?.takeIf { it.isNotBlank() }
-                        ?: m?.name?.takeIf { it.isNotBlank() }
-                        ?: npub
-                // Row split into two distinct hit targets: the switch area (avatar +
-                // name/npub + signer chip) and a dedicated copy-npub button on the right.
-                // Embedding a tiny copy icon inside the switch row made near-misses fall
-                // through to the switch and change account by accident.
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Active-account marker: a full-height accent bar on the left edge
-                    // (kept on every row, transparent when inactive, so content stays aligned).
-                    Box(
-                        modifier =
-                        Modifier
-                            .width(3.dp)
-                            .fillMaxHeight()
-                            .background(if (isActiveAccount) NostrordColors.Primary else Color.Transparent),
-                    )
-                    Row(
-                        modifier =
-                        Modifier
-                            .weight(1f)
-                            .clickable {
-                                menuOpen = false
-                                if (!isActiveAccount) {
-                                    AppModule.accountManager.switchAccountAsync(account.id)
+                        Text(
+                            "ACCOUNTS",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                        accounts.forEach { account ->
+                            val isActiveAccount = account.id == activeId
+                            val m = userMetadata[account.pubkey]
+                            val npub = runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
+                            // Fall back to the npub (not the generic "Account N" label) when the
+                            // account has no name metadata.
+                            val name =
+                                m?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: m?.name?.takeIf { it.isNotBlank() }
+                                    ?: npub
+                            // Row split into two distinct hit targets: the switch area (avatar +
+                            // name/npub + signer chip) and a dedicated copy-npub button on the right.
+                            // Embedding a tiny copy icon inside the switch row made near-misses fall
+                            // through to the switch and change account by accident.
+                            Row(
+                                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Active-account marker: a full-height accent bar on the left edge
+                                // (kept on every row, transparent when inactive, so content stays aligned).
+                                Box(
+                                    modifier =
+                                    Modifier
+                                        .width(3.dp)
+                                        .fillMaxHeight()
+                                        .background(if (isActiveAccount) NostrordColors.Primary else Color.Transparent),
+                                )
+                                Row(
+                                    modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            menuOpen = false
+                                            if (!isActiveAccount) {
+                                                AppModule.accountManager.switchAccountAsync(account.id)
+                                            }
+                                        }
+                                        .padding(start = 9.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    OptimizedSmallAvatar(
+                                        imageUrl = m?.picture,
+                                        identifier = account.pubkey,
+                                        displayName = name,
+                                        size = 36.dp,
+                                        shape = CircleShape,
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            name,
+                                            color = NostrordColors.TextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        // Signer chip lives on the second meta line (the npub moved up
+                                        // to the name slot as its fallback).
+                                        Surface(
+                                            shape = NostrordShapes.shapeSmall,
+                                            color = NostrordColors.BackgroundDark,
+                                        ) {
+                                            Text(
+                                                signerLabel(account.authMethod),
+                                                color = NostrordColors.TextMuted,
+                                                fontSize = 10.sp,
+                                                lineHeight = 12.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                                val npubCopied = copiedNpubId == account.id
+                                Box(
+                                    modifier =
+                                    Modifier
+                                        .padding(end = 4.dp)
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            clipboardWriter(npub)
+                                            copiedNpubId = account.id
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = if (npubCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                        contentDescription = "Copy npub",
+                                        tint = if (npubCopied) NostrordColors.Success else NostrordColors.TextMuted,
+                                        modifier = Modifier.size(16.dp),
+                                    )
                                 }
                             }
-                            .padding(start = 9.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OptimizedSmallAvatar(
-                            imageUrl = m?.picture,
-                            identifier = account.pubkey,
-                            displayName = name,
-                            size = 36.dp,
-                            shape = CircleShape,
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                name,
-                                color = NostrordColors.TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            // Signer chip lives on the second meta line (the npub moved up
-                            // to the name slot as its fallback).
-                            Surface(
-                                shape = NostrordShapes.shapeSmall,
-                                color = NostrordColors.BackgroundDark,
-                            ) {
-                                Text(
-                                    signerLabel(account.authMethod),
-                                    color = NostrordColors.TextMuted,
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                )
-                            }
                         }
-                    }
-                    val npubCopied = copiedNpubId == account.id
-                    Box(
-                        modifier =
-                        Modifier
-                            .padding(end = 4.dp)
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                clipboardWriter(npub)
-                                copiedNpubId = account.id
+                        HorizontalDivider(color = NostrordColors.Divider)
+                        // Compact action rows (web .account-pop-action: 8/12 padding). DropdownMenuItem
+                        // forces a 48dp min height, which made these taller than the web equivalent.
+                        active?.let { acct ->
+                            AccountPopAction(
+                                icon = Icons.Default.Person,
+                                label = "View profile",
+                                tint = NostrordColors.TextSecondary,
+                                onClick = {
+                                    menuOpen = false
+                                    onViewProfile(acct.pubkey)
+                                },
+                            )
+                        }
+                        AccountPopAction(
+                            icon = Icons.Default.Add,
+                            label = "Add account",
+                            tint = NostrordColors.TextSecondary,
+                            onClick = {
+                                menuOpen = false
+                                showAddAccount = true
                             },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (npubCopied) Icons.Default.Check else Icons.Default.ContentCopy,
-                            contentDescription = "Copy npub",
-                            tint = if (npubCopied) NostrordColors.Success else NostrordColors.TextMuted,
-                            modifier = Modifier.size(16.dp),
                         )
-                    }
-                }
-            }
-            HorizontalDivider(color = NostrordColors.Divider)
-            // Compact action rows (web .account-pop-action: 8/12 padding). DropdownMenuItem
-            // forces a 48dp min height, which made these taller than the web equivalent.
-            active?.let { acct ->
-                AccountPopAction(
-                    icon = Icons.Default.Person,
-                    label = "View profile",
-                    tint = NostrordColors.TextSecondary,
-                    onClick = {
-                        menuOpen = false
-                        onViewProfile(acct.pubkey)
-                    },
-                )
-            }
-            AccountPopAction(
-                icon = Icons.Default.Add,
-                label = "Add account",
-                tint = NostrordColors.TextSecondary,
-                onClick = {
-                    menuOpen = false
-                    showAddAccount = true
-                },
-            )
-            AccountPopAction(
-                icon = Icons.AutoMirrored.Filled.Logout,
-                label = logoutLabel,
-                tint = NostrordColors.Error,
-                onClick = {
-                    menuOpen = false
-                    confirmLogout = true
-                },
-            )
+                        AccountPopAction(
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            label = logoutLabel,
+                            tint = NostrordColors.Error,
+                            onClick = {
+                                menuOpen = false
+                                confirmLogout = true
+                            },
+                        )
                     }
                 }
             }
