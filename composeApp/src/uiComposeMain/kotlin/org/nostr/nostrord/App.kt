@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -112,7 +113,9 @@ fun App() {
                             LoadingScreen(Modifier.weight(1f))
                         }
                     } else {
-                        LoadingScreen()
+                        // Edge-to-edge: AppFrame manages its own per-region insets, but the
+                        // standalone loading / login / onboarding screens keep a safe-area inset.
+                        LoadingScreen(Modifier.safeDrawingPadding())
                     }
                 }
 
@@ -132,7 +135,7 @@ fun App() {
                             }
                         }
                     } else {
-                        NostrLoginScreen {
+                        NostrLoginScreen(modifier = Modifier.safeDrawingPadding()) {
                             // After login, the startupState will recompute due to isLoggedIn change
                         }
                     }
@@ -164,10 +167,12 @@ fun App() {
                                         vm.keepOnboarding()
                                         vm.joinGroupFromInput("$relayUrl'$groupId") {}
                                     },
-                                    modifier = m,
+                                    // AppFrame manages its own insets; the onboarding wizard keeps a
+                                    // safe-area inset so it stays clear of the system bars.
+                                    modifier = m.safeDrawingPadding(),
                                 )
                             }
-                            onboardingPending -> { m -> LoadingScreen(m) }
+                            onboardingPending -> { m -> LoadingScreen(m.safeDrawingPadding()) }
                             else -> { m -> Box(m) { AppFrame() } }
                         }
                     // Onboarding / loading keep the minimal drag bar; the AppFrame draws its own

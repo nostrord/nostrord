@@ -11,11 +11,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import org.nostr.nostrord.network.upload.ShareMediaQueue
@@ -26,6 +30,7 @@ import org.nostr.nostrord.ui.components.media.FullscreenVideoOverlay
 import org.nostr.nostrord.ui.components.media.LocalFullscreenVideoController
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.toRelayUrl
+import androidx.compose.ui.graphics.Color as ComposeColor
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,11 +43,25 @@ class MainActivity : ComponentActivity() {
         setContent {
             val fullscreenVideoController = remember { FullscreenVideoController() }
             CompositionLocalProvider(LocalFullscreenVideoController provides fullscreenVideoController) {
+                // Edge-to-edge: the app draws under the system bars and the rail / sidebar
+                // backgrounds bleed to the screen edges (Discord-style). System-bar insets
+                // are applied per-region inside AppFrame, and to the login / loading / onboarding
+                // screens in App(), so content stays clear of the bars without leaving dead strips.
                 Box(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
-                    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-                        App()
-                    }
+                    App()
                     FullscreenVideoOverlay(fullscreenVideoController)
+                    // Solid scrim behind the status bar: the rail / sidebar / group-header
+                    // backgrounds bleed up to the edge, so without this the status bar shows a
+                    // patchwork of app colors. A single near-black bar also keeps the pinned
+                    // light status icons legible in either theme.
+                    Box(
+                        modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .windowInsetsTopHeight(WindowInsets.statusBars)
+                            .background(ComposeColor.Black),
+                    )
                 }
             }
         }
