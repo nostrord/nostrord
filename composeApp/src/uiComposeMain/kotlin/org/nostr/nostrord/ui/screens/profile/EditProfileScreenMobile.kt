@@ -13,13 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.components.forms.FormLabel
-import org.nostr.nostrord.ui.components.forms.appFieldColors
-import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
@@ -242,22 +239,13 @@ private fun ProfileTextField(
 ) {
     Column {
         FormLabel(label)
-        OutlinedTextField(
+        AppField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = {
-                Text(
-                    text = placeholder,
-                    color = NostrordColors.TextMuted,
-                    fontSize = 14.sp,
-                )
-            },
+            placeholder = placeholder,
             singleLine = singleLine,
             maxLines = maxLines,
-            colors = appFieldColors(),
-            textStyle = appFieldTextStyle(),
-            shape = NostrordShapes.shapeSmall,
         )
     }
 }

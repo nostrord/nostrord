@@ -2,7 +2,9 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,15 +29,13 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.ui.components.forms.appFieldColors
-import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
+import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -189,25 +189,14 @@ fun CreateGroupModal(
                     // Group Name
                     FieldLabel("Group Name")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
+                    AppField(
                         value = name,
                         onValueChange = {
                             name = it
                             errorMessage = null
                         },
-                        placeholder = {
-                            Text(
-                                "#example",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                                fontSize = 14.sp,
-                            )
-                        },
-                        singleLine = true,
+                        placeholder = "#example",
                         modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        textStyle = appFieldTextStyle(),
-                        shape = RoundedCornerShape(8.dp),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -215,7 +204,7 @@ fun CreateGroupModal(
                     // Custom Group ID (optional)
                     FieldLabel("Group ID (optional)")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
+                    AppField(
                         value = customGroupId,
                         onValueChange = {
                             customGroupId =
@@ -225,19 +214,8 @@ fun CreateGroupModal(
                             errorMessage =
                                 null
                         },
-                        placeholder = {
-                            Text(
-                                "my-group",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                                fontSize = 14.sp,
-                            )
-                        },
-                        singleLine = true,
+                        placeholder = "my-group",
                         modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        textStyle = appFieldTextStyle(),
-                        shape = RoundedCornerShape(8.dp),
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
@@ -255,7 +233,7 @@ fun CreateGroupModal(
                         expanded = relayDropdownExpanded,
                         onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
                     ) {
-                        OutlinedTextField(
+                        AppField(
                             value = if (usingCustomRelay) "Custom relay…" else selectedRelay.removePrefix("wss://"),
                             onValueChange = {},
                             readOnly = true,
@@ -265,30 +243,20 @@ fun CreateGroupModal(
                             modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                            colors = fieldColors(),
-                            textStyle = appFieldTextStyle(),
-                            shape = RoundedCornerShape(8.dp),
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                // It is a select, not an editable field: a hand cursor (overriding
+                                // the inner text field's I-beam), matching the web `.modal-select`.
+                                .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true),
                         )
                         ExposedDropdownMenu(
                             expanded = relayDropdownExpanded,
                             onDismissRequest = { relayDropdownExpanded = false },
-                            containerColor = NostrordColors.SurfaceVariant,
+                            containerColor = NostrordColors.BackgroundFloating,
                         ) {
                             relayOptions.forEach { relay ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            relay.removePrefix("wss://"),
-                                            color =
-                                            if (relay == selectedRelay) {
-                                                NostrordColors.Primary
-                                            } else {
-                                                NostrordColors.TextPrimary
-                                            },
-                                            style = NostrordTypography.MessageBody,
-                                        )
-                                    },
+                                RelayMenuItem(
+                                    label = relay.removePrefix("wss://"),
+                                    selected = relay == selectedRelay,
                                     onClick = {
                                         selectedRelay = relay
                                         errorMessage = null
@@ -296,14 +264,9 @@ fun CreateGroupModal(
                                     },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Custom relay…",
-                                        color = if (usingCustomRelay) NostrordColors.Primary else NostrordColors.TextPrimary,
-                                        style = NostrordTypography.MessageBody,
-                                    )
-                                },
+                            RelayMenuItem(
+                                label = "Custom relay…",
+                                selected = usingCustomRelay,
                                 onClick = {
                                     selectedRelay = CUSTOM_RELAY
                                     errorMessage = null
@@ -315,18 +278,14 @@ fun CreateGroupModal(
 
                     if (usingCustomRelay) {
                         Spacer(modifier = Modifier.height(Spacing.xs))
-                        OutlinedTextField(
+                        AppField(
                             value = customRelay,
                             onValueChange = {
                                 customRelay = it
                                 errorMessage = null
                             },
-                            singleLine = true,
-                            placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted, fontSize = 14.sp) },
+                            placeholder = "relay.example.com",
                             modifier = Modifier.fillMaxWidth(),
-                            colors = fieldColors(),
-                            textStyle = appFieldTextStyle(),
-                            shape = RoundedCornerShape(8.dp),
                             enabled = !isCreating,
                         )
                     }
@@ -360,23 +319,14 @@ fun CreateGroupModal(
                     // Description
                     FieldLabel("Description")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
+                    AppField(
                         value = about,
                         onValueChange = { about = it },
-                        placeholder = {
-                            Text(
-                                "What is this group about?",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                                fontSize = 14.sp,
-                            )
-                        },
+                        placeholder = "What is this group about?",
+                        singleLine = false,
                         minLines = 3,
                         maxLines = 5,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        textStyle = appFieldTextStyle(),
-                        shape = RoundedCornerShape(8.dp),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -658,6 +608,39 @@ private fun AccessToggleRow(
     }
 }
 
-/** Standardized to the single [appFieldColors] (floating #131217 container). */
+/**
+ * One relay option in the [ExposedDropdownMenu] (web `.modal-select` option parity): a compact,
+ * custom row (Material's [DropdownMenuItem] floors at 48dp) with a full-width brand highlight on the
+ * selected row, a hover tint on the rest, and the default cursor (native `<option>`s are not hand).
+ */
 @Composable
-private fun fieldColors() = appFieldColors()
+private fun RelayMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val background =
+        when {
+            selected -> NostrordColors.Primary
+            hovered -> NostrordColors.HoverBackground
+            else -> Color.Transparent
+        }
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .background(background)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            color = if (selected) Color.White else NostrordColors.TextPrimary,
+            style = NostrordTypography.MessageBody,
+        )
+    }
+}

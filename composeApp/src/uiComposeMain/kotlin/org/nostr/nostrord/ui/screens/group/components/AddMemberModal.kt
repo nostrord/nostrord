@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PersonAdd
@@ -16,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -24,13 +22,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -151,24 +148,16 @@ fun AddMemberModal(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Input field
-                    BasicTextField(
+                    AppField(
                         value = input,
                         onValueChange = {
                             input = it
                             error = null
                         },
-                        textStyle =
-                        TextStyle(
-                            color = NostrordColors.TextContent,
-                            fontSize = 14.sp,
-                        ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(NostrordColors.Primary),
+                        placeholder = "npub1... or hex pubkey",
                         modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(NostrordColors.BackgroundFloating, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
                                 if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
@@ -181,18 +170,6 @@ fun AddMemberModal(
                                     false
                                 }
                             },
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (input.isEmpty()) {
-                                    Text(
-                                        text = "npub1... or hex pubkey",
-                                        color = NostrordColors.TextMuted,
-                                        fontSize = 14.sp,
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
                     )
 
                     // Error message

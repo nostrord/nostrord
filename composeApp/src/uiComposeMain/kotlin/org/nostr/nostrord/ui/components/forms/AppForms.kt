@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +28,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -97,6 +98,116 @@ fun appFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedPlaceholderColor = NostrordColors.TextMuted,
     unfocusedPlaceholderColor = NostrordColors.TextMuted,
 )
+
+/**
+ * Web `.modal-input` content padding (10px vertical, 12px horizontal). Material's
+ * `OutlinedTextField` floors itself at ~56dp and exposes no `contentPadding`, so every
+ * standardized field goes through [AppField] (BasicTextField + DecorationBox) to hit this
+ * exact density on native.
+ */
+private val AppFieldContentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+
+/** 8dp radius, matching the web `.modal-input` border-radius. */
+private val AppFieldShape = RoundedCornerShape(8.dp)
+
+/**
+ * The single standardized form field (web `.modal-input` / `.modal-textarea` / `.modal-select`
+ * parity). Built on BasicTextField + `OutlinedTextFieldDefaults.DecorationBox` so the vertical
+ * density matches the web (10x12 padding, 14sp value + placeholder) instead of Material's tall
+ * 56dp default. Drives single-line inputs, multi-line textareas (`singleLine = false` + `minLines`)
+ * and read-only select anchors (`readOnly = true` + a [trailingIcon], with `.menuAnchor(...)` on
+ * [modifier]). Labels are supplied separately via [FormLabel] above the field.
+ */
+@Composable
+fun AppField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    enabled: Boolean = true,
+    readOnly: Boolean = false,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
+    masked: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Default,
+    onImeAction: (() -> Unit)? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+) {
+    // Drop the inherited lineHeight (bodyLarge = 24sp): a standalone placeholder Text honors it,
+    // but BasicTextField measures a single line at the font's natural height, so the empty field
+    // rendered taller than the filled one. Unspecified makes both use the font height and match.
+    val textStyle =
+        LocalTextStyle.current.copy(
+            color = NostrordColors.TextContent,
+            fontSize = 14.sp,
+            lineHeight = TextUnit.Unspecified,
+        )
+    val visual = if (masked) PasswordVisualTransformation() else VisualTransformation.None
+    val colors = appFieldColors()
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        readOnly = readOnly,
+        textStyle = textStyle,
+        cursorBrush = SolidColor(NostrordColors.Primary),
+        visualTransformation = visual,
+        singleLine = singleLine,
+        minLines = minLines,
+        maxLines = maxLines,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions =
+        KeyboardActions(
+            onDone = { onImeAction?.invoke() },
+            onGo = { onImeAction?.invoke() },
+            onSend = { onImeAction?.invoke() },
+            onSearch = { onImeAction?.invoke() },
+        ),
+        interactionSource = interactionSource,
+        decorationBox = { innerTextField ->
+            OutlinedTextFieldDefaults.DecorationBox(
+                value = value,
+                innerTextField = innerTextField,
+                enabled = enabled,
+                singleLine = singleLine,
+                visualTransformation = visual,
+                interactionSource = interactionSource,
+                placeholder =
+                placeholder?.let {
+                    {
+                        Text(
+                            it,
+                            // Same TextStyle as the value (only the color differs) so the field
+                            // is the exact same height empty or filled; a placeholder with a
+                            // different line height made the box grow/shrink as you typed.
+                            style = textStyle.copy(color = NostrordColors.TextMuted),
+                            maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                },
+                leadingIcon = leadingIcon,
+                trailingIcon = trailingIcon,
+                colors = colors,
+                contentPadding = AppFieldContentPadding,
+                container = {
+                    OutlinedTextFieldDefaults.Container(
+                        enabled = enabled,
+                        isError = false,
+                        interactionSource = interactionSource,
+                        colors = colors,
+                        shape = AppFieldShape,
+                    )
+                },
+            )
+        },
+    )
+}
 
 @Composable
 fun FormLabel(text: String) {
@@ -170,20 +281,10 @@ fun AppTextField(
     val focusManager = LocalFocusManager.current
     Column(modifier = modifier) {
         label?.let { FormLabel(it) }
-        OutlinedTextField(
+        AppField(
             value = value,
             onValueChange = onValueChange,
-            placeholder = {
-                Text(
-                    placeholder,
-                    color = NostrordColors.TextMuted,
-                    // Match the input text size so an empty field is the same height as a filled
-                    // one (Material applies textStyle to the value, not the placeholder slot).
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
+            placeholder = placeholder,
             singleLine = maxLines == 1,
             maxLines = maxLines,
             modifier =
@@ -213,8 +314,6 @@ fun AppTextField(
                         else -> false
                     }
                 },
-            // 14sp matches the web .modal-input; the 16sp default read oversized.
-            textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent, fontSize = 14.sp),
             leadingIcon =
             leadingIcon?.let {
                 {
@@ -226,22 +325,10 @@ fun AppTextField(
                 }
             },
             trailingIcon = trailingIcon,
-            visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions =
-            KeyboardOptions(
-                keyboardType = keyboardType,
-                imeAction = if (onDone != null) ImeAction.Done else ImeAction.Default,
-            ),
-            keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
-            shape = NostrordShapes.inputShape,
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NostrordColors.Primary,
-                unfocusedBorderColor = Color.Transparent,
-                cursorColor = NostrordColors.Primary,
-                focusedContainerColor = NostrordColors.BackgroundFloating,
-                unfocusedContainerColor = NostrordColors.BackgroundFloating,
-            ),
+            masked = masked,
+            keyboardType = keyboardType,
+            imeAction = if (onDone != null) ImeAction.Done else ImeAction.Default,
+            onImeAction = onDone,
             enabled = enabled,
         )
         hint?.let { FormHint(it) }
