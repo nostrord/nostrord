@@ -8893,28 +8893,6 @@ body {
     }
 }
 
-.mod-tabs {
-    display: flex;
-    gap: 4px;
-    margin: 12px 0;
-}
-
-.mod-tab {
-    padding: 6px 14px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-muted);
-    background: var(--color-surface-variant);
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.mod-tab.selected {
-    color: #ffffff;
-    background: var(--color-primary);
-}
-
 .mod-list {
     max-height: 340px;
     overflow-y: auto;
@@ -8973,6 +8951,12 @@ body {
     align-items: center;
     gap: 6px;
     min-width: 0;
+}
+
+/* Keep the name at content width (still ellipsizes when tight) so the YOU tag sits right
+   after it, not pushed to the row's far edge. */
+.mod-member-line .mod-name {
+    flex: 0 1 auto;
 }
 
 .mod-npub {
@@ -9052,6 +9036,142 @@ body {
     text-align: center;
     font-size: 14px;
     color: var(--color-text-muted);
+}
+
+/* Members tab: home-style segmented tab strip (replaces the plain .mod-tabs chips). */
+.mod-tab-strip {
+    margin: 12px 0;
+}
+
+/* Members tab: rows as compact cards (mirrors native), not border-separated rows. */
+.member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.member-list .mod-row {
+    padding: 8px 12px;
+    border-bottom: none;
+    background: color-mix(in srgb, var(--color-surface-variant) 50%, transparent);
+    border-radius: 8px;
+}
+
+/* Single chevron action button + its dropdown (replaces the inline Promote/Remove pair). */
+.mod-menu-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.mod-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.mod-menu-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.mod-menu-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Full-viewport catcher under the open menu so any outside click dismisses it. */
+.mod-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.mod-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 51;
+    min-width: 184px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.mod-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mod-menu-item:hover {
+    background: var(--color-hover);
+}
+
+.mod-menu-item svg {
+    width: 18px;
+    height: 18px;
+    color: var(--color-primary);
+}
+
+.mod-menu-item.danger {
+    color: var(--color-error);
+}
+
+.mod-menu-item.danger svg {
+    color: var(--color-error);
+}
+
+/* Small confirm dialog layered above the manage modal (promote / demote / remove). */
+.confirm-overlay {
+    z-index: 210;
+}
+
+.modal-card.confirm-card {
+    max-width: 380px;
+    width: 90%;
+    padding: 20px;
+}
+
+.confirm-title {
+    margin-bottom: 8px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.confirm-desc {
+    margin-bottom: 20px;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 /* Requests tab header: count on the left, Accept all on the right. */

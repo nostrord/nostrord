@@ -20,6 +20,7 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.searchInput
+import org.nostr.nostrord.web.components.tabItem
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.navigation.pushHome
 import react.FC
@@ -344,8 +345,10 @@ private val ManageMembersSection =
         val userMetadata = useStateFlow(repo.userMetadata)
         val (tab, setTab) = useState { "All" }
         val (query, setQuery) = useState { "" }
-        // Pubkey of the member whose Remove is awaiting confirmation (destructive, loses access).
-        val (confirmRemove, setConfirmRemove) = useState<String?> { null }
+        // (pubkey, action) whose promote / demote / remove is awaiting confirmation.
+        val (confirmAction, setConfirmAction) = useState<Pair<String, String>?> { null }
+        // Pubkey whose row action menu (the chevron dropdown) is currently open.
+        val (openMenu, setOpenMenu) = useState<String?> { null }
         val myPubkey = repo.getPublicKey()
 
         fun nameOf(pubkey: String): String {
@@ -380,21 +383,16 @@ private val ManageMembersSection =
             onChange = { setQuery(it) },
             compact = true,
         )
-        // Per-category counts ride on the filter tabs (All / Admins / Members).
-        val tabCounts = mapOf("All" to members.size, "Admins" to adminCount, "Members" to memberCount)
+        // Per-category counts ride on the filter tabs (All / Admins / Members), styled like the
+        // home tab strip (segmented pill) instead of plain chips.
         div {
-            className = ClassName("mod-tabs")
-            listOf("All", "Admins", "Members").forEach { label ->
-                button {
-                    key = label
-                    className = ClassName(if (label == tab) "mod-tab selected" else "mod-tab")
-                    onClick = { setTab(label) }
-                    +"$label · ${tabCounts[label]}"
-                }
-            }
+            className = ClassName("tab-strip mod-tab-strip")
+            tabItem(tab == "All", null, "All · ${members.size}") { setTab("All") }
+            tabItem(tab == "Admins", null, "Admins · $adminCount") { setTab("Admins") }
+            tabItem(tab == "Members", null, "Members · $memberCount") { setTab("Members") }
         }
         div {
-            className = ClassName("mod-list")
+            className = ClassName("mod-list member-list")
             if (filtered.isEmpty()) {
                 div {
                     className = ClassName("mod-empty")
@@ -405,7 +403,7 @@ private val ManageMembersSection =
                 val isAdmin = pubkey in admins
                 div {
                     key = pubkey
-                    className = ClassName("mod-row")
+                    className = ClassName("mod-row member-card")
                     WebAvatar {
                         url = userMetadata[pubkey]?.picture
                         seed = pubkey
@@ -443,37 +441,93 @@ private val ManageMembersSection =
                     // not re-promote yourself and may be locked out. Use Leave group.
                     if (pubkey != myPubkey) {
                         div {
-                            className = ClassName("mod-actions")
-                            if (confirmRemove == pubkey) {
-                                button {
-                                    className = ClassName("mod-btn danger")
-                                    onClick = {
-                                        setConfirmRemove(null)
-                                        launchApp { repo.removeUser(props.groupId, pubkey) }
-                                    }
-                                    +"Confirm"
+                            className = ClassName("mod-menu-wrap")
+                            button {
+                                className = ClassName("mod-menu-btn")
+                                onClick = { setOpenMenu(if (openMenu == pubkey) null else pubkey) }
+                                icon(Ic.ExpandMore)
+                            }
+                            if (openMenu == pubkey) {
+                                // Full-screen click-catcher so a click anywhere else closes the menu.
+                                div {
+                                    className = ClassName("mod-menu-backdrop")
+                                    onClick = { setOpenMenu(null) }
                                 }
-                                button {
-                                    className = ClassName("mod-btn")
-                                    onClick = { setConfirmRemove(null) }
-                                    +"Cancel"
-                                }
-                            } else {
-                                button {
-                                    className = ClassName("mod-btn")
-                                    onClick = {
-                                        launchApp {
-                                            repo.addUser(props.groupId, pubkey, if (isAdmin) emptyList() else listOf("admin"))
+                                div {
+                                    className = ClassName("mod-menu")
+                                    button {
+                                        className = ClassName("mod-menu-item")
+                                        onClick = {
+                                            setOpenMenu(null)
+                                            setConfirmAction(pubkey to if (isAdmin) "demote" else "promote")
                                         }
+                                        icon(Ic.Shield)
+                                        span { +(if (isAdmin) "Remove Admin Role" else "Promote to Admin") }
                                     }
-                                    +(if (isAdmin) "Demote" else "Promote")
-                                }
-                                button {
-                                    className = ClassName("mod-btn danger")
-                                    onClick = { setConfirmRemove(pubkey) }
-                                    +"Remove"
+                                    button {
+                                        className = ClassName("mod-menu-item danger")
+                                        onClick = {
+                                            setOpenMenu(null)
+                                            setConfirmAction(pubkey to "remove")
+                                        }
+                                        icon(Ic.Close)
+                                        span { +"Remove from Group" }
+                                    }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        confirmAction?.let { (pubkey, action) ->
+            val title =
+                when (action) {
+                    "promote" -> "Promote to Admin"
+                    "demote" -> "Remove Admin Role"
+                    else -> "Remove from Group"
+                }
+            val desc =
+                when (action) {
+                    "promote" -> "${nameOf(pubkey)} will be able to manage members and group settings."
+                    "demote" -> "${nameOf(pubkey)} will lose admin privileges."
+                    else -> "${nameOf(pubkey)} will be removed from the group."
+                }
+            div {
+                className = ClassName("modal-overlay confirm-overlay")
+                onClick = { setConfirmAction(null) }
+                div {
+                    className = ClassName("modal-card confirm-card")
+                    onClick = { it.stopPropagation() }
+                    div {
+                        className = ClassName("confirm-title")
+                        +title
+                    }
+                    div {
+                        className = ClassName("confirm-desc")
+                        +desc
+                    }
+                    div {
+                        className = ClassName("confirm-actions")
+                        button {
+                            className = ClassName("btn-secondary")
+                            onClick = { setConfirmAction(null) }
+                            +"Cancel"
+                        }
+                        button {
+                            className = ClassName(if (action == "remove") "btn-danger" else "btn-primary")
+                            onClick = {
+                                setConfirmAction(null)
+                                launchApp {
+                                    when (action) {
+                                        "promote" -> repo.addUser(props.groupId, pubkey, listOf("admin"))
+                                        "demote" -> repo.addUser(props.groupId, pubkey, emptyList())
+                                        else -> repo.removeUser(props.groupId, pubkey)
+                                    }
+                                }
+                            }
+                            +"Confirm"
                         }
                     }
                 }
