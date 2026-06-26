@@ -57,10 +57,10 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
-import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.network.upload.NostrBuildUploader
 import org.nostr.nostrord.network.upload.rememberMediaPickerLauncher
+import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.forms.AppSearchField
@@ -401,6 +401,7 @@ private fun ManageInfoSection(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             colors = editFieldColors(),
+            textStyle = editFieldTextStyle(),
             shape = RoundedCornerShape(8.dp),
         )
 
@@ -415,6 +416,7 @@ private fun ManageInfoSection(
             maxLines = 5,
             modifier = Modifier.fillMaxWidth(),
             colors = editFieldColors(),
+            textStyle = editFieldTextStyle(),
             shape = RoundedCornerShape(8.dp),
         )
 
@@ -919,33 +921,33 @@ private fun ManageRequestsSection(
         }
         LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(pending, key = { it.id }) { req ->
-            Row(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(NostrordColors.SurfaceVariant.copy(alpha = 0.5f))
-                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MemberAvatar(req.pubkey)
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    nameOf(req.pubkey),
-                    color = NostrordColors.TextPrimary,
-                    style = NostrordTypography.Caption,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { vm.approveJoinRequest(req.pubkey) }) {
-                    Text("Approve", color = NostrordColors.Primary, style = NostrordTypography.Caption)
+                Row(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NostrordColors.SurfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MemberAvatar(req.pubkey)
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        nameOf(req.pubkey),
+                        color = NostrordColors.TextPrimary,
+                        style = NostrordTypography.Caption,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { vm.approveJoinRequest(req.pubkey) }) {
+                        Text("Approve", color = NostrordColors.Primary, style = NostrordTypography.Caption)
+                    }
+                    TextButton(onClick = { vm.rejectJoinRequest(req.id) }) {
+                        Text("Reject", color = NostrordColors.Error, style = NostrordTypography.Caption)
+                    }
                 }
-                TextButton(onClick = { vm.rejectJoinRequest(req.id) }) {
-                    Text("Reject", color = NostrordColors.Error, style = NostrordTypography.Caption)
-                }
-            }
             }
         }
     }

@@ -4813,6 +4813,13 @@ body {
     line-height: 1.4;
 }
 
+/* Breathing room between stacked fields in the Manage group modal. Each field group
+   starts with its label, so spacing the label off the previous input reads as the
+   gap between fields without loosening the tight label-to-input pairing. */
+.manage-content .field-label {
+    margin-top: 18px;
+}
+
 .modal-input:focus,
 .modal-textarea:focus,
 .modal-select:focus {

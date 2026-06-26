@@ -18,6 +18,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -156,3 +157,7 @@ internal fun editFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTrailingIconColor = NostrordColors.TextSecondary,
     unfocusedTrailingIconColor = NostrordColors.TextMuted,
 )
+
+/** Input text style for the group edit forms: 14sp to match the web .modal-input (16sp default felt oversized). */
+@Composable
+internal fun editFieldTextStyle() = LocalTextStyle.current.copy(fontSize = 14.sp)
