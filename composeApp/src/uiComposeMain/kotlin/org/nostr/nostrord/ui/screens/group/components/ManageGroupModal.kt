@@ -814,11 +814,6 @@ private fun ManageRequestsSection(
     val members by vm.groupMembers.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
 
-    if (isOpen) {
-        ModEmpty("Open group: people join automatically, so there is no request queue.")
-        return
-    }
-
     val msgs = messages[groupId].orEmpty()
     val memberSet = members[groupId].orEmpty().toSet()
     val pending = pendingJoinRequests(msgs, memberSet)
@@ -831,12 +826,47 @@ private fun ManageRequestsSection(
     }
 
     if (pending.isEmpty()) {
-        ModEmpty("No pending requests")
+        // Open groups auto-join, so an empty queue is the normal state; closed groups
+        // just have nobody waiting.
+        ModEmpty(
+            if (isOpen) {
+                "Open group: people join automatically, so there is no request queue."
+            } else {
+                "No pending requests"
+            },
+        )
         return
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        items(pending, key = { it.id }) { req ->
+    // Header: count + Accept all. Open groups still surface these because some relays
+    // leave a kind:9021 pending when a member leaves and asks to rejoin; the admin lets
+    // them back in here (open-group policy is to accept everyone).
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${if (isOpen) "Rejoining" else "Requests"} (${pending.size})",
+                color = NostrordColors.TextSecondary,
+                style = NostrordTypography.Caption,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { pending.forEach { vm.approveJoinRequest(it.pubkey) } }) {
+                Text("Accept all", color = NostrordColors.Primary, style = NostrordTypography.Caption)
+            }
+        }
+        if (isOpen) {
+            Text(
+                "These people left and asked to rejoin. Open groups accept everyone, so you can let them back in.",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Caption,
+                modifier = Modifier.padding(horizontal = Spacing.md).padding(bottom = Spacing.sm),
+            )
+        }
+        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            items(pending, key = { it.id }) { req ->
             Row(
                 modifier =
                 Modifier
@@ -863,6 +893,7 @@ private fun ManageRequestsSection(
                 TextButton(onClick = { vm.rejectJoinRequest(req.id) }) {
                     Text("Reject", color = NostrordColors.Error, style = NostrordTypography.Caption)
                 }
+            }
             }
         }
     }

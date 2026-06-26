@@ -250,7 +250,8 @@ fun GroupScreen(
 
     // Shares the Manage > Requests logic (pendingJoinRequests) so the header badge and the list
     // never disagree; resolvedRequestPubkeys drops requests approved/rejected this session before
-    // the relay echo lands.
+    // the relay echo lands. Open groups count too: some relays leave a kind:9021 pending when a
+    // member leaves and asks to rejoin, and the admin clears it from Manage > Requests.
     val pendingRequests by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()

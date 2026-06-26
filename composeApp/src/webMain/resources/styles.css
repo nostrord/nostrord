@@ -8990,6 +8990,29 @@ body {
     color: var(--color-text-muted);
 }
 
+/* Requests tab header: count on the left, Accept all on the right. */
+.mod-requests-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 4px 8px;
+}
+
+.mod-requests-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+/* Muted explainer above the rejoining list on open groups. */
+.mod-note {
+    padding: 0 4px 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
 /* "You" marker in place of moderation buttons on the current admin's own row. */
 .mod-self-tag {
     flex-shrink: 0;

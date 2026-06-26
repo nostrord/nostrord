@@ -806,14 +806,6 @@ private val ManageRequestsSection =
         val members = useStateFlow(repo.groupMembers)[props.groupId].orEmpty().toSet()
         val userMetadata = useStateFlow(repo.userMetadata)
 
-        if (props.isOpen) {
-            div {
-                className = ClassName("mod-empty")
-                +"Open group: people join automatically, so there is no request queue."
-            }
-            return@FC
-        }
-
         val pending = pendingJoinRequests(msgs, members)
 
         fun nameOf(pubkey: String): String {
@@ -824,11 +816,39 @@ private val ManageRequestsSection =
         }
 
         if (pending.isEmpty()) {
+            // Open groups auto-join, so an empty queue is the normal state.
             div {
                 className = ClassName("mod-empty")
-                +"No pending requests"
+                +(
+                    if (props.isOpen) {
+                        "Open group: people join automatically, so there is no request queue."
+                    } else {
+                        "No pending requests"
+                    }
+                )
             }
         } else {
+            // Header with the count and a one-tap Accept all. Open groups still surface these
+            // because some relays leave a kind:9021 pending on a leave + rejoin; the admin lets
+            // them back in here (open-group policy is to accept everyone).
+            div {
+                className = ClassName("mod-requests-header")
+                span {
+                    className = ClassName("mod-requests-title")
+                    +"${if (props.isOpen) "Rejoining" else "Requests"} (${pending.size})"
+                }
+                button {
+                    className = ClassName("mod-btn primary")
+                    onClick = { launchApp { pending.forEach { repo.addUser(props.groupId, it.pubkey) } } }
+                    +"Accept all"
+                }
+            }
+            if (props.isOpen) {
+                div {
+                    className = ClassName("mod-note")
+                    +"These people left and asked to rejoin. Open groups accept everyone, so you can let them back in."
+                }
+            }
             div {
                 className = ClassName("mod-list")
                 pending.forEach { req ->

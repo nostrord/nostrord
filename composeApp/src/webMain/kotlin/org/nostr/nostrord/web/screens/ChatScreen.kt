@@ -1087,10 +1087,11 @@ val ChatScreen =
         // account has no read access (NIP-29 private+closed group).
         val restrictedGroups = useStateFlow(vm.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
-        // Pending join-request count — admin/closed-group only, drives the header badge. Shares
-        // the Manage > Requests logic (pendingJoinRequests) so the badge and the list never
-        // disagree: a member removed by an admin (kind 9001) must not resurface as pending.
-        val pendingJoinRequests = if (isAdmin && !group.isOpen) {
+        // Pending join-request count (admin only) drives the header badge. Shares the Manage >
+        // Requests logic (pendingJoinRequests) so the badge and the list never disagree: a member
+        // removed by an admin (kind 9001) must not resurface as pending. Open groups count too:
+        // some relays leave a kind:9021 pending on a leave + rejoin, and the admin clears it.
+        val pendingJoinRequests = if (isAdmin) {
             computePendingJoinRequests(messages, members.toSet()).size
         } else {
             0
