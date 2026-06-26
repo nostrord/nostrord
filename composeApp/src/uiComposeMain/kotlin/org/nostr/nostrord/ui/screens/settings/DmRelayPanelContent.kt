@@ -123,7 +123,7 @@ fun DmRelayPanelContent() {
                     value = newUrl,
                     onValueChange = { newUrl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted) },
+                    placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted, fontSize = 14.sp) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = NostrordColors.Primary,

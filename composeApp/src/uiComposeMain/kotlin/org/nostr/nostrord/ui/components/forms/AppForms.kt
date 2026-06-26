@@ -159,6 +159,9 @@ fun AppTextField(
                 Text(
                     placeholder,
                     color = NostrordColors.TextMuted,
+                    // Match the input text size so an empty field is the same height as a filled
+                    // one (Material applies textStyle to the value, not the placeholder slot).
+                    fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

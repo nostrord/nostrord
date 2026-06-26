@@ -424,7 +424,7 @@ private fun NostrConnectRelaysSection(
                 value = newRelay,
                 onValueChange = { newRelay = it },
                 placeholder = {
-                    Text("wss://relay.example.com", color = NostrordColors.TextMuted)
+                    Text("wss://relay.example.com", color = NostrordColors.TextMuted, fontSize = 14.sp)
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),

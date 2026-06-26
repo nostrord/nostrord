@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.ui.components.IdentifierRow
@@ -96,7 +97,7 @@ fun BackupKeysSections(
                             OutlinedTextField(
                                 value = passphrase,
                                 onValueChange = { vm.setPassphrase(it) },
-                                placeholder = { Text("Choose a password") },
+                                placeholder = { Text("Choose a password", fontSize = 14.sp) },
                                 visualTransformation = PasswordVisualTransformation(),
                                 singleLine = true,
                                 isError = error != null,

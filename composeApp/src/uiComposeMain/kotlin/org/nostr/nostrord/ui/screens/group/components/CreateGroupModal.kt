@@ -27,15 +27,16 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
-import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -198,6 +199,7 @@ fun CreateGroupModal(
                                 "#example",
                                 color = NostrordColors.TextMuted,
                                 style = NostrordTypography.MessageBody,
+                                fontSize = 14.sp,
                             )
                         },
                         singleLine = true,
@@ -227,6 +229,7 @@ fun CreateGroupModal(
                                 "my-group",
                                 color = NostrordColors.TextMuted,
                                 style = NostrordTypography.MessageBody,
+                                fontSize = 14.sp,
                             )
                         },
                         singleLine = true,
@@ -318,7 +321,7 @@ fun CreateGroupModal(
                                 errorMessage = null
                             },
                             singleLine = true,
-                            placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted) },
+                            placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted, fontSize = 14.sp) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = fieldColors(),
                             textStyle = appFieldTextStyle(),
@@ -364,6 +367,7 @@ fun CreateGroupModal(
                                 "What is this group about?",
                                 color = NostrordColors.TextMuted,
                                 style = NostrordTypography.MessageBody,
+                                fontSize = 14.sp,
                             )
                         },
                         minLines = 3,
