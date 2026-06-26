@@ -39,6 +39,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -480,6 +481,10 @@ fun MessageInput(
     } else {
         val textFieldInteractionSource = remember { MutableInteractionSource() }
         val isAndroid = remember { getPlatform().name.startsWith("Android") }
+        // Landscape on a phone has little vertical room, so the discoverability footer is
+        // dropped there (the "?" trigger still works); cross-platform via the window size.
+        val windowSize = LocalWindowInfo.current.containerSize
+        val isLandscape = windowSize.width > windowSize.height
 
         // Markdown toolbar (prototype Composer, web parity): wraps the selection /
         // toggles list markers on the TextFieldValue, keeping mention state in sync.
@@ -637,12 +642,12 @@ fun MessageInput(
             }
 
             Column(
-                // Inset the composer from the window edges and round it into a single
-                // surface "pill" (web .composer parity: margin 0 16px 16px, radius 8px).
+                // Inset the composer from the window side edges and round it into a single
+                // surface "pill". No bottom padding: the composer's baseline lines up with
+                // the account bar at the bottom of the sidebar (their centers match, both ~52dp).
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.lg)
-                    .padding(bottom = Spacing.lg),
+                    .padding(horizontal = Spacing.lg),
             ) {
                 // Shortcuts hint card, floating just above the pill (web .composer-hints).
                 if (showHints) {
@@ -1089,12 +1094,14 @@ fun MessageInput(
                     }
                 }
                 // Footer pill below the composer: discoverability cue + click toggle
-                // (web .composer-hint-footer).
-                ComposerHintFooter(
-                    showHints = showHints,
-                    isTouch = isAndroid,
-                    onToggle = { showHints = !showHints },
-                )
+                // (web .composer-hint-footer). Hidden on a phone in landscape to save the row.
+                if (!(isAndroid && isLandscape)) {
+                    ComposerHintFooter(
+                        showHints = showHints,
+                        isTouch = isAndroid,
+                        onToggle = { showHints = !showHints },
+                    )
+                }
             }
         }
 
