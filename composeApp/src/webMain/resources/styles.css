@@ -8037,7 +8037,10 @@ body {
 .info-card,
 .profile-card {
     padding: 0;
-    overflow: hidden;
+    /* hidden x keeps the full-bleed cover clipped to the rounded corners; auto y restores the
+       vertical scroll from .modal-card (a plain `overflow: hidden` clipped tall content on short
+       screens, unlike the scrolling .modal-card). */
+    overflow: hidden auto;
     max-width: 440px;
 }
 
