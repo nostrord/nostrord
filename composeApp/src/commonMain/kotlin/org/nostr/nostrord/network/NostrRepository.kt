@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -22,6 +23,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.ListSerializer
@@ -2034,7 +2036,11 @@ class NostrRepository(
         if (cachedJoined.isNotEmpty()) {
             groupManager.setJoinedGroups(cachedJoined)
         } else {
-            groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+            // Off-Main: this reads the persisted joined-group set (EncryptedSharedPreferences
+            // decrypt + JSON parse) — blocking it on the caller's thread stalled the rail switch.
+            withContext(Dispatchers.Default) {
+                groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+            }
         }
 
         val client = connectionManager.getPrimaryClient()

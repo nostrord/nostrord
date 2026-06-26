@@ -11,6 +11,8 @@ class RelayViewModel(
     val currentRelayUrl = repo.currentRelayUrl
 
     fun switchRelay(url: String) {
+        // switchRelay offloads its own blocking SecureStorage reads onto Dispatchers.Default
+        // internally, so this stays on the (test-controlled) viewModel scope.
         viewModelScope.launch { repo.switchRelay(url) }
     }
 }

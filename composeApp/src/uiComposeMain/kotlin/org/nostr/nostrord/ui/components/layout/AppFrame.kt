@@ -87,8 +87,10 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
 import org.nostr.nostrord.auth.removeAccountConfirmLabel
@@ -199,12 +201,17 @@ fun AppFrame() {
     // Mirror the legacy AppShell: cross-relay navigation switches the relay first,
     // and the open group is tracked for notification suppression + unread clearing.
     LaunchedEffect(groupRoute) {
-        val r = groupRoute
-        if (r != null && r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
-            AppModule.nostrRepository.switchRelay(r.relayUrl)
+        // Off the Main dispatcher: switchRelay and markGroupAsRead do blocking
+        // EncryptedSharedPreferences reads/writes; on Android, running them on the LaunchedEffect's
+        // Main context froze the UI (and could ANR) on every group / rail switch.
+        withContext(Dispatchers.Default) {
+            val r = groupRoute
+            if (r != null && r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
+                AppModule.nostrRepository.switchRelay(r.relayUrl)
+            }
+            AppModule.nostrRepository.setActiveGroup(r?.groupId)
+            if (r != null) AppModule.nostrRepository.markGroupAsRead(r.groupId)
         }
-        AppModule.nostrRepository.setActiveGroup(r?.groupId)
-        if (r != null) AppModule.nostrRepository.markGroupAsRead(r.groupId)
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)

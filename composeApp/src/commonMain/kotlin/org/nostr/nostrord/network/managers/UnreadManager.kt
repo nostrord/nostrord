@@ -1,9 +1,11 @@
 package org.nostr.nostrord.network.managers
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.UnreadEntry
@@ -28,6 +30,10 @@ class UnreadManager(
     // Called when a group is marked read so the notification feed can drop the
     // group's entries in lockstep with the unread badge (issue #67).
     private val onGroupRead: ((groupId: String) -> Unit)? = null,
+    // Background scope (Dispatchers.Default) for the SecureStorage writes. The badge update is an
+    // in-memory StateFlow write that stays on the caller; only the EncryptedSharedPreferences
+    // encryption + I/O is offloaded so marking-read can't block the Main thread (ANR on Android).
+    private val scope: CoroutineScope,
 ) {
 
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -102,10 +108,14 @@ class UnreadManager(
 
     fun markAsRead(groupId: String) {
         val pubkey = currentPubkey ?: return
-        SecureStorage.saveLastReadTimestamp(pubkey, groupId, epochSeconds())
+        val now = epochSeconds()
+        // In-memory badge clear + feed drop happen immediately; the storage writes go off-Main.
         _unreadCounts.update { it + (groupId to 0) }
-        persistEntries()
         onGroupRead?.invoke(groupId)
+        scope.launch {
+            SecureStorage.saveLastReadTimestamp(pubkey, groupId, now)
+            persistEntries()
+        }
     }
 
     /**
@@ -118,15 +128,19 @@ class UnreadManager(
      */
     fun markAsReadUpTo(groupId: String, timestamp: Long) {
         val pubkey = currentPubkey ?: return
-        val stored = SecureStorage.getLastReadTimestamp(pubkey, groupId) ?: 0L
-        if (timestamp <= stored) return
-        SecureStorage.saveLastReadTimestamp(pubkey, groupId, timestamp)
-        val highWater = _latestMessageTimestamps.value[groupId] ?: 0L
-        if (timestamp >= highWater) {
-            _unreadCounts.update { it + (groupId to 0) }
-            onGroupRead?.invoke(groupId)
+        // Off-Main: this runs per scroll-past, and the read + writes are EncryptedSharedPreferences
+        // I/O that must not block the scroll on the Main thread.
+        scope.launch {
+            val stored = SecureStorage.getLastReadTimestamp(pubkey, groupId) ?: 0L
+            if (timestamp <= stored) return@launch
+            SecureStorage.saveLastReadTimestamp(pubkey, groupId, timestamp)
+            val highWater = _latestMessageTimestamps.value[groupId] ?: 0L
+            if (timestamp >= highWater) {
+                _unreadCounts.update { it + (groupId to 0) }
+                onGroupRead?.invoke(groupId)
+            }
+            persistEntries()
         }
-        persistEntries()
     }
 
     fun getLastReadTimestamp(groupId: String): Long? = currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
