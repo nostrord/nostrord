@@ -4816,10 +4816,13 @@ body {
     color: var(--color-text-primary);
 }
 
+/* Form field label, standardized with .form-label: small, bold, uppercase. */
 .field-label {
     margin-bottom: 6px;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--color-text-secondary);
 }
 
@@ -4848,7 +4851,9 @@ body {
     font-size: 14px;
     font-family: inherit;
     color: var(--color-text-primary);
-    background: var(--color-input);
+    /* Standardized control background (#131217 dark / #f4f3f8 light), matching the floating
+       panels and the login .input-group, not the lighter --color-input. */
+    background: var(--color-floating);
     border: 1px solid var(--color-surface-variant);
     border-radius: 8px;
     outline: none;
