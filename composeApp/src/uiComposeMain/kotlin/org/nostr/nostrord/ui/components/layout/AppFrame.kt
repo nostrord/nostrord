@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +68,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -998,15 +1005,27 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
         )
     }
 
+    val density = LocalDensity.current
+    val popupGapPx = with(density) { 8.dp.roundToPx() }
+    val menuPosition = remember(popupGapPx) { AboveAnchorStartPositionProvider(popupGapPx) }
     Box {
-        // Account switcher popover (prototype AccountMenu): accounts with npub +
-        // signer chip, add account, and the sign-out action.
-        DropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-            modifier = Modifier.width(280.dp),
-            containerColor = NostrordColors.BackgroundFloating,
-        ) {
+        // Account switcher popover (prototype AccountMenu): accounts with npub + signer chip,
+        // add account, and the sign-out action. A Popup anchored just above the account bar
+        // (web .account-pop bottom: 56px) keeps the gap tight on every platform; the Material
+        // DropdownMenu's flip-above placement drifted far above the bar on Android.
+        if (menuOpen) {
+            Popup(
+                popupPositionProvider = menuPosition,
+                onDismissRequest = { menuOpen = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Surface(
+                    modifier = Modifier.width(280.dp),
+                    color = NostrordColors.BackgroundFloating,
+                    shape = NostrordShapes.shapeMedium,
+                    shadowElevation = 8.dp,
+                ) {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             Text(
                 "ACCOUNTS",
                 color = NostrordColors.TextMuted,
@@ -1143,6 +1162,9 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                     confirmLogout = true
                 },
             )
+                    }
+                }
+            }
         }
 
         Row(
@@ -1242,6 +1264,24 @@ private fun signerLabel(method: AuthMethod): String = when (method) {
     AuthMethod.LOCAL -> "key"
     AuthMethod.BUNKER -> "bunker"
     AuthMethod.NIP07 -> "extension"
+}
+
+/**
+ * Positions the account-switcher popup just above the account bar, left-aligned with it
+ * (web .account-pop: bottom 56px, left 8px). Anchor bounds are the account bar; the popup
+ * sits its full height above the bar's top with a small gap.
+ */
+private class AboveAnchorStartPositionProvider(private val gapPx: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = anchorBounds.left
+        val y = anchorBounds.top - popupContentSize.height - gapPx
+        return IntOffset(x, y.coerceAtLeast(0))
+    }
 }
 
 /** Compact action row for the account switcher (web .account-pop-action parity). */
