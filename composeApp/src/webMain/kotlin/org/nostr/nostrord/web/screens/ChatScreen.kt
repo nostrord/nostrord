@@ -209,6 +209,10 @@ private data class MentionRequest(val name: String, val pubkey: String, val nonc
 /** A run of composer text, flagged as a resolved @mention (gold) or plain. */
 private data class HlSeg(val text: String, val mention: Boolean)
 
+/** Per-message values that depend only on the message (+ group/relay), precomputed once per
+ *  message-list change so the row list doesn't re-encode bech32 + re-serialize JSON every render. */
+private data class RowMeta(val nevent: String, val eventJson: String, val link: String)
+
 /**
  * Split [text] into plain / mention runs for the composer's colored mirror. Only the literal
  * [tokens] (e.g. "@alice", "%my group") that are resolved mentions are tinted — same rule as
@@ -1059,6 +1063,21 @@ val ChatScreen =
         // would otherwise re-sort the whole list 15+ times during a group switch).
         val messages = useMemo(rawMessages) { rawMessages.sortedBy { it.createdAt } }
         val messagesById = useMemo(messages) { messages.associateBy { it.id } }
+        // Pure per-message values (bech32 nevent, the event JSON, the share link): expensive to
+        // compute and constant for a message, so build them once per message-list change instead of
+        // re-encoding/re-serializing all 200 rows on every re-render.
+        val rowMeta =
+            useMemo(messages, group.id, relayUrl) {
+                val host = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                messages.associate { m ->
+                    m.id to
+                        RowMeta(
+                            nevent = Nip19.encodeNevent(m.id, authorHex = m.pubkey),
+                            eventJson = eventJsonOf(m),
+                            link = "https://nostrord.com/open/?relay=$host&group=${group.id}&e=${m.id}",
+                        )
+                }
+            }
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val isAdmin = myPubkey != null && myPubkey in admins
@@ -2008,9 +2027,9 @@ val ChatScreen =
                                                         tags = it.tags,
                                                     )
                                                 }
-                                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
                                             val authorMeta = userMetadata[message.pubkey]
                                             val zapInfo = zapsByMsg[message.id]
+                                            val meta = rowMeta[message.id]
                                             MessageRow {
                                                 key = message.id
                                                 domId = "msg-${message.id}"
@@ -2044,9 +2063,9 @@ val ChatScreen =
                                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
                                                 this.isMine = message.pubkey == myPubkey
                                                 this.isAdmin = myPubkey != null && myPubkey in admins
-                                                messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
-                                                nevent = Nip19.encodeNevent(message.id, authorHex = message.pubkey)
-                                                eventJson = eventJsonOf(message)
+                                                messageLink = meta?.link ?: ""
+                                                nevent = meta?.nevent ?: ""
+                                                eventJson = meta?.eventJson ?: ""
                                                 status = messageStatus[message.id]
                                                 onRetrySend = { vm.retrySend(message.id) }
                                                 onDismissFailed = { vm.dismissFailed(message.id) }
