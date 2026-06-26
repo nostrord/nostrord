@@ -73,6 +73,13 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
  */
 
 /** Small uppercase bold label above an input (web `.form-label`). */
+/**
+ * Input text style for form fields: 14sp to match the web .modal-input (the 16sp default
+ * read oversized). Use on raw OutlinedTextField call sites that don't go through AppTextField.
+ */
+@Composable
+fun appFieldTextStyle() = LocalTextStyle.current.copy(fontSize = 14.sp)
+
 @Composable
 fun FormLabel(text: String) {
     Text(
@@ -185,7 +192,8 @@ fun AppTextField(
                         else -> false
                     }
                 },
-            textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
+            // 14sp matches the web .modal-input; the 16sp default read oversized.
+            textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent, fontSize = 14.sp),
             leadingIcon =
             leadingIcon?.let {
                 {

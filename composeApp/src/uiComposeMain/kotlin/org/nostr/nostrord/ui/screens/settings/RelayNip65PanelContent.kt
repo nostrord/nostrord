@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -196,6 +197,7 @@ fun RelayNip65PanelContent(
                         focusedTextColor = NostrordColors.TextContent,
                         unfocusedTextColor = NostrordColors.TextContent,
                     ),
+                    textStyle = appFieldTextStyle(),
                     shape = NostrordShapes.shapeSmall,
                 )
 

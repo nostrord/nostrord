@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
+import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -202,6 +203,7 @@ fun CreateGroupModal(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
+                        textStyle = appFieldTextStyle(),
                         shape = RoundedCornerShape(8.dp),
                     )
 
@@ -230,6 +232,7 @@ fun CreateGroupModal(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
+                        textStyle = appFieldTextStyle(),
                         shape = RoundedCornerShape(8.dp),
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -260,6 +263,7 @@ fun CreateGroupModal(
                                 .fillMaxWidth()
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable),
                             colors = fieldColors(),
+                            textStyle = appFieldTextStyle(),
                             shape = RoundedCornerShape(8.dp),
                         )
                         ExposedDropdownMenu(
@@ -317,6 +321,7 @@ fun CreateGroupModal(
                             placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = fieldColors(),
+                            textStyle = appFieldTextStyle(),
                             shape = RoundedCornerShape(8.dp),
                             enabled = !isCreating,
                         )
@@ -365,6 +370,7 @@ fun CreateGroupModal(
                         maxLines = 5,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
+                        textStyle = appFieldTextStyle(),
                         shape = RoundedCornerShape(8.dp),
                     )
 

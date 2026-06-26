@@ -26,6 +26,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.isAndroid
@@ -235,7 +236,7 @@ private fun QrCodeLoginContent(
                 readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextMuted),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextMuted, fontSize = 14.sp),
                 trailingIcon = {
                     IconButton(onClick = {
                         clipboardManager.setText(AnnotatedString(uri))
@@ -427,7 +428,7 @@ private fun NostrConnectRelaysSection(
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent, fontSize = 14.sp),
                 trailingIcon = {
                     IconButton(
                         onClick = {

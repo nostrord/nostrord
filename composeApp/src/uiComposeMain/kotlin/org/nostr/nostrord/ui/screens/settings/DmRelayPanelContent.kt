@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -133,6 +134,7 @@ fun DmRelayPanelContent() {
                         focusedTextColor = NostrordColors.TextContent,
                         unfocusedTextColor = NostrordColors.TextContent,
                     ),
+                    textStyle = appFieldTextStyle(),
                     shape = NostrordShapes.shapeSmall,
                 )
 

@@ -4813,10 +4813,10 @@ body {
     line-height: 1.4;
 }
 
-/* Breathing room between stacked fields in the Manage group modal. Each field group
-   starts with its label, so spacing the label off the previous input reads as the
-   gap between fields without loosening the tight label-to-input pairing. */
-.manage-content .field-label {
+/* Breathing room between stacked form fields. Each field group starts with its label,
+   so spacing every label except the first off the previous field reads as the gap
+   between fields without loosening the tight label-to-input pairing (6px below). */
+.field-label:not(:first-child) {
     margin-top: 18px;
 }
 
