@@ -1507,8 +1507,26 @@ body {
     border-radius: 12px;
 }
 
-.rail-group-btn.active {
-    outline: 2px solid color-mix(in srgb, var(--color-text-primary) 40%, transparent);
+/* Left pill marker (Discord-style): white, grows from 0 to 20px on hover and 36px
+   when active. Drawn on the .rail-group wrapper because .rail-group-btn clips its
+   own overflow; left: -12px reaches the rail edge past .rail-scroll's 12px padding. */
+.rail-group::before {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 0;
+    border-radius: 0 4px 4px 0;
+    background: #fff;
+    transition: height 0.15s ease;
+}
+.rail-group:hover::before {
+    height: 20px;
+}
+.rail-group:has(.rail-group-btn.active)::before {
+    height: 36px;
 }
 
 .rail-group-btn .group-card-avatar {
@@ -2773,18 +2791,41 @@ body {
 }
 
 .account-pop-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+/* Active-account marker: a full-height accent bar on the left edge. Drawn as an
+   overlay so it never shifts the row content. */
+.account-pop-row.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--color-primary);
+}
+
+/* The switch area fills the row; the copy button is a separate sibling to its
+   right so a copy tap can never fall through to an account switch. */
+.account-pop-switch {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;
     padding: 8px;
     background: transparent;
     border: 0;
+    border-radius: var(--radius-md);
     text-align: left;
     cursor: pointer;
 }
 
-.account-pop-row:hover {
+.account-pop-switch:hover {
     background: var(--color-hover);
 }
 
@@ -2810,13 +2851,46 @@ body {
     color: var(--color-text-primary);
 }
 
-.account-pop-npub {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
+/* Second meta line: now carries the signer chip (the npub moved up to the name
+   slot as its fallback). */
+.account-pop-npub-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 3px;
+}
+
+/* Dedicated copy-npub button at the row's right edge: a comfortable 32px target
+   with its own hover, kept clear of the switch area. */
+.account-pop-copy {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-right: 6px;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-md);
     color: var(--color-text-muted);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.account-pop-copy:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+
+.account-pop-copy.copied {
+    color: var(--color-success);
+}
+
+.account-pop-copy .ico {
+    width: 16px;
+    height: 16px;
 }
 
 .signer-chip {
@@ -2826,16 +2900,6 @@ body {
     color: var(--color-text-muted);
     background: var(--color-background-dark);
     border-radius: var(--radius-sm);
-}
-
-.account-pop-check {
-    flex-shrink: 0;
-    color: var(--color-success);
-}
-
-.account-pop-check .ico {
-    width: 16px;
-    height: 16px;
 }
 
 .account-pop-divider {
@@ -2856,6 +2920,9 @@ body {
     font-size: 14px;
     color: var(--color-text-secondary);
     cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .account-pop-action:hover {

@@ -28,6 +28,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.searchInput
@@ -94,6 +95,8 @@ val AppFrame =
         val (friendQuery, setFriendQuery) = useState { "" }
         val (menuOpen, setMenuOpen) = useState { false }
         val (confirmLogout, setConfirmLogout) = useState { false }
+        // Account whose npub was just copied from its switcher row (shows the check, resets after 1.2s).
+        val (copiedNpub, setCopiedNpub) = useState<String?> { null }
         val (logoutBusy, setLogoutBusy) = useState { false }
         // Which step of the rail "+" add-group flow is open: "chooser" / "create" / "join".
         val (addGroupStep, setAddGroupStep) = useState<String?> { null }
@@ -219,11 +222,16 @@ val AppFrame =
 
         val active = accounts.firstOrNull { it.id == activeId }
         val meta = active?.pubkey?.let { userMetadata[it] }
-        val displayName =
+        // Fall back to the npub (not the generic "Account N" label) when the active
+        // account has no name metadata.
+        val activeNpub = active?.pubkey?.let { runCatching { Nip19.encodeNpub(it) }.getOrNull() }
+        val accountName =
             meta?.displayName?.takeIf { it.isNotBlank() }
                 ?: meta?.name?.takeIf { it.isNotBlank() }
-                ?: active?.label
-                ?: "Account"
+        val displayName = accountName ?: activeNpub ?: active?.label ?: "Account"
+        // Name the account in the logout action only when it has a real name; an npub
+        // there just wraps and reads as noise (the active account is already marked).
+        val logoutLabel = accountName?.let { "Log out of $it" } ?: "Log out"
 
         div {
             className = ClassName(if (drawerOpen) "app-frame drawer-open" else "app-frame")
@@ -282,12 +290,14 @@ val AppFrame =
                                 }
                             }
                         }
-                    }
-                    button {
-                        className = ClassName("rail-btn")
-                        title = "Add group"
-                        onClick = { setAddGroupStep("chooser") }
-                        icon(Ic.Add)
+                        // Add-group is the last scrollable item (after the groups) so the
+                        // group list keeps all the rail space and scrolls together with it.
+                        button {
+                            className = ClassName("rail-btn")
+                            title = "Add group"
+                            onClick = { setAddGroupStep("chooser") }
+                            icon(Ic.Add)
+                        }
                     }
                     div { className = ClassName("rail-spacer") }
                     div { className = ClassName("rail-divider") }
@@ -452,45 +462,67 @@ val AppFrame =
                                 accounts.forEach { account ->
                                     val isActiveAccount = account.id == activeId
                                     val m = userMetadata[account.pubkey]
+                                    val npub = runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
+                                    // Fall back to the npub (not the generic "Account N" label)
+                                    // when the account has no name metadata.
                                     val name =
                                         m?.displayName?.takeIf { it.isNotBlank() }
                                             ?: m?.name?.takeIf { it.isNotBlank() }
-                                            ?: account.label
-                                    button {
+                                            ?: npub
+                                    // Two sibling buttons, not a copy nested inside the switch
+                                    // button: a tiny nested target let near-misses fall through
+                                    // and change account by accident.
+                                    div {
                                         key = account.id
-                                        className = ClassName("account-pop-row")
-                                        onClick = {
-                                            setMenuOpen(false)
-                                            if (!isActiveAccount) {
-                                                launchApp { AppModule.accountManager.switchAccount(account.id) }
+                                        className =
+                                            ClassName(
+                                                if (isActiveAccount) "account-pop-row active" else "account-pop-row",
+                                            )
+                                        button {
+                                            className = ClassName("account-pop-switch")
+                                            onClick = {
+                                                setMenuOpen(false)
+                                                if (!isActiveAccount) {
+                                                    launchApp { AppModule.accountManager.switchAccount(account.id) }
+                                                }
                                             }
-                                        }
-                                        WebAvatar {
-                                            url = m?.picture
-                                            seed = account.pubkey
-                                            this.name = name
-                                            cls = "account-pop-avatar"
-                                        }
-                                        div {
-                                            className = ClassName("account-pop-meta")
+                                            WebAvatar {
+                                                url = m?.picture
+                                                seed = account.pubkey
+                                                this.name = name
+                                                cls = "account-pop-avatar"
+                                            }
                                             div {
-                                                className = ClassName("account-pop-name")
-                                                +name
-                                            }
-                                            div {
-                                                className = ClassName("account-pop-npub")
-                                                +runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
+                                                className = ClassName("account-pop-meta")
+                                                div {
+                                                    className = ClassName("account-pop-name")
+                                                    +name
+                                                }
+                                                div {
+                                                    className = ClassName("account-pop-npub-row")
+                                                    span {
+                                                        className = ClassName("signer-chip")
+                                                        +signerLabel(account.authMethod)
+                                                    }
+                                                }
                                             }
                                         }
-                                        span {
-                                            className = ClassName("signer-chip")
-                                            +signerLabel(account.authMethod)
-                                        }
-                                        if (isActiveAccount) {
-                                            span {
-                                                className = ClassName("account-pop-check")
-                                                icon(Ic.Check)
+                                        button {
+                                            className =
+                                                ClassName(
+                                                    if (copiedNpub == account.id) {
+                                                        "account-pop-copy copied"
+                                                    } else {
+                                                        "account-pop-copy"
+                                                    },
+                                                )
+                                            title = "Copy npub"
+                                            onClick = {
+                                                copyToClipboard(npub)
+                                                setCopiedNpub(account.id)
+                                                window.setTimeout({ setCopiedNpub(null) }, 1200)
                                             }
+                                            icon(if (copiedNpub == account.id) Ic.Check else Ic.ContentCopy)
                                         }
                                     }
                                 }
@@ -522,7 +554,7 @@ val AppFrame =
                                         setConfirmLogout(true)
                                     }
                                     icon(Ic.Logout)
-                                    +"Log out of $displayName"
+                                    +logoutLabel
                                 }
                             }
                         }

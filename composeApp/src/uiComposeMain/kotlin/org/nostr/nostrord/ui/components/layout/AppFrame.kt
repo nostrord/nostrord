@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.components.layout
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -9,24 +10,32 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -38,7 +47,6 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,12 +75,12 @@ import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
@@ -121,11 +129,13 @@ import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageScreen
 import org.nostr.nostrord.ui.screens.relay.RelayPageScreen
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
+import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.window.onBackForwardMouseButtons
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * New-design logged-in frame (prototype AppShell): the 72px groups rail (home,
@@ -215,6 +225,9 @@ fun AppFrame() {
                 .width(72.dp)
                 .fillMaxHeight()
                 .background(NostrordColors.BackgroundDark)
+                // Background bleeds to the screen edges; only the icons are inset off the
+                // status bar (top), gesture bar (bottom) and any left-edge cutout.
+                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical))
                 .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -250,10 +263,12 @@ fun AppFrame() {
                             closeDrawer()
                         }
                     }
-                }
-                RailButton(icon = Icons.Default.Add, label = "Add group") {
-                    addGroupStep = AddGroupStep.CHOOSER
-                    closeDrawer()
+                    // Add-group is the last scrollable item (after the groups) so the group
+                    // list keeps all the rail space and scrolls together with it.
+                    RailButton(icon = Icons.Default.Add, label = "Add group") {
+                        addGroupStep = AddGroupStep.CHOOSER
+                        closeDrawer()
+                    }
                 }
             }
             HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
@@ -294,7 +309,10 @@ fun AppFrame() {
             Modifier
                 .width(240.dp)
                 .fillMaxHeight()
-                .background(NostrordColors.Surface),
+                .background(NostrordColors.Surface)
+                // Background bleeds; the header and the account bar are inset off the
+                // status bar (top) and gesture bar (bottom).
+                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Vertical)),
         ) {
             if (showNotifications) {
                 Box(modifier = Modifier.weight(1f)) {
@@ -427,13 +445,34 @@ fun AppFrame() {
                         }
                     },
                 ) {
-                    contentArea(false) { drawerScope.launch { drawerState.open() } }
+                    // Full-width content: background bleeds, content stays clear of both
+                    // side cutouts, the bars and the keyboard.
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(NostrordColors.Background)
+                            .windowInsetsPadding(WindowInsets.safeDrawing),
+                    ) {
+                        contentArea(false) { drawerScope.launch { drawerState.open() } }
+                    }
                 }
             } else {
                 Row(modifier = Modifier.fillMaxSize()) {
                     railContent()
                     sidebarContent()
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    // Content sits to the right of the sidebar: background bleeds, content
+                    // is inset off the right cutout, the bars and the keyboard.
+                    Box(
+                        modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .background(NostrordColors.Background)
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing.only(WindowInsetsSides.End + WindowInsetsSides.Vertical),
+                            ),
+                    ) {
                         contentArea(true, null)
                     }
                 }
@@ -499,16 +538,25 @@ fun AppFrame() {
             // Settings opens full-screen over the rail and sidebar (its own layout carries
             // the close button); the toolbar above stays visible so back/forward still leave it.
             if (route is SettingsRoute) {
-                SettingsScreen(
-                    onClose = { history.back() },
-                    // Legacy in-page navigation targets the old Screen graph the new frame
-                    // doesn't route; just close, like the old overlay did.
-                    onNavigate = { history.back() },
-                    onLogout = {
-                        history.back()
-                        AppModule.accountStore.activeId.value?.let { AppModule.accountManager.removeAccountAsync(it) }
-                    },
-                )
+                // Full-screen overlay: background bleeds to the edges, content inset off the bars.
+                Box(
+                    modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(NostrordColors.Background)
+                        .windowInsetsPadding(WindowInsets.safeDrawing),
+                ) {
+                    SettingsScreen(
+                        onClose = { history.back() },
+                        // Legacy in-page navigation targets the old Screen graph the new frame
+                        // doesn't route; just close, like the old overlay did.
+                        onNavigate = { history.back() },
+                        onLogout = {
+                            history.back()
+                            AppModule.accountStore.activeId.value?.let { AppModule.accountManager.removeAccountAsync(it) }
+                        },
+                    )
+                }
             }
 
             // Zap modal host: mounted once so any ZapController.request(...) from a profile,
@@ -608,13 +656,21 @@ private fun RailButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val highlighted = active || isHovered
+    // Morph the corner radius smoothly (16dp squircle -> 12dp on hover/active) instead of
+    // snapping the shape, matching the rail feel on the main branch.
+    val cornerRadius by animateDpAsState(
+        targetValue = if (highlighted) NostrordShapes.serverIconActive else NostrordShapes.serverIconDefault,
+        animationSpec = NostrordAnimation.standardSpec(),
+        label = "railBtnCorner",
+    )
+    val shape = RoundedCornerShape(cornerRadius)
     Surface(
         modifier =
         Modifier
             .size(48.dp)
-            .clip(if (highlighted) NostrordShapes.shapeLarge else NostrordShapes.shapeXLarge)
+            .clip(shape)
             .hoverable(interactionSource),
-        shape = if (highlighted) NostrordShapes.shapeLarge else NostrordShapes.shapeXLarge,
+        shape = shape,
         color = if (highlighted) NostrordColors.Primary else NostrordColors.Background,
         onClick = onClick,
     ) {
@@ -641,28 +697,61 @@ private fun RailGroupButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val highlighted = active || isHovered
-    Box {
-        Surface(
+    // Smoothly morph the corner radius (16dp -> 12dp) rather than snapping the shape,
+    // matching the softer rail feel on the main branch.
+    val cornerRadius by animateDpAsState(
+        targetValue = if (highlighted) NostrordShapes.serverIconActive else NostrordShapes.serverIconDefault,
+        animationSpec = NostrordAnimation.standardSpec(),
+        label = "railGroupCorner",
+    )
+    val shape = RoundedCornerShape(cornerRadius)
+    // Span the full rail width so the active pill can sit on the left edge, Discord-style,
+    // while the icon stays centered.
+    Box(modifier = Modifier.width(72.dp), contentAlignment = Alignment.Center) {
+        // Left pill marker: grows from 0 to 20dp on hover and 36dp when active (web .rail-item::before).
+        val pillHeight by animateDpAsState(
+            targetValue = if (active) {
+                36.dp
+            } else if (isHovered) {
+                20.dp
+            } else {
+                0.dp
+            },
+            animationSpec = NostrordAnimation.indicatorSpec(),
+            label = "railPill",
+        )
+        Box(
             modifier =
             Modifier
-                .size(48.dp)
-                .clip(if (highlighted) NostrordShapes.shapeLarge else NostrordShapes.shapeXLarge)
-                .hoverable(interactionSource),
-            shape = if (highlighted) NostrordShapes.shapeLarge else NostrordShapes.shapeXLarge,
-            color = NostrordColors.Background,
-            onClick = onClick,
-        ) {
-            OptimizedSmallAvatar(
-                imageUrl = picture,
-                identifier = groupId,
-                displayName = name,
-                size = 48.dp,
-                shape = if (highlighted) NostrordShapes.shapeLarge else NostrordShapes.shapeXLarge,
-                isGroup = true,
-            )
-        }
-        if (unread > 0) {
-            RailBadge(count = unread, modifier = Modifier.align(Alignment.BottomEnd))
+                .align(Alignment.CenterStart)
+                .width(4.dp)
+                .height(pillHeight)
+                .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
+                .background(NostrordColors.TextPrimary),
+        )
+        Box {
+            Surface(
+                modifier =
+                Modifier
+                    .size(48.dp)
+                    .clip(shape)
+                    .hoverable(interactionSource),
+                shape = shape,
+                color = NostrordColors.Background,
+                onClick = onClick,
+            ) {
+                OptimizedSmallAvatar(
+                    imageUrl = picture,
+                    identifier = groupId,
+                    displayName = name,
+                    size = 48.dp,
+                    shape = shape,
+                    isGroup = true,
+                )
+            }
+            if (unread > 0) {
+                RailBadge(count = unread, modifier = Modifier.align(Alignment.BottomEnd))
+            }
         }
     }
 }
@@ -833,16 +922,30 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val active = accounts.firstOrNull { it.id == activeId }
     val meta = active?.pubkey?.let { userMetadata[it] }
-    val displayName =
+    // Fall back to the npub (not the generic "Account N" label) when the active
+    // account has no name metadata.
+    val activeNpub = active?.pubkey?.let { runCatching { Nip19.encodeNpub(it) }.getOrNull() }
+    val accountName =
         meta?.displayName?.takeIf { it.isNotBlank() }
             ?: meta?.name?.takeIf { it.isNotBlank() }
-            ?: active?.label
-            ?: "Account"
+    val displayName = accountName ?: activeNpub ?: active?.label ?: "Account"
+    // Name the account in the logout action only when it has a real name; an npub
+    // there just wraps and reads as noise (the active account is already marked).
+    val logoutLabel = accountName?.let { "Log out of $it" } ?: "Log out"
 
     var menuOpen by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
     var showAddAccount by remember { mutableStateOf(false) }
+    // Account whose npub was just copied from the switcher row (shows the check, resets after 1.2s).
+    var copiedNpubId by remember { mutableStateOf<String?>(null) }
+    val clipboardWriter = rememberClipboardWriter()
+    LaunchedEffect(copiedNpubId) {
+        if (copiedNpubId != null) {
+            delay(1200)
+            copiedNpubId = null
+        }
+    }
 
     AddAccountSheet(
         visible = showAddAccount,
@@ -901,6 +1004,7 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
+            modifier = Modifier.width(280.dp),
             containerColor = NostrordColors.BackgroundFloating,
         ) {
             Text(
@@ -914,19 +1018,43 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
             accounts.forEach { account ->
                 val isActiveAccount = account.id == activeId
                 val m = userMetadata[account.pubkey]
+                val npub = runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
+                // Fall back to the npub (not the generic "Account N" label) when the
+                // account has no name metadata.
                 val name =
                     m?.displayName?.takeIf { it.isNotBlank() }
                         ?: m?.name?.takeIf { it.isNotBlank() }
-                        ?: account.label
-                val npub = runCatching { Nip19.encodeNpub(account.pubkey) }.getOrDefault("")
-                DropdownMenuItem(
-                    onClick = {
-                        menuOpen = false
-                        if (!isActiveAccount) {
-                            AppModule.accountManager.switchAccountAsync(account.id)
-                        }
-                    },
-                    leadingIcon = {
+                        ?: npub
+                // Row split into two distinct hit targets: the switch area (avatar +
+                // name/npub + signer chip) and a dedicated copy-npub button on the right.
+                // Embedding a tiny copy icon inside the switch row made near-misses fall
+                // through to the switch and change account by accident.
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Active-account marker: a full-height accent bar on the left edge
+                    // (kept on every row, transparent when inactive, so content stays aligned).
+                    Box(
+                        modifier =
+                        Modifier
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .background(if (isActiveAccount) NostrordColors.Primary else Color.Transparent),
+                    )
+                    Row(
+                        modifier =
+                        Modifier
+                            .weight(1f)
+                            .clickable {
+                                menuOpen = false
+                                if (!isActiveAccount) {
+                                    AppModule.accountManager.switchAccountAsync(account.id)
+                                }
+                            }
+                            .padding(start = 9.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         OptimizedSmallAvatar(
                             imageUrl = m?.picture,
                             identifier = account.pubkey,
@@ -934,9 +1062,8 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                             size = 36.dp,
                             shape = CircleShape,
                         )
-                    },
-                    text = {
-                        Column(modifier = Modifier.widthIn(max = 168.dp)) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 name,
                                 color = NostrordColors.TextPrimary,
@@ -945,18 +1072,9 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                npub,
-                                color = NostrordColors.TextMuted,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            // Signer chip lives on the second meta line (the npub moved up
+                            // to the name slot as its fallback).
                             Surface(
                                 shape = NostrordShapes.shapeSmall,
                                 color = NostrordColors.BackgroundDark,
@@ -965,69 +1083,65 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                                     signerLabel(account.authMethod),
                                     color = NostrordColors.TextMuted,
                                     fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                            if (isActiveAccount) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Active",
-                                    tint = NostrordColors.Success,
-                                    modifier = Modifier.size(16.dp),
+                                    lineHeight = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                                 )
                             }
                         }
-                    },
-                )
+                    }
+                    val npubCopied = copiedNpubId == account.id
+                    Box(
+                        modifier =
+                        Modifier
+                            .padding(end = 4.dp)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                clipboardWriter(npub)
+                                copiedNpubId = account.id
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = if (npubCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                            contentDescription = "Copy npub",
+                            tint = if (npubCopied) NostrordColors.Success else NostrordColors.TextMuted,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
             }
             HorizontalDivider(color = NostrordColors.Divider)
+            // Compact action rows (web .account-pop-action: 8/12 padding). DropdownMenuItem
+            // forces a 48dp min height, which made these taller than the web equivalent.
             active?.let { acct ->
-                DropdownMenuItem(
+                AccountPopAction(
+                    icon = Icons.Default.Person,
+                    label = "View profile",
+                    tint = NostrordColors.TextSecondary,
                     onClick = {
                         menuOpen = false
                         onViewProfile(acct.pubkey)
                     },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                    text = { Text("View profile", color = NostrordColors.TextSecondary, fontSize = 14.sp) },
                 )
             }
-            DropdownMenuItem(
+            AccountPopAction(
+                icon = Icons.Default.Add,
+                label = "Add account",
+                tint = NostrordColors.TextSecondary,
                 onClick = {
                     menuOpen = false
                     showAddAccount = true
                 },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                text = { Text("Add account", color = NostrordColors.TextSecondary, fontSize = 14.sp) },
             )
-            DropdownMenuItem(
+            AccountPopAction(
+                icon = Icons.AutoMirrored.Filled.Logout,
+                label = logoutLabel,
+                tint = NostrordColors.Error,
                 onClick = {
                     menuOpen = false
                     confirmLogout = true
                 },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                        contentDescription = null,
-                        tint = NostrordColors.Error,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                text = { Text("Log out of $displayName", color = NostrordColors.Error, fontSize = 14.sp) },
             )
         }
 
@@ -1128,4 +1242,31 @@ private fun signerLabel(method: AuthMethod): String = when (method) {
     AuthMethod.LOCAL -> "key"
     AuthMethod.BUNKER -> "bunker"
     AuthMethod.NIP07 -> "extension"
+}
+
+/** Compact action row for the account switcher (web .account-pop-action parity). */
+@Composable
+private fun AccountPopAction(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(label, color = tint, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
