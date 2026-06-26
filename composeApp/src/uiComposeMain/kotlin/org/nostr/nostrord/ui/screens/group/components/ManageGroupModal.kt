@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -58,12 +59,14 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.IdentifierRow
+import org.nostr.nostrord.network.upload.NostrBuildUploader
+import org.nostr.nostrord.network.upload.rememberMediaPickerLauncher
+import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.forms.AppSearchField
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
-import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
@@ -326,8 +329,67 @@ private fun ManageInfoSection(
     var isHidden by remember(currentMetadata) { mutableStateOf(currentMetadata?.isHidden == true) }
     var isSaving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var isUploadingPhoto by remember { mutableStateOf(false) }
+
+    // Pick an image and upload it to nostr.build, then point the group picture at the URL.
+    val photoPicker =
+        rememberMediaPickerLauncher { bytes, filename ->
+            isUploadingPhoto = true
+            error = null
+            scope.launch {
+                try {
+                    val mime = NostrBuildUploader.mimeTypeForFilename(filename)
+                    when (
+                        val result =
+                            NostrBuildUploader.upload(
+                                bytes,
+                                filename,
+                                mime,
+                                AppModule.nostrRepository::buildNip98AuthHeader,
+                            )
+                    ) {
+                        is Result.Success -> picture = result.data.url
+                        is Result.Error -> error = result.error.message
+                    }
+                } finally {
+                    isUploadingPhoto = false
+                }
+            }
+        }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // Avatar preview + Change photo (web parity), in place of the raw image-URL field.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            OptimizedSmallAvatar(
+                imageUrl = picture.ifBlank { null },
+                identifier = groupId,
+                displayName = name.ifBlank { groupId },
+                size = 56.dp,
+                shape = RoundedCornerShape(12.dp),
+                isGroup = true,
+            )
+            OutlinedButton(
+                onClick = { photoPicker.launch() },
+                enabled = !isUploadingPhoto,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+            ) {
+                if (isUploadingPhoto) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = NostrordColors.Primary, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text("Change photo", style = NostrordTypography.Button)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.lg))
+
         EditFieldLabel("Name")
         Spacer(modifier = Modifier.height(Spacing.xs))
         OutlinedTextField(
@@ -354,16 +416,6 @@ private fun ManageInfoSection(
             modifier = Modifier.fillMaxWidth(),
             colors = editFieldColors(),
             shape = RoundedCornerShape(8.dp),
-        )
-
-        Spacer(modifier = Modifier.height(Spacing.lg))
-
-        UploadImageField(
-            label = "Group Image URL",
-            value = picture,
-            onValueChange = { picture = it },
-            placeholder = "https://example.com/image.jpg",
-            modifier = Modifier.fillMaxWidth(),
         )
 
         Spacer(modifier = Modifier.height(Spacing.xxl))
