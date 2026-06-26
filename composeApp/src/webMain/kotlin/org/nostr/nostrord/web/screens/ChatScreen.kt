@@ -1053,8 +1053,12 @@ val ChatScreen =
         // for it).
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
 
-        val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
-        val messagesById = messages.associateBy { it.id }
+        val rawMessages = messagesByGroup[group.id].orEmpty()
+        // Memoized so the O(n log n) sort + index only re-run when THIS group's messages change,
+        // not on every re-render (reactions, zaps, metadata and members each emit separately and
+        // would otherwise re-sort the whole list 15+ times during a group switch).
+        val messages = useMemo(rawMessages) { rawMessages.sortedBy { it.createdAt } }
+        val messagesById = useMemo(messages) { messages.associateBy { it.id } }
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val isAdmin = myPubkey != null && myPubkey in admins
@@ -1475,7 +1479,12 @@ val ChatScreen =
         // The full ordered row list (date separators, grouped messages, system rows,
         // the "new messages" divider) — fed to ChatMessageList as its data. Scroll,
         // pagination latch and stall detection all live inside that component now.
-        val chatItems = if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
+        // Memoized: rebuilding the date-separator / message-grouping / system-row tree is O(n) and
+        // only needs to re-run when the sorted messages, the read divider, or the viewer change.
+        val chatItems =
+            useMemo(messages, lastReadSnapshot, myPubkey) {
+                if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
+            }
         // Entry alignment to the "New messages" divider (parity with native, which opens
         // at the divider rather than the bottom). The first time the divider appears for a
         // group, scroll to it and mark the user as above the bottom, then latch
