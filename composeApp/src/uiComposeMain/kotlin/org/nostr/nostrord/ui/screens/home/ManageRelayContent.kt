@@ -29,6 +29,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
 
@@ -52,38 +53,25 @@ fun ManageRelayContent(
     var confirmRemoveRelay by remember { mutableStateOf(false) }
 
     if (confirmRemoveRelay) {
-        AlertDialog(
-            onDismissRequest = { confirmRemoveRelay = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Remove relay?") },
-            text = {
-                Text(
-                    if (isRelaySaved) {
-                        if (groups.isEmpty()) {
-                            "$relayName will be removed from your relay list."
-                        } else {
-                            "$relayName and all its groups will be removed from your list."
-                        }
-                    } else {
-                        "Your groups on $relayName will be removed from your list."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemoveRelay = false
-                    onRemoveRelay()
-                }) {
-                    Text("Remove", color = NostrordColors.Error, fontWeight = FontWeight.SemiBold)
+        ConfirmDialog(
+            title = "Remove relay?",
+            message =
+            if (isRelaySaved) {
+                if (groups.isEmpty()) {
+                    "$relayName will be removed from your relay list."
+                } else {
+                    "$relayName and all its groups will be removed from your list."
                 }
+            } else {
+                "Your groups on $relayName will be removed from your list."
             },
-            dismissButton = {
-                TextButton(onClick = { confirmRemoveRelay = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                confirmRemoveRelay = false
+                onRemoveRelay()
             },
+            onDismiss = { confirmRemoveRelay = false },
         )
     }
 
@@ -282,26 +270,16 @@ private fun OfflineGroupRow(
 
     if (showConfirm) {
         val groupLabel = group.name ?: group.id
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Leave group?") },
-            text = { Text("You will be removed from \"$groupLabel\".") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showConfirm = false
-                    onForget()
-                }) {
-                    Text("Leave", color = NostrordColors.Error, fontWeight = FontWeight.SemiBold)
-                }
+        ConfirmDialog(
+            title = "Leave group?",
+            message = "You will be removed from \"$groupLabel\".",
+            confirmLabel = "Leave",
+            destructive = true,
+            onConfirm = {
+                showConfirm = false
+                onForget()
             },
-            dismissButton = {
-                TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { showConfirm = false },
         )
     }
 

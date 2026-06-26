@@ -18,3 +18,10 @@ fun shortNpub(pubkey: String, chars: Int = 12): String {
         }
     return npub.take(chars) + "…"
 }
+
+/**
+ * A display label for an account. A real profile name or custom label is returned as-is; a bare full
+ * npub (the fallback when no name is known) is shortened to [shortNpub] so it doesn't blow up a
+ * dialog title. Use wherever an account label is shown to the user as free text.
+ */
+fun accountDisplayLabel(label: String, pubkey: String, chars: Int = 16): String = if (label.startsWith("npub1") && label.length > chars) shortNpub(pubkey, chars) else label

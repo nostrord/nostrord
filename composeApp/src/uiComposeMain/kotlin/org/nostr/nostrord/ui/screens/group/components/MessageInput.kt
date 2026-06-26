@@ -68,6 +68,7 @@ import org.nostr.nostrord.network.upload.ShareMediaEffect
 import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.rememberClipboardImageReader
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
@@ -1126,13 +1127,13 @@ fun MessageInput(
         )
 
         pasteError?.let { error ->
-            AlertDialog(
-                onDismissRequest = { pasteError = null },
-                title = { Text("Upload Failed") },
-                text = { Text(error) },
-                confirmButton = {
-                    TextButton(onClick = { pasteError = null }) { Text("OK") }
-                },
+            ConfirmDialog(
+                title = "Upload Failed",
+                message = error,
+                confirmLabel = "OK",
+                cancelLabel = null,
+                onConfirm = { pasteError = null },
+                onDismiss = { pasteError = null },
             )
         }
     }

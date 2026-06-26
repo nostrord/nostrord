@@ -96,6 +96,7 @@ import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
@@ -141,6 +142,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.window.onBackForwardMouseButtons
+import org.nostr.nostrord.utils.accountDisplayLabel
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
@@ -961,47 +963,33 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
     )
 
     if (confirmLogout && active != null) {
-        val fallbackLabel =
-            accounts.filter { it.id != active.id }.maxByOrNull { it.addedAt }?.label
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { if (!isBusy) confirmLogout = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text(removeAccountDialogTitle(isActive = true, accountLabel = displayName)) },
-            text = {
-                Text(
-                    removeAccountDialogBody(
-                        isActive = true,
-                        accountLabel = displayName,
-                        fallbackLabel = fallbackLabel,
-                        method = active.authMethod,
-                    ),
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        if (isBusy) return@TextButton
-                        isBusy = true
-                        AppModule.accountManager.removeAccountAsync(active.id) {
-                            isBusy = false
-                            confirmLogout = false
-                        }
-                    },
-                    enabled = !isBusy,
-                ) {
-                    Text(
-                        if (isBusy) removeAccountBusyLabel(isActive = true) else removeAccountConfirmLabel(isActive = true),
-                        color = NostrordColors.Error,
-                    )
+        val fallbackAccount = accounts.filter { it.id != active.id }.maxByOrNull { it.addedAt }
+        val fallbackLabel = fallbackAccount?.let { accountDisplayLabel(it.label, it.pubkey) }
+        // A bare-npub label is shortened so the title doesn't wrap to several lines.
+        val signOutLabel = accountDisplayLabel(displayName, active.pubkey)
+        ConfirmDialog(
+            title = removeAccountDialogTitle(isActive = true, accountLabel = signOutLabel),
+            message =
+            removeAccountDialogBody(
+                isActive = true,
+                accountLabel = signOutLabel,
+                fallbackLabel = fallbackLabel,
+                method = active.authMethod,
+            ),
+            confirmLabel =
+            if (isBusy) removeAccountBusyLabel(isActive = true) else removeAccountConfirmLabel(isActive = true),
+            destructive = true,
+            confirmEnabled = !isBusy,
+            cancelEnabled = !isBusy,
+            onConfirm = {
+                if (isBusy) return@ConfirmDialog
+                isBusy = true
+                AppModule.accountManager.removeAccountAsync(active.id) {
+                    isBusy = false
+                    confirmLogout = false
                 }
             },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { confirmLogout = false }, enabled = !isBusy) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { confirmLogout = false },
         )
     }
 

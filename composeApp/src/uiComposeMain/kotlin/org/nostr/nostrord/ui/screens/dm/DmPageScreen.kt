@@ -22,13 +22,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +67,7 @@ import org.nostr.nostrord.network.upload.NostrBuildUploader
 import org.nostr.nostrord.network.upload.PasteMediaEffect
 import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
 import org.nostr.nostrord.network.upload.rememberClipboardImageReader
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.layout.DmConversationList
@@ -473,11 +472,13 @@ fun DmPageScreen(
         )
 
         pasteError?.let { error ->
-            AlertDialog(
-                onDismissRequest = { pasteError = null },
-                title = { Text("Upload Failed") },
-                text = { Text(error) },
-                confirmButton = { TextButton(onClick = { pasteError = null }) { Text("OK") } },
+            ConfirmDialog(
+                title = "Upload Failed",
+                message = error,
+                confirmLabel = "OK",
+                cancelLabel = null,
+                onConfirm = { pasteError = null },
+                onDismiss = { pasteError = null },
             )
         }
     }

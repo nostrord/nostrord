@@ -60,6 +60,7 @@ import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
@@ -493,26 +494,16 @@ private fun SettingsSidebar(
         val activeId = AppModule.accountStore.activeId.collectAsState().value
         val accounts = AppModule.accountStore.accounts.collectAsState().value
         val activeMethod = accounts.firstOrNull { it.id == activeId }?.authMethod ?: AuthMethod.LOCAL
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showLogoutConfirm = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Log out?") },
-            text = { Text(logoutConfirmBody(activeMethod)) },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    showLogoutConfirm = false
-                    onLogout()
-                }) {
-                    Text("Log Out", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Log out?",
+            message = logoutConfirmBody(activeMethod),
+            confirmLabel = "Log Out",
+            destructive = true,
+            onConfirm = {
+                showLogoutConfirm = false
+                onLogout()
             },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLogoutConfirm = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { showLogoutConfirm = false },
         )
     }
 

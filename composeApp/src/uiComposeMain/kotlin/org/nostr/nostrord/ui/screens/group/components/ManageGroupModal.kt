@@ -60,6 +60,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.upload.NostrBuildUploader
 import org.nostr.nostrord.network.upload.rememberMediaPickerLauncher
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
@@ -579,35 +580,19 @@ private fun ManageMembersSection(
                 "demote" -> "${member.displayName} will lose admin privileges."
                 else -> "${member.displayName} will be removed from the group."
             }
-        AlertDialog(
-            onDismissRequest = { confirmAction = null },
-            title = { Text(title, color = NostrordColors.TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text(desc, color = NostrordColors.TextSecondary) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        when (action) {
-                            "promote" -> vm.promoteToAdmin(member.pubkey)
-                            "demote" -> vm.demoteFromAdmin(member.pubkey)
-                            "remove" -> vm.removeUser(member.pubkey)
-                        }
-                        confirmAction = null
-                    },
-                    colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = if (action == "remove") NostrordColors.Error else NostrordColors.Primary,
-                        contentColor = Color.White,
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                ) { Text("Confirm") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmAction = null }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
+        ConfirmDialog(
+            title = title,
+            message = desc,
+            destructive = action == "remove",
+            onConfirm = {
+                when (action) {
+                    "promote" -> vm.promoteToAdmin(member.pubkey)
+                    "demote" -> vm.demoteFromAdmin(member.pubkey)
+                    "remove" -> vm.removeUser(member.pubkey)
                 }
+                confirmAction = null
             },
-            containerColor = NostrordColors.Surface,
-            shape = RoundedCornerShape(16.dp),
+            onDismiss = { confirmAction = null },
         )
     }
 }

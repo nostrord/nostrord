@@ -16,6 +16,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
@@ -586,110 +587,63 @@ fun GroupScreen(
 
     // Delete message confirmation dialog
     messageToDelete?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { messageToDelete = null },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Delete Message") },
-            text = { Text("Are you sure you want to delete this message? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteMessage(msg.id)
-                    messageToDelete = null
-                }) {
-                    Text("Delete", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Delete Message",
+            message = "Are you sure you want to delete this message? This action cannot be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                vm.deleteMessage(msg.id)
+                messageToDelete = null
             },
-            dismissButton = {
-                TextButton(onClick = { messageToDelete = null }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { messageToDelete = null },
         )
     }
 
     // Delete message error dialog (relay rejected the deletion)
     deleteMessageError?.let { error ->
-        AlertDialog(
-            onDismissRequest = { vm.clearDeleteMessageError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Could Not Delete Message") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(onClick = { vm.clearDeleteMessageError() }) {
-                    Text("OK", color = NostrordColors.Primary)
-                }
-            },
+        ConfirmDialog(
+            title = "Could Not Delete Message",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearDeleteMessageError() },
+            onDismiss = { vm.clearDeleteMessageError() },
         )
     }
 
     // Reaction error dialog (relay rejected kind 7)
     reactionError?.let { error ->
         val isUnknownMember = error.contains("unknown member", ignoreCase = true)
-        AlertDialog(
-            onDismissRequest = { vm.clearReactionError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text(if (isUnknownMember) "Join Required" else "Cannot React") },
-            text = {
-                Text(
-                    if (isUnknownMember) {
-                        "You need to join this group before you can react to messages."
-                    } else {
-                        "This relay does not support reactions.\n\n$error"
-                    },
-                )
-            },
-            confirmButton = {
-                if (isUnknownMember) {
-                    TextButton(onClick = {
-                        vm.clearReactionError()
-                        if (currentGroupMetadata?.isOpen == false) {
-                            // Closed group — show invite code modal instead of direct join
-                        } else {
-                            vm.joinGroup()
-                        }
-                    }) {
-                        Text("Join Group", color = NostrordColors.Primary)
-                    }
-                } else {
-                    TextButton(onClick = { vm.clearReactionError() }) {
-                        Text("OK", color = NostrordColors.Primary)
-                    }
-                }
-            },
-            dismissButton =
+        ConfirmDialog(
+            title = if (isUnknownMember) "Join Required" else "Cannot React",
+            message =
             if (isUnknownMember) {
-                {
-                    TextButton(onClick = { vm.clearReactionError() }) {
-                        Text("Cancel", color = NostrordColors.TextSecondary)
-                    }
-                }
+                "You need to join this group before you can react to messages."
             } else {
-                null
+                "This relay does not support reactions.\n\n$error"
             },
+            confirmLabel = if (isUnknownMember) "Join Group" else "OK",
+            cancelLabel = if (isUnknownMember) "Cancel" else null,
+            onConfirm = {
+                vm.clearReactionError()
+                // Closed groups surface the invite-code modal elsewhere; only open groups join here.
+                if (isUnknownMember && currentGroupMetadata?.isOpen != false) vm.joinGroup()
+            },
+            onDismiss = { vm.clearReactionError() },
         )
     }
 
     // Send message error dialog
     sendError?.let { error ->
         val isPendingError = error.contains("pending admin approval", ignoreCase = true)
-        AlertDialog(
-            onDismissRequest = { vm.clearSendError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text(if (isPendingError) "Pending Approval" else "Message Not Sent") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(onClick = { vm.clearSendError() }) {
-                    Text("OK", color = NostrordColors.Primary)
-                }
-            },
+        ConfirmDialog(
+            title = if (isPendingError) "Pending Approval" else "Message Not Sent",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearSendError() },
+            onDismiss = { vm.clearSendError() },
         )
     }
 
@@ -730,28 +684,16 @@ fun GroupScreen(
 
     // Remove member confirmation dialog
     memberToRemove?.let { member ->
-        AlertDialog(
-            onDismissRequest = { memberToRemove = null },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Remove Member") },
-            text = { Text("Remove ${member.displayName} from this group?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.removeUser(member.pubkey)
-                        memberToRemove = null
-                    },
-                ) {
-                    Text("Remove", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Remove Member",
+            message = "Remove ${member.displayName} from this group?",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                vm.removeUser(member.pubkey)
+                memberToRemove = null
             },
-            dismissButton = {
-                TextButton(onClick = { memberToRemove = null }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { memberToRemove = null },
         )
     }
 
@@ -773,30 +715,18 @@ fun GroupScreen(
     }
 
     if (showLeaveDialog) {
-        AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Leave Group") },
-            text = { Text("Are you sure you want to leave ${groupName ?: "this group"}? You can rejoin later if you change your mind.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.leaveGroup {
-                            showLeaveDialog = false
-                            onNavigateHome()
-                        }
-                    },
-                ) {
-                    Text("Leave", color = NostrordColors.Error)
+        ConfirmDialog(
+            title = "Leave Group",
+            message = "Are you sure you want to leave ${groupName ?: "this group"}? You can rejoin later if you change your mind.",
+            confirmLabel = "Leave",
+            destructive = true,
+            onConfirm = {
+                vm.leaveGroup {
+                    showLeaveDialog = false
+                    onNavigateHome()
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showLeaveDialog = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { showLeaveDialog = false },
         )
     }
 
