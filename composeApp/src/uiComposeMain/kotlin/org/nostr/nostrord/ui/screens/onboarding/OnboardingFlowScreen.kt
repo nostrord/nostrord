@@ -186,8 +186,7 @@ private fun WelcomeStep() {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Your account is ready and everything technical is handled in the background. " +
-                "We'll connect you to people, and they lead you to the right groups.",
+            "Your account is ready. We'll connect you with people, and they'll lead you to the right groups.",
             color = NostrordColors.TextSecondary,
             fontSize = 15.sp,
             textAlign = TextAlign.Center,

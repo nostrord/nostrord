@@ -146,7 +146,7 @@ private fun ChildrenBuilder.welcomeStep() {
         }
         p {
             className = ClassName("onb-sub")
-            +"Your account is ready and everything technical is handled in the background. We'll connect you to people, and they lead you to the right groups."
+            +"Your account is ready. We'll connect you with people, and they'll lead you to the right groups."
         }
         div {
             className = ClassName("onb-hints")
