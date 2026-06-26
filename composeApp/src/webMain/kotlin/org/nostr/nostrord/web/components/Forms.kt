@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.components
 
 import react.ChildrenBuilder
+import react.FC
+import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
@@ -169,5 +171,90 @@ fun ChildrenBuilder.searchInput(
                 icon(Ic.Close)
             }
         }
+    }
+}
+
+private external interface ConfirmDialogProps : Props {
+    var title: String
+    var body: String
+    var confirmLabel: String
+    var cancelLabel: String
+    var danger: Boolean
+    var confirmDisabled: Boolean
+    var cancelDisabled: Boolean
+    var onCancel: () -> Unit
+    var onConfirm: () -> Unit
+}
+
+/**
+ * The confirm dialog body. An FC (not a bare builder) so it can own an [useEscClose] handler:
+ * stacked over another modal, Escape closes only this one (it sits on top of the shared esc stack),
+ * not the modal underneath.
+ */
+private val ConfirmDialogFc =
+    FC<ConfirmDialogProps> { props ->
+        useEscClose { if (!props.cancelDisabled) props.onCancel() }
+        div {
+            className = ClassName("modal-overlay")
+            onClick = { if (!props.cancelDisabled) props.onCancel() }
+            div {
+                className = ClassName("modal-card sm")
+                onClick = { it.stopPropagation() }
+                div {
+                    className = ClassName("modal-title")
+                    +props.title
+                }
+                div {
+                    className = ClassName("modal-subtitle tight")
+                    +props.body
+                }
+                div {
+                    className = ClassName("modal-footer")
+                    button {
+                        className = ClassName("btn-text")
+                        disabled = props.cancelDisabled
+                        onClick = { props.onCancel() }
+                        +props.cancelLabel
+                    }
+                    button {
+                        className = ClassName(if (props.danger) "btn-danger" else "btn-primary")
+                        disabled = props.confirmDisabled
+                        onClick = { props.onConfirm() }
+                        +props.confirmLabel
+                    }
+                }
+            }
+        }
+    }
+
+/**
+ * The single confirm dialog for the web (`.modal-card.sm` + `.modal-title` / `.modal-subtitle` /
+ * `.modal-footer`): a title, a body line, and a Cancel / confirm pair. [danger] makes the confirm
+ * button red for destructive actions. Every destructive or irreversible confirm (delete message,
+ * remove member, leave group, log out) routes through this so the dialogs read identically and the
+ * overlay markup is not re-hand-rolled per call site. Clicking the backdrop (or Escape) cancels,
+ * unless [cancelDisabled] (e.g. an action is in flight); [confirmDisabled] gates the confirm button.
+ */
+fun ChildrenBuilder.confirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+    danger: Boolean = false,
+    cancelLabel: String = "Cancel",
+    confirmDisabled: Boolean = false,
+    cancelDisabled: Boolean = false,
+) {
+    ConfirmDialogFc {
+        this.title = title
+        this.body = body
+        this.confirmLabel = confirmLabel
+        this.cancelLabel = cancelLabel
+        this.danger = danger
+        this.confirmDisabled = confirmDisabled
+        this.cancelDisabled = cancelDisabled
+        this.onCancel = onCancel
+        this.onConfirm = onConfirm
     }
 }

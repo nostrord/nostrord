@@ -9143,36 +9143,6 @@ body {
     color: var(--color-error);
 }
 
-/* Small confirm dialog layered above the manage modal (promote / demote / remove). */
-.confirm-overlay {
-    z-index: 210;
-}
-
-.modal-card.confirm-card {
-    max-width: 380px;
-    width: 90%;
-    padding: 20px;
-}
-
-.confirm-title {
-    margin-bottom: 8px;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--color-text-primary);
-}
-
-.confirm-desc {
-    margin-bottom: 20px;
-    font-size: 14px;
-    line-height: 1.4;
-    color: var(--color-text-secondary);
-}
-
-.confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-}
 
 /* Requests tab header: count on the left, Accept all on the right. */
 .mod-requests-header {

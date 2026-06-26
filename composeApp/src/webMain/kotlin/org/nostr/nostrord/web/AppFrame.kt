@@ -20,6 +20,7 @@ import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
+import org.nostr.nostrord.utils.accountDisplayLabel
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -28,6 +29,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
+import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
@@ -730,49 +732,27 @@ val AppFrame =
 
             // Sign-out confirmation (prototype AccountMenu -> confirmAction).
             if (confirmLogout && active != null) {
-                val fallbackLabel = accounts.filter { it.id != active.id }.maxByOrNull { it.addedAt }?.label
-                div {
-                    className = ClassName("modal-overlay")
-                    onClick = { if (!logoutBusy) setConfirmLogout(false) }
-                    div {
-                        className = ClassName("modal-card sm")
-                        onClick = { it.stopPropagation() }
-                        div {
-                            className = ClassName("modal-title")
-                            +removeAccountDialogTitle(isActive = true, accountLabel = displayName)
-                        }
-                        div {
-                            className = ClassName("modal-subtitle tight")
-                            +removeAccountDialogBody(
-                                isActive = true,
-                                accountLabel = displayName,
-                                fallbackLabel = fallbackLabel,
-                                method = active.authMethod,
-                            )
-                        }
-                        div {
-                            className = ClassName("modal-footer")
-                            button {
-                                className = ClassName("btn-text")
-                                disabled = logoutBusy
-                                onClick = { setConfirmLogout(false) }
-                                +"Cancel"
-                            }
-                            button {
-                                className = ClassName("btn-danger")
-                                disabled = logoutBusy
-                                onClick = { performLogout() }
-                                +(
-                                    if (logoutBusy) {
-                                        removeAccountBusyLabel(isActive = true)
-                                    } else {
-                                        removeAccountConfirmLabel(isActive = true)
-                                    }
-                                    )
-                            }
-                        }
-                    }
-                }
+                val fallbackAccount = accounts.filter { it.id != active.id }.maxByOrNull { it.addedAt }
+                val fallbackLabel = fallbackAccount?.let { accountDisplayLabel(it.label, it.pubkey) }
+                // A bare-npub label is shortened so the title doesn't wrap to several lines.
+                val signOutLabel = accountDisplayLabel(displayName, active.pubkey)
+                confirmDialog(
+                    title = removeAccountDialogTitle(isActive = true, accountLabel = signOutLabel),
+                    body =
+                    removeAccountDialogBody(
+                        isActive = true,
+                        accountLabel = signOutLabel,
+                        fallbackLabel = fallbackLabel,
+                        method = active.authMethod,
+                    ),
+                    confirmLabel =
+                    if (logoutBusy) removeAccountBusyLabel(isActive = true) else removeAccountConfirmLabel(isActive = true),
+                    danger = true,
+                    confirmDisabled = logoutBusy,
+                    cancelDisabled = logoutBusy,
+                    onCancel = { setConfirmLogout(false) },
+                    onConfirm = { performLogout() },
+                )
             }
 
             // Zap modal host: mounted once so any WebZapController.request(...) from a

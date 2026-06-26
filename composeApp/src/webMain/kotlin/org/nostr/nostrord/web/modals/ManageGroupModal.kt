@@ -17,6 +17,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.searchInput
@@ -494,44 +495,23 @@ private val ManageMembersSection =
                     "demote" -> "${nameOf(pubkey)} will lose admin privileges."
                     else -> "${nameOf(pubkey)} will be removed from the group."
                 }
-            div {
-                className = ClassName("modal-overlay confirm-overlay")
-                onClick = { setConfirmAction(null) }
-                div {
-                    className = ClassName("modal-card confirm-card")
-                    onClick = { it.stopPropagation() }
-                    div {
-                        className = ClassName("confirm-title")
-                        +title
-                    }
-                    div {
-                        className = ClassName("confirm-desc")
-                        +desc
-                    }
-                    div {
-                        className = ClassName("confirm-actions")
-                        button {
-                            className = ClassName("btn-secondary")
-                            onClick = { setConfirmAction(null) }
-                            +"Cancel"
-                        }
-                        button {
-                            className = ClassName(if (action == "remove") "btn-danger" else "btn-primary")
-                            onClick = {
-                                setConfirmAction(null)
-                                launchApp {
-                                    when (action) {
-                                        "promote" -> repo.addUser(props.groupId, pubkey, listOf("admin"))
-                                        "demote" -> repo.addUser(props.groupId, pubkey, emptyList())
-                                        else -> repo.removeUser(props.groupId, pubkey)
-                                    }
-                                }
-                            }
-                            +"Confirm"
+            confirmDialog(
+                title = title,
+                body = desc,
+                confirmLabel = "Confirm",
+                danger = action == "remove",
+                onCancel = { setConfirmAction(null) },
+                onConfirm = {
+                    setConfirmAction(null)
+                    launchApp {
+                        when (action) {
+                            "promote" -> repo.addUser(props.groupId, pubkey, listOf("admin"))
+                            "demote" -> repo.addUser(props.groupId, pubkey, emptyList())
+                            else -> repo.removeUser(props.groupId, pubkey)
                         }
                     }
-                }
-            }
+                },
+            )
         }
     }
 

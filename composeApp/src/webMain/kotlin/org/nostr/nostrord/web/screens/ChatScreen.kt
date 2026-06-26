@@ -46,6 +46,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.YouTubeEmbed
+import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
@@ -2329,7 +2330,11 @@ val ChatScreen =
             // explicit "cannot be undone" copy. Esc closes via useEscClose,
             // backdrop click cancels.
             messageToDelete?.let { msgId ->
-                deleteMessageConfirm(
+                confirmDialog(
+                    title = "Delete Message",
+                    body = "Are you sure you want to delete this message? This action cannot be undone.",
+                    confirmLabel = "Delete",
+                    danger = true,
                     onCancel = { setMessageToDelete(null) },
                     onConfirm = {
                         setMessageToDelete(null)
@@ -2470,42 +2475,6 @@ private fun ChildrenBuilder.reactionErrorDialog(message: String, onDismiss: () -
                         onClick = { onDismiss() }
                         +"OK"
                     }
-                }
-            }
-        }
-    }
-}
-
-/** Confirm dialog for the destructive "delete this message" action. Uses the
- *  same modal-card + title/subtitle/footer pattern as RemoveAccountDialog so
- *  the destructive confirms across the app read the same. */
-private fun ChildrenBuilder.deleteMessageConfirm(onCancel: () -> Unit, onConfirm: () -> Unit) {
-    div {
-        className = ClassName("modal-overlay")
-        onClick = { onCancel() }
-        div {
-            className = ClassName("modal-card sm")
-            onClick = { it.stopPropagation() }
-
-            div {
-                className = ClassName("modal-title")
-                +"Delete Message"
-            }
-            div {
-                className = ClassName("modal-subtitle tight")
-                +"Are you sure you want to delete this message? This action cannot be undone."
-            }
-            div {
-                className = ClassName("modal-footer")
-                button {
-                    className = ClassName("btn-text")
-                    onClick = { onCancel() }
-                    +"Cancel"
-                }
-                button {
-                    className = ClassName("btn-danger")
-                    onClick = { onConfirm() }
-                    +"Delete"
                 }
             }
         }
