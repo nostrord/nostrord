@@ -66,6 +66,10 @@ object ColorTokens {
     // Dividers
     const val Divider = 0xFF34323CL
 
+    // Hairline border that sits DARKER than the background (prototype `--color-line`), used for
+    // the header bottom borders. Distinct from Divider, which is a lighter in-content separator.
+    const val Line = 0xFF1F1E25L
+
     // Full-page gradient corners (login/onboarding); Background sits in the middle
     const val PageGradientFrom = 0xFF2A2740L
     const val PageGradientTo = 0xFF16151EL
@@ -130,6 +134,7 @@ data class ColorPalette(
     val mentionAccent: Long,
     val statusOffline: Long,
     val divider: Long,
+    val line: Long,
     val pageGradientFrom: Long,
     val pageGradientTo: Long,
 )
@@ -170,6 +175,7 @@ val DarkColorPalette =
         mentionAccent = ColorTokens.MentionAccent,
         statusOffline = ColorTokens.StatusOffline,
         divider = ColorTokens.Divider,
+        line = ColorTokens.Line,
         pageGradientFrom = ColorTokens.PageGradientFrom,
         pageGradientTo = ColorTokens.PageGradientTo,
     )
@@ -217,6 +223,7 @@ val LightColorPalette =
         mentionAccent = 0xFFF5A524L, // alpha-bg base + idle dot stay amber in both themes
         statusOffline = 0xFF8B8896L,
         divider = 0xFFE3E1EAL, // line
+        line = 0xFFE3E1EAL, // bg-rail/line border on white
         pageGradientFrom = 0xFFE3DEF5L,
         pageGradientTo = 0xFFF0EEF8L,
     )

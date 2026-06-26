@@ -56,6 +56,7 @@ fun applyColorTokens(palette: ColorPalette = DarkColorPalette) {
     set("--color-text-muted", palette.textMuted)
     set("--color-text-link", palette.textLink)
     set("--color-divider", palette.divider)
+    set("--color-line", palette.line)
     set("--color-error", palette.error)
     set("--color-success", palette.success)
     set("--color-warning", palette.warning)

@@ -23,6 +23,7 @@
     --color-text-muted: #72767d;
     --color-text-link: #00aff4;
     --color-divider: #40444b;
+    --color-line: #1f1e25;
     --color-error: #ed4245;
     --color-success: #57f287;
     --color-warning: #fee75c;
@@ -54,6 +55,7 @@
     --color-background: #ffffff;
     --color-floating: #f4f3f8;
     --color-text-secondary: #514f5c;
+    --color-line: #e3e1ea;
 }
 
 /* Scrollbars — thin, rounded, inset, matching the desktop/Compose look. */
@@ -5488,7 +5490,11 @@ body {
        carries its own internal 8px gap. */
     gap: 4px;
     padding: 0 8px;
-    background: var(--color-background-dark);
+    /* Prototype chat header: the message-area background with a hairline bottom border and a
+       soft shadow, so it reads as a distinct bar over the timeline (not a darker block). */
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-line);
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
 /* Prototype single-row title: avatar · name · relay dot · inline description. */

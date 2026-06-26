@@ -199,6 +199,9 @@ object NostrordColors {
     /** Subtle divider (lower contrast) */
     val DividerSubtle: Color get() = Color(palette.background)
 
+    /** Hairline border darker than the background (prototype `--color-line`), for header bottom borders. */
+    val Line: Color get() = Color(palette.line)
+
     /** Focus ring / active border */
     val FocusRing: Color get() = Primary
 

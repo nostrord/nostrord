@@ -31,6 +31,7 @@ object WebColors {
     val TextMuted get() = argbToCssHex(palette.textMuted)
     val TextLink get() = argbToCssHex(palette.textLink)
     val Divider get() = argbToCssHex(palette.divider)
+    val Line get() = argbToCssHex(palette.line)
     val Error get() = argbToCssHex(palette.error)
     val Success get() = argbToCssHex(palette.success)
 }

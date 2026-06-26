@@ -20,6 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -79,11 +82,24 @@ fun GroupHeader(
     navigationIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
 ) {
+    // Prototype chat header: the body background (not a darker block) with a hairline bottom
+    // border and a soft shadow, so the header reads as a distinct bar over the message list.
+    val lineColor = NostrordColors.Line
     Column(
         modifier =
         modifier
             .fillMaxWidth()
-            .background(NostrordColors.BackgroundDark),
+            .shadow(elevation = 2.dp, clip = false)
+            .background(NostrordColors.Background)
+            .drawBehind {
+                val stroke = 1.dp.toPx()
+                drawLine(
+                    color = lineColor,
+                    start = Offset(0f, size.height - stroke / 2f),
+                    end = Offset(size.width, size.height - stroke / 2f),
+                    strokeWidth = stroke,
+                )
+            },
     ) {
         Row(
             modifier =
