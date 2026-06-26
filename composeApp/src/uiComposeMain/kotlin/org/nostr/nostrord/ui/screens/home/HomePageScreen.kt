@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,8 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
@@ -155,225 +157,165 @@ fun HomePageScreen(
                 }
             // Compact (mobile) width: header stacks vertically and filter tabs show icons only.
             val isCompact = maxWidth < 640.dp
-            Column(
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
+            // LazyColumn virtualizes the card rows: only visible rows compose, so opening Home
+            // no longer pays to lay out every group card eagerly. spacedBy(16) matches the old grid.
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
+                contentPadding = PaddingValues(vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(
-                    modifier =
-                    Modifier
-                        .widthIn(max = 1024.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 24.dp),
-                ) {
-                    // Title + actions: side by side on wide screens, stacked on compact
-                    // (mobile), matching the web `.home-title-row` breakpoint.
-                    val titleBlock: @Composable () -> Unit = {
-                        Column {
-                            Text(
-                                "Groups",
-                                color = NostrordColors.TextPrimary,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                "Your groups and new ones to discover through your friends",
-                                color = NostrordColors.TextMuted,
-                                fontSize = 14.sp,
-                            )
+                item {
+                    Column(
+                        modifier =
+                        Modifier
+                            .widthIn(max = 1024.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                    ) {
+                        // Title + actions: side by side on wide screens, stacked on compact
+                        // (mobile), matching the web `.home-title-row` breakpoint.
+                        val titleBlock: @Composable () -> Unit = {
+                            Column {
+                                Text(
+                                    "Groups",
+                                    color = NostrordColors.TextPrimary,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "Your groups and new ones to discover through your friends",
+                                    color = NostrordColors.TextMuted,
+                                    fontSize = 14.sp,
+                                )
+                            }
                         }
-                    }
-                    val actionButtons: @Composable () -> Unit = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppButton(
-                                text = "Join group",
-                                onClick = onJoinGroup,
-                                variant = AppButtonVariant.Secondary,
-                                icon = Icons.Default.Link,
-                            )
-                            AppButton(
-                                text = "Create group",
-                                onClick = onCreateGroup,
-                                icon = Icons.Default.Add,
-                            )
+                        val actionButtons: @Composable () -> Unit = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AppButton(
+                                    text = "Join group",
+                                    onClick = onJoinGroup,
+                                    variant = AppButtonVariant.Secondary,
+                                    icon = Icons.Default.Link,
+                                )
+                                AppButton(
+                                    text = "Create group",
+                                    onClick = onCreateGroup,
+                                    icon = Icons.Default.Add,
+                                )
+                            }
                         }
-                    }
-                    if (isCompact) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            titleBlock()
-                            actionButtons()
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Box(modifier = Modifier.weight(1f)) { titleBlock() }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            actionButtons()
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Filter pills, then the per-tab "Filter groups" box below them.
-                    AppSegmentedTabs(
-                        tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
-                        selectedIndex = filter,
-                        onSelect = { setFilter(it) },
-                        // Compact (mobile) width: show icons only, labels would crowd the row.
-                        iconOnly = isCompact,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AppSearchField(
-                        value = query,
-                        onValueChange = { vm.setQuery(it) },
-                        placeholder = if (filter == 3) "Filter people" else "Filter groups",
-                        // Home keeps the slightly larger default density of the shared search input.
-                        size = InputSize.Default,
-                        trailing =
-                        if (query.isNotEmpty()) {
-                            {
-                                IconButton(
-                                    onClick = { vm.setQuery("") },
-                                    modifier = Modifier.size(20.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = "Clear filter",
-                                        tint = NostrordColors.TextMuted,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
+                        if (isCompact) {
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                titleBlock()
+                                actionButtons()
                             }
                         } else {
-                            null
-                        },
-                        onEscape = { vm.setQuery("") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    when (filter) {
-                        0 ->
-                            when {
-                                myGroups.isEmpty() && query.isNotBlank() ->
-                                    EmptyStateCard(
-                                        emoji = "🔍",
-                                        title = "No group found",
-                                        description = "Try another search term.",
-                                    )
-                                myGroups.isEmpty() && myGroupsLoading ->
-                                    CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
-                                myGroups.isEmpty() ->
-                                    EmptyStateCard(
-                                        emoji = "👋",
-                                        title = "You're not in any group yet",
-                                        description =
-                                        "Join through an invite link, or check From friends " +
-                                            "for the groups where people you follow already are.",
-                                    ) {
-                                        AppButton(
-                                            text = "Join by link",
-                                            onClick = onJoinGroup,
-                                            icon = Icons.Default.Link,
-                                        )
-                                        AppButton(
-                                            text = "See friends' groups",
-                                            onClick = { setFilter(1) },
-                                            variant = AppButtonVariant.Secondary,
-                                        )
-                                    }
-                                else ->
-                                    CardGrid(columns) {
-                                        myGroups.map { group ->
-                                            {
-                                                GroupCard(
-                                                    name = group.meta.name ?: group.meta.id,
-                                                    description = group.meta.about,
-                                                    picture = group.meta.picture,
-                                                    groupId = group.meta.id,
-                                                    memberCount = group.memberCount,
-                                                    restricted = group.meta.isRestricted,
-                                                    people = group.people,
-                                                    peopleLoading = group.peopleLoading,
-                                                    isPublic = group.meta.isPublic,
-                                                    isOpen = group.meta.isOpen,
-                                                    hasMetadata = group.hasMetadata,
-                                                    relayUrl = group.relayUrl,
-                                                    relayIconUrl = relayMetadata[group.relayUrl]?.icon,
-                                                    isJoined = group.meta.id in joinedIds,
-                                                    onRelayClick = { onOpenRelay(group.relayUrl) },
-                                                    onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
-                                                )
-                                            }
-                                        }
-                                    }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) { titleBlock() }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                actionButtons()
                             }
-                        1 ->
-                            when {
-                                friends.isEmpty() ->
-                                    EmptyStateCard(
-                                        emoji = "🫂",
-                                        title = "You don't follow anyone yet",
-                                        description = "Follow some people to see your friends here and the groups where they are.",
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Filter pills, then the per-tab "Filter groups" box below them.
+                        AppSegmentedTabs(
+                            tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
+                            selectedIndex = filter,
+                            onSelect = { setFilter(it) },
+                            // Compact (mobile) width: show icons only, labels would crowd the row.
+                            iconOnly = isCompact,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        AppSearchField(
+                            value = query,
+                            onValueChange = { vm.setQuery(it) },
+                            placeholder = if (filter == 3) "Filter people" else "Filter groups",
+                            // Home keeps the slightly larger default density of the shared search input.
+                            size = InputSize.Default,
+                            trailing =
+                            if (query.isNotEmpty()) {
+                                {
+                                    IconButton(
+                                        onClick = { vm.setQuery("") },
+                                        modifier = Modifier.size(20.dp),
                                     ) {
-                                        AppButton(
-                                            text = "See people to follow",
-                                            onClick = { setFilter(3) },
-                                            variant = AppButtonVariant.Secondary,
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear filter",
+                                            tint = NostrordColors.TextMuted,
+                                            modifier = Modifier.size(16.dp),
                                         )
                                     }
-                                friendsGroups.isEmpty() && friendsGroupsLoading ->
-                                    CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
-                                friendsGroups.isEmpty() ->
-                                    EmptyStateCard(
-                                        emoji = "🔭",
-                                        title = "No groups from your friends yet",
-                                        description = "When people you follow join groups, those groups show up here to discover.",
-                                    )
-                                else ->
-                                    CardGrid(columns) {
-                                        friendsGroups.map { fg ->
-                                            {
-                                                GroupCard(
-                                                    name = fg.meta.name ?: fg.meta.id,
-                                                    description = fg.meta.about,
-                                                    picture = fg.meta.picture,
-                                                    groupId = fg.meta.id,
-                                                    memberCount = fg.memberCount,
-                                                    restricted = fg.meta.isRestricted,
-                                                    people = fg.people,
-                                                    peopleLoading = fg.peopleLoading,
-                                                    isPublic = fg.meta.isPublic,
-                                                    isOpen = fg.meta.isOpen,
-                                                    hasMetadata = fg.hasMetadata,
-                                                    relayUrl = fg.relayUrl,
-                                                    relayIconUrl = relayMetadata[fg.relayUrl]?.icon,
-                                                    isJoined = fg.meta.id in joinedIds,
-                                                    onRelayClick = { onOpenRelay(fg.relayUrl) },
-                                                    onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
-                                                )
-                                            }
-                                        }
-                                    }
-                            }
-                        2 ->
-                            if (recommendedGroups.isEmpty() && recommendedGroupsLoading) {
-                                CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
-                            } else if (recommendedGroups.isEmpty()) {
-                                EmptyStateCard(
-                                    emoji = "✨",
-                                    title = "No recommendations yet",
-                                    description = "Hand-picked groups we curate will show up here.",
-                                )
+                                }
                             } else {
-                                CardGrid(columns) {
-                                    recommendedGroups.map { group ->
+                                null
+                            },
+                            onEscape = { vm.setQuery("") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                when (filter) {
+                    0 ->
+                        when {
+                            myGroups.isEmpty() && query.isNotBlank() ->
+                                item {
+                                    Box(
+                                        modifier =
+                                        Modifier
+                                            .widthIn(max = 1024.dp)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp),
+                                    ) {
+                                        EmptyStateCard(
+                                            emoji = "🔍",
+                                            title = "No group found",
+                                            description = "Try another search term.",
+                                        )
+                                    }
+                                }
+                            myGroups.isEmpty() && myGroupsLoading ->
+                                groupCardRows(columns, List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } })
+                            myGroups.isEmpty() ->
+                                item {
+                                    Box(
+                                        modifier =
+                                        Modifier
+                                            .widthIn(max = 1024.dp)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp),
+                                    ) {
+                                        EmptyStateCard(
+                                            emoji = "👋",
+                                            title = "You're not in any group yet",
+                                            description =
+                                            "Join through an invite link, or check From friends " +
+                                                "for the groups where people you follow already are.",
+                                        ) {
+                                            AppButton(
+                                                text = "Join by link",
+                                                onClick = onJoinGroup,
+                                                icon = Icons.Default.Link,
+                                            )
+                                            AppButton(
+                                                text = "See friends' groups",
+                                                onClick = { setFilter(1) },
+                                                variant = AppButtonVariant.Secondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            else ->
+                                groupCardRows(
+                                    columns,
+                                    myGroups.map { group ->
                                         {
                                             GroupCard(
                                                 name = group.meta.name ?: group.meta.id,
@@ -394,71 +336,199 @@ fun HomePageScreen(
                                                 onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                             )
                                         }
+                                    },
+                                )
+                        }
+                    1 ->
+                        when {
+                            friends.isEmpty() ->
+                                item {
+                                    Box(
+                                        modifier =
+                                        Modifier
+                                            .widthIn(max = 1024.dp)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp),
+                                    ) {
+                                        EmptyStateCard(
+                                            emoji = "🫂",
+                                            title = "You don't follow anyone yet",
+                                            description = "Follow some people to see your friends here and the groups where they are.",
+                                        ) {
+                                            AppButton(
+                                                text = "See people to follow",
+                                                onClick = { setFilter(3) },
+                                                variant = AppButtonVariant.Secondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            friendsGroups.isEmpty() && friendsGroupsLoading ->
+                                groupCardRows(columns, List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } })
+                            friendsGroups.isEmpty() ->
+                                item {
+                                    Box(
+                                        modifier =
+                                        Modifier
+                                            .widthIn(max = 1024.dp)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp),
+                                    ) {
+                                        EmptyStateCard(
+                                            emoji = "🔭",
+                                            title = "No groups from your friends yet",
+                                            description = "When people you follow join groups, those groups show up here to discover.",
+                                        )
+                                    }
+                                }
+                            else ->
+                                groupCardRows(
+                                    columns,
+                                    friendsGroups.map { fg ->
+                                        {
+                                            GroupCard(
+                                                name = fg.meta.name ?: fg.meta.id,
+                                                description = fg.meta.about,
+                                                picture = fg.meta.picture,
+                                                groupId = fg.meta.id,
+                                                memberCount = fg.memberCount,
+                                                restricted = fg.meta.isRestricted,
+                                                people = fg.people,
+                                                peopleLoading = fg.peopleLoading,
+                                                isPublic = fg.meta.isPublic,
+                                                isOpen = fg.meta.isOpen,
+                                                hasMetadata = fg.hasMetadata,
+                                                relayUrl = fg.relayUrl,
+                                                relayIconUrl = relayMetadata[fg.relayUrl]?.icon,
+                                                isJoined = fg.meta.id in joinedIds,
+                                                onRelayClick = { onOpenRelay(fg.relayUrl) },
+                                                onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
+                                            )
+                                        }
+                                    },
+                                )
+                        }
+                    2 ->
+                        if (recommendedGroups.isEmpty() && recommendedGroupsLoading) {
+                            groupCardRows(columns, List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } })
+                        } else if (recommendedGroups.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier =
+                                    Modifier
+                                        .widthIn(max = 1024.dp)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp),
+                                ) {
+                                    EmptyStateCard(
+                                        emoji = "✨",
+                                        title = "No recommendations yet",
+                                        description = "Hand-picked groups we curate will show up here.",
+                                    )
+                                }
+                            }
+                        } else {
+                            groupCardRows(
+                                columns,
+                                recommendedGroups.map { group ->
+                                    {
+                                        GroupCard(
+                                            name = group.meta.name ?: group.meta.id,
+                                            description = group.meta.about,
+                                            picture = group.meta.picture,
+                                            groupId = group.meta.id,
+                                            memberCount = group.memberCount,
+                                            restricted = group.meta.isRestricted,
+                                            people = group.people,
+                                            peopleLoading = group.peopleLoading,
+                                            isPublic = group.meta.isPublic,
+                                            isOpen = group.meta.isOpen,
+                                            hasMetadata = group.hasMetadata,
+                                            relayUrl = group.relayUrl,
+                                            relayIconUrl = relayMetadata[group.relayUrl]?.icon,
+                                            isJoined = group.meta.id in joinedIds,
+                                            onRelayClick = { onOpenRelay(group.relayUrl) },
+                                            onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    else ->
+                        item {
+                            Column(
+                                modifier =
+                                Modifier
+                                    .widthIn(max = 1024.dp)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp),
+                            ) {
+                                // Curated people shared with the onboarding step, filtered by the
+                                // search box; Follow / Following wired to NIP-02.
+                                val following by AppModule.nostrRepository.following.collectAsState()
+                                val actorMeta by AppModule.nostrRepository.userMetadata.collectAsState()
+                                LaunchedEffect(Unit) {
+                                    val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
+                                    if (pubkeys.isNotEmpty()) AppModule.nostrRepository.requestUserMetadata(pubkeys)
+                                }
+                                val needle = query.trim().lowercase()
+                                val people =
+                                    onboardingFollowSuggestions.filter {
+                                        needle.isEmpty() ||
+                                            it.name.lowercase().contains(needle) ||
+                                            it.note.lowercase().contains(needle)
+                                    }
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (needle.isEmpty()) {
+                                        FollowAllButton(
+                                            people = onboardingFollowSuggestions,
+                                            following = following,
+                                            modifier = Modifier.align(Alignment.End),
+                                        )
+                                    }
+                                    people.forEach { person ->
+                                        FollowSuggestionRow(
+                                            person = person,
+                                            pictureUrl = actorMeta[person.pubkey]?.picture,
+                                            isFollowing = person.pubkey in following,
+                                        )
                                     }
                                 }
                             }
-                        else -> {
-                            // Curated people shared with the onboarding step, filtered by the
-                            // search box; Follow / Following wired to NIP-02.
-                            val following by AppModule.nostrRepository.following.collectAsState()
-                            val actorMeta by AppModule.nostrRepository.userMetadata.collectAsState()
-                            LaunchedEffect(Unit) {
-                                val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
-                                if (pubkeys.isNotEmpty()) AppModule.nostrRepository.requestUserMetadata(pubkeys)
-                            }
-                            val needle = query.trim().lowercase()
-                            val people =
-                                onboardingFollowSuggestions.filter {
-                                    needle.isEmpty() ||
-                                        it.name.lowercase().contains(needle) ||
-                                        it.note.lowercase().contains(needle)
-                                }
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (needle.isEmpty()) {
-                                    FollowAllButton(
-                                        people = onboardingFollowSuggestions,
-                                        following = following,
-                                        modifier = Modifier.align(Alignment.End),
-                                    )
-                                }
-                                people.forEach { person ->
-                                    FollowSuggestionRow(
-                                        person = person,
-                                        pictureUrl = actorMeta[person.pubkey]?.picture,
-                                        isFollowing = person.pubkey in following,
-                                    )
-                                }
-                            }
                         }
-                    }
                 }
             }
         }
     }
 }
 
-/** Fixed-column grid built from rows (content is small; avoids nested lazy scrolling). */
-@Composable
-private fun CardGrid(
+/**
+ * Emits the group cards as lazy rows: each chunk of `columns` cards is its own LazyColumn
+ * item, so only visible rows compose. Rows are max-1024 + horizontally padded to match the
+ * centered content width (LazyColumn items are full width).
+ */
+private fun LazyListScope.groupCardRows(
     columns: Int,
-    content: () -> List<@Composable () -> Unit>,
+    cards: List<@Composable () -> Unit>,
 ) {
-    val cards = content()
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        cards.chunked(columns).forEach { row ->
-            // IntrinsicSize.Max makes every card in the row as tall as the tallest one,
-            // so a short card doesn't leave the row ragged (cards fill the height and pin
-            // their CTA to the bottom). Mirrors the web grid's equal-height rows.
-            Row(
-                modifier = Modifier.height(IntrinsicSize.Max),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                row.forEach { card ->
-                    Column(modifier = Modifier.weight(1f).fillMaxHeight()) { card() }
-                }
-                repeat(columns - row.size) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+    items(cards.chunked(columns)) { row ->
+        // IntrinsicSize.Max makes every card in the row as tall as the tallest one,
+        // so a short card doesn't leave the row ragged (cards fill the height and pin
+        // their CTA to the bottom). Mirrors the web grid's equal-height rows.
+        Row(
+            modifier =
+            Modifier
+                .widthIn(max = 1024.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            row.forEach { card ->
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) { card() }
+            }
+            repeat(columns - row.size) {
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
