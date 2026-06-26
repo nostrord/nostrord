@@ -248,8 +248,6 @@ fun MemberSidebar(
                                 member = member,
                                 isOnline = true,
                                 onClick = { onMemberClick(member) },
-                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                                onRemove = { onRemoveMember(member) },
                             )
                         }
                     }
@@ -273,8 +271,6 @@ fun MemberSidebar(
                                 member = member,
                                 isOnline = false,
                                 onClick = { onMemberClick(member) },
-                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                                onRemove = { onRemoveMember(member) },
                             )
                         }
                     }
@@ -295,8 +291,6 @@ fun MemberSidebar(
                             member = member,
                             isOnline = null,
                             onClick = { onMemberClick(member) },
-                            showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                            onRemove = { onRemoveMember(member) },
                         )
                     }
                 }
@@ -403,8 +397,6 @@ private fun MemberItem(
     member: MemberInfo,
     isOnline: Boolean?,
     onClick: () -> Unit,
-    showRemove: Boolean = false,
-    onRemove: () -> Unit = {},
 ) {
     Row(
         modifier =
@@ -470,21 +462,6 @@ private fun MemberItem(
                             ).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
-            }
-        }
-
-        // Remove button (visible to admins only, not for self)
-        if (showRemove) {
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Remove member",
-                    tint = NostrordColors.Error.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp),
-                )
             }
         }
     }
