@@ -340,7 +340,7 @@ private fun buildInviteUrl(
     relayUrl: String,
     groupId: String,
     code: String,
-): String = "https://nostrord.com/" + GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = code).toHash()
+): String = "https://web.nostrord.com/" + GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = code).toHash()
 
 /**
  * Dialog for entering an invite code to join a closed group.

@@ -27,7 +27,7 @@ fun pubkeyIdentifiers(
     runCatching { Nip19.encodeNprofile(pubkeyHex, nprofileRelays) }.getOrNull()?.let {
         add(Identifier("nprofile", it))
     }
-    if (npub != null) add(Identifier("nostrord link", "https://nostrord.com/#/u/$npub"))
+    if (npub != null) add(Identifier("nostrord link", "https://web.nostrord.com/#/u/$npub"))
     add(Identifier("hex", pubkeyHex))
     nip05?.takeIf { isValidNip05(it) }?.let { add(Identifier("nip-05", it)) }
 }
@@ -85,7 +85,7 @@ fun groupIdentifiers(
             ?.let { Identifier("naddr", "$it$inviteSuffix") }
     // The link form carries the invite inside the hash route itself (?invite= after the id).
     val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = invite)
-    val link = Identifier("nostrord link", "https://nostrord.com/" + route.toHash())
+    val link = Identifier("nostrord link", "https://web.nostrord.com/" + route.toHash())
     if (invite != null) add(link)
     add(relayAddr)
     naddr?.let { add(it) }

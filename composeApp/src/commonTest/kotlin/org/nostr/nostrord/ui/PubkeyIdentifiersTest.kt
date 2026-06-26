@@ -19,7 +19,7 @@ class PubkeyIdentifiersTest {
         // nprofile round-trips back to the same pubkey.
         val decoded = Nip19.decode(ids[1].value) as Nip19.Entity.Nprofile
         assertEquals(hex, decoded.pubkey)
-        assertTrue(ids[2].value.startsWith("https://nostrord.com/#/u/npub1"))
+        assertTrue(ids[2].value.startsWith("https://web.nostrord.com/#/u/npub1"))
         assertEquals(hex, ids[3].value)
         assertEquals("fiatjaf@fiatjaf.com", ids[4].value)
     }
