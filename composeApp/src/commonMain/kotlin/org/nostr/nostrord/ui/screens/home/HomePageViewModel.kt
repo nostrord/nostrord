@@ -234,6 +234,18 @@ class HomePageViewModel(
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
+     * Rail-only projection of [myGroups]: drops the member-preview fields (people / memberCount /
+     * peopleLoading) the rail never renders, so the ~50 member-avatar metadata waves on home open
+     * that only change those are collapsed by distinctUntilChanged. The rail collects THIS instead
+     * of [myGroups] so it recomposes only when a rail-visible field (id / name / picture) changes.
+     */
+    val railGroups: StateFlow<List<DiscoverGroup>> =
+        myGroups
+            .map { list -> list.map { it.copy(people = emptyList(), memberCount = 0, peopleLoading = false) } }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
      * [myGroups] filtered by the search [query] over name + description. The Home page's "My groups"
      * list reads this; the groups rail / relay page read the unfiltered [myGroups] so the search box
      * never trims the sidebar.

@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -161,7 +163,10 @@ fun AppFrame() {
     // HomePageViewModel re-arms its per-account state when the active account changes
     // (it observes repo.activePubkey), so a single long-lived instance is correct here.
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository, AppModule.notificationHistoryStore) }
-    val groups by vm.myGroups.collectAsState()
+    // railGroups (not myGroups): the rail + back-history label only read meta/relayUrl, so this
+    // meta-only projection (distinctUntilChanged) skips the member-avatar metadata waves that would
+    // otherwise recompose the whole rail dozens of times on home open.
+    val groups by vm.railGroups.collectAsState()
     val unreadCounts by vm.unreadCounts.collectAsState()
     val notificationUnread by vm.notificationUnread.collectAsState()
     val dmUnread by AppModule.nostrRepository.totalDmUnread.collectAsState()
@@ -803,8 +808,11 @@ private fun HomeHub(
     var friendQuery by remember { mutableStateOf("") }
     val friends by vm.friends.collectAsState()
     val friendsLoading by vm.friendsLoading.collectAsState()
+    // No outer verticalScroll: the tabs (and, in the friends branch, the search field) are a fixed
+    // header and only the friend list scrolls, as a LazyColumn. The caller bounds this Column's
+    // height with Modifier.weight(1f), so the LazyColumn's own weight(1f) is safe (not infinite).
     Column(
-        modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(8.dp),
+        modifier = modifier.fillMaxWidth().padding(8.dp),
     ) {
         AppSegmentedTabs(
             tabs =
@@ -845,7 +853,7 @@ private fun HomeHub(
                     )
                 }
             else ->
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     AppSearchField(
                         value = friendQuery,
                         onValueChange = { friendQuery = it },
@@ -872,7 +880,14 @@ private fun HomeHub(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                         )
                     } else {
-                        filtered.forEach { friend -> FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) }) }
+                        // Virtualized: composes only the visible FriendRows (and defers their avatar
+                        // loads) instead of building all N eagerly. key = pubkey keeps each row's
+                        // avatar load state stable across search filtering.
+                        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            items(filtered, key = { it.pubkey }) { friend ->
+                                FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) })
+                            }
+                        }
                     }
                 }
         }
