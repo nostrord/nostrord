@@ -34,6 +34,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
@@ -657,18 +658,6 @@ private fun AccessToggleRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Standardized to the single [appFieldColors] (floating #131217 container). */
 @Composable
-private fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = NostrordColors.TextPrimary,
-    unfocusedTextColor = NostrordColors.TextPrimary,
-    focusedBorderColor = NostrordColors.Primary,
-    unfocusedBorderColor = NostrordColors.Divider,
-    cursorColor = NostrordColors.Primary,
-    focusedContainerColor = NostrordColors.InputBackground,
-    unfocusedContainerColor = NostrordColors.InputBackground,
-    focusedPlaceholderColor = NostrordColors.TextMuted,
-    unfocusedPlaceholderColor = NostrordColors.TextMuted,
-    focusedTrailingIconColor = NostrordColors.TextSecondary,
-    unfocusedTrailingIconColor = NostrordColors.TextMuted,
-)
+private fun fieldColors() = appFieldColors()

@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.forms.FormLabel
+import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -282,12 +284,7 @@ private fun ProfileTextField(
     maxLines: Int = 1,
 ) {
     Column {
-        Text(
-            text = label,
-            style = NostrordTypography.SectionHeader,
-            color = NostrordColors.TextMuted,
-        )
-        Spacer(modifier = Modifier.height(Spacing.sm))
+        FormLabel(label)
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -301,16 +298,7 @@ private fun ProfileTextField(
             },
             singleLine = singleLine,
             maxLines = maxLines,
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NostrordColors.Primary,
-                unfocusedBorderColor = NostrordColors.Divider,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
-                cursorColor = NostrordColors.Primary,
-                focusedTextColor = NostrordColors.TextContent,
-                unfocusedTextColor = NostrordColors.TextContent,
-            ),
+            colors = appFieldColors(),
             textStyle = appFieldTextStyle(),
             shape = NostrordShapes.shapeSmall,
         )

@@ -150,8 +150,8 @@ fun EmojiPicker(
                 textStyle = NostrordTypography.Input,
                 colors =
                 TextFieldDefaults.colors(
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground,
+                    focusedContainerColor = NostrordColors.BackgroundFloating,
+                    unfocusedContainerColor = NostrordColors.BackgroundFloating,
                     focusedTextColor = NostrordColors.TextContent,
                     unfocusedTextColor = NostrordColors.TextContent,
                     cursorColor = NostrordColors.Primary,

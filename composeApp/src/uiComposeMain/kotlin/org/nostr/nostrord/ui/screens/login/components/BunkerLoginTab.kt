@@ -35,6 +35,7 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -251,13 +252,7 @@ private fun QrCodeLoginContent(
                     }
                 },
                 shape = NostrordShapes.inputShape,
-                colors =
-                OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NostrordColors.Primary,
-                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground,
-                ),
+                colors = appFieldColors(),
             )
         }
 
@@ -448,13 +443,7 @@ private fun NostrConnectRelaysSection(
                     }
                 },
                 shape = NostrordShapes.inputShape,
-                colors =
-                OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NostrordColors.Primary,
-                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground,
-                ),
+                colors = appFieldColors(),
             )
 
             Spacer(modifier = Modifier.height(8.dp))

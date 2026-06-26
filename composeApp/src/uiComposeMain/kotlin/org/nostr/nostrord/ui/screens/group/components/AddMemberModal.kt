@@ -167,8 +167,8 @@ fun AddMemberModal(
                         modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(NostrordColors.BackgroundDark, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .background(NostrordColors.BackgroundFloating, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
                                 if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {

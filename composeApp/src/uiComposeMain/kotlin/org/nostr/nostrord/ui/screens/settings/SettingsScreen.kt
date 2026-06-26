@@ -846,8 +846,8 @@ private fun ProfileField(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.Divider,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
+                focusedContainerColor = NostrordColors.BackgroundFloating,
+                unfocusedContainerColor = NostrordColors.BackgroundFloating,
                 cursorColor = NostrordColors.Primary,
                 focusedTextColor = NostrordColors.TextContent,
                 unfocusedTextColor = NostrordColors.TextContent,
@@ -1627,8 +1627,8 @@ private fun PassphraseField(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.Divider,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
+                focusedContainerColor = NostrordColors.BackgroundFloating,
+                unfocusedContainerColor = NostrordColors.BackgroundFloating,
                 cursorColor = NostrordColors.Primary,
                 focusedTextColor = NostrordColors.TextContent,
                 unfocusedTextColor = NostrordColors.TextContent,

@@ -80,8 +80,8 @@ fun RelaySettingsScreen(
                         TextFieldDefaults.colors(
                             focusedTextColor = NostrordColors.TextPrimary,
                             unfocusedTextColor = NostrordColors.TextPrimary,
-                            focusedContainerColor = NostrordColors.InputBackground,
-                            unfocusedContainerColor = NostrordColors.InputBackground,
+                            focusedContainerColor = NostrordColors.BackgroundFloating,
+                            unfocusedContainerColor = NostrordColors.BackgroundFloating,
                             focusedPlaceholderColor = NostrordColors.TextMuted,
                             unfocusedPlaceholderColor = NostrordColors.TextMuted,
                             cursorColor = NostrordColors.Primary,

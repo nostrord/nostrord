@@ -1210,7 +1210,7 @@ private fun GroupPickerDropdown(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(NostrordColors.InputBackground)
+                .background(NostrordColors.BackgroundFloating)
                 .clickable(enabled = enabled) { expanded = true }
                 .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),

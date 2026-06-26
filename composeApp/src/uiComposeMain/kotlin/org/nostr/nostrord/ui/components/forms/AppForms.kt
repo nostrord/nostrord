@@ -80,6 +80,24 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 @Composable
 fun appFieldTextStyle() = LocalTextStyle.current.copy(fontSize = 14.sp)
 
+/**
+ * The single OutlinedTextField color set for form fields (web .modal-input parity): a #131217
+ * floating-surface container in both themes, brand border on focus. Every labeled field shares
+ * this, so the input background never drifts per screen.
+ */
+@Composable
+fun appFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = NostrordColors.TextContent,
+    unfocusedTextColor = NostrordColors.TextContent,
+    focusedBorderColor = NostrordColors.Primary,
+    unfocusedBorderColor = NostrordColors.Divider,
+    cursorColor = NostrordColors.Primary,
+    focusedContainerColor = NostrordColors.BackgroundFloating,
+    unfocusedContainerColor = NostrordColors.BackgroundFloating,
+    focusedPlaceholderColor = NostrordColors.TextMuted,
+    unfocusedPlaceholderColor = NostrordColors.TextMuted,
+)
+
 @Composable
 fun FormLabel(text: String) {
     Text(

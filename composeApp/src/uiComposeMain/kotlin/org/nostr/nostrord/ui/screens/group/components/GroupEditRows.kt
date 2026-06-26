@@ -18,20 +18,16 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import org.nostr.nostrord.ui.components.forms.FormLabel
+import org.nostr.nostrord.ui.components.forms.appFieldColors
+import org.nostr.nostrord.ui.components.forms.appFieldTextStyle
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
+/** Standardized to the single uppercase [FormLabel]; kept as an alias so callers don't churn. */
 @Composable
-internal fun EditFieldLabel(text: String) {
-    Text(
-        text = text,
-        style = NostrordTypography.Caption,
-        color = NostrordColors.TextSecondary,
-        fontWeight = FontWeight.Medium,
-    )
-}
+internal fun EditFieldLabel(text: String) = FormLabel(text)
 
 @Composable
 internal fun EditAccessToggleRow(
@@ -143,21 +139,10 @@ internal fun ChildClaimRow(
     }
 }
 
+/** Standardized to the single [appFieldColors] (floating #131217 container); kept as an alias. */
 @Composable
-internal fun editFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = NostrordColors.TextPrimary,
-    unfocusedTextColor = NostrordColors.TextPrimary,
-    focusedBorderColor = NostrordColors.Primary,
-    unfocusedBorderColor = NostrordColors.Divider,
-    cursorColor = NostrordColors.Primary,
-    focusedContainerColor = NostrordColors.InputBackground,
-    unfocusedContainerColor = NostrordColors.InputBackground,
-    focusedPlaceholderColor = NostrordColors.TextMuted,
-    unfocusedPlaceholderColor = NostrordColors.TextMuted,
-    focusedTrailingIconColor = NostrordColors.TextSecondary,
-    unfocusedTrailingIconColor = NostrordColors.TextMuted,
-)
+internal fun editFieldColors() = appFieldColors()
 
 /** Input text style for the group edit forms: 14sp to match the web .modal-input (16sp default felt oversized). */
 @Composable
-internal fun editFieldTextStyle() = LocalTextStyle.current.copy(fontSize = 14.sp)
+internal fun editFieldTextStyle() = appFieldTextStyle()
