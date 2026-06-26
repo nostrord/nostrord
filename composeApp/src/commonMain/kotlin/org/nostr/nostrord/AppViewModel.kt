@@ -3,6 +3,7 @@ package org.nostr.nostrord
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -142,7 +143,11 @@ class AppViewModel(
                 armGroupsResolve()
             }
         }
-        viewModelScope.launch {
+        // Off the Main dispatcher: initialize() does blocking boot work (credential load, crypto
+        // init, storage reads) that, if run on Main (viewModelScope's default), stalls the Compose
+        // frame clock and freezes the loading spinner mid-arc. StateFlow collectors still deliver on
+        // Main, so the UI updates normally.
+        viewModelScope.launch(Dispatchers.Default) {
             withTimeoutOrNull(30_000) {
                 repo.initialize()
             } ?: repo.forceInitialized()
