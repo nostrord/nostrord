@@ -486,6 +486,13 @@ class NostrRepository(
     private var contactListRequested = false
     private val contactListMutex = Mutex()
 
+    // Retries the kind:3 REQ until a relay actually accepts it. On a cold-start login
+    // (especially bunker, whose connect is signer-gated and slow) the screen's one-shot
+    // requestContactList() can fire before any relay is up, send nothing, and leave the
+    // friends sidebar on "follows nobody" until the app is reopened. This loop self-heals
+    // that without a restart. Cancelled on account switch by resetContactListState.
+    private var contactListRetryJob: Job? = null
+
     // Debounced kind:3 publisher. [following] holds the user's desired set (flipped
     // optimistically on each tap); rapid taps coalesce into a single publish.
     private var pendingContactListPublish: Job? = null
@@ -1109,6 +1116,15 @@ class NostrRepository(
             if (primaryRelay.isNotBlank()) {
                 scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
             }
+            // Fetch the contact list (kind:3) on cold-start login too. A logout -> re-login in a
+            // live process does NOT reconstruct the screen ViewModel (it's long-lived), and re-
+            // logging the SAME account never changes activePubkey (it maps to the pubkey, which is
+            // unchanged, so the StateFlow dedups and the VM's drop(1) re-arm never fires) — so
+            // nothing else requested it and the friends list stayed on "follows nobody" until a
+            // restart. The warm-swap path already requests it via reloadForActiveAccount; this is its
+            // cold-start counterpart. Idempotent (mutex + contactListRequested guard) and the
+            // self-healing retry covers relays still connecting.
+            scope.launch { requestContactList() }
         }
         scope.launch { requestUserMetadata(setOf(newPubkey)) }
     }
@@ -1528,6 +1544,9 @@ class NostrRepository(
         contactListContent = ""
         contactListTags = emptyList()
         contactListRequested = false
+        // Stop any background retry from the previous account; the new account re-arms it.
+        contactListRetryJob?.cancel()
+        contactListRetryJob = null
         // Cancel any in-flight debounced publish and clear the loaded flag, so the new
         // account starts "not loaded" (UI shows its cache, not a false "follows nobody")
         // and a pending publish never targets the wrong account.
@@ -2789,6 +2808,21 @@ class NostrRepository(
     // send), doubling the kind:3 REQ to every relay.
     override suspend fun requestContactList() {
         contactListMutex.withLock { requestContactListLocked() }
+        // If no relay was connected yet (cold-start / slow bunker connect), the REQ went
+        // nowhere and contactListRequested stayed false. Keep retrying in the background
+        // until a relay accepts it (or the list lands), so a slow connect self-heals
+        // instead of stranding the friends sidebar on "follows nobody" until a reopen.
+        //
+        // Only while logged in: on logout the screen VM (long-lived) fires requestContactList()
+        // once for the activePubkey -> null emission. With no pubkey that arms a retry that can
+        // never send, and because scheduleContactListRetry() no-ops while one is already active,
+        // it would BLOCK the real retry the subsequent re-login schedules — stranding the friends
+        // list on "follows nobody" after a logout -> re-login in a live process (cold-start re-login
+        // does not resetContactListState, so nothing cancels the dead retry). Guarding on a present
+        // pubkey keeps the logged-out call inert, so re-login always arms a fresh full-budget retry.
+        if (sessionManager.getPublicKey() != null && !contactListRequested && !contactListLoaded.value) {
+            scheduleContactListRetry()
+        }
         // contactListLoaded is flipped by the kind:3 ingestion handler the moment this
         // account's contact list lands (even an empty one), never on a timeout here. On a
         // warm account switch the general-purpose relays that serve kind:3 are still
@@ -2826,6 +2860,23 @@ class NostrRepository(
             }
         }
         if (sent > 0) contactListRequested = true
+    }
+
+    /**
+     * Background retry for [requestContactList] when the first attempt found no connected
+     * relay. Runs on the app scope so it outlives the screen that triggered it; exits as
+     * soon as the REQ lands (contactListRequested) or the list arrives (contactListLoaded).
+     */
+    private fun scheduleContactListRetry() {
+        if (contactListRetryJob?.isActive == true) return
+        contactListRetryJob =
+            scope.launch {
+                repeat(30) {
+                    delay(1_000)
+                    if (contactListRequested || contactListLoaded.value) return@launch
+                    contactListMutex.withLock { requestContactListLocked() }
+                }
+            }
     }
 
     override suspend fun followUser(pubkey: String): Result<Unit> {
