@@ -65,6 +65,9 @@ fun CreateGroupModal(
 
     var name by remember { mutableStateOf("") }
     var customGroupId by remember { mutableStateOf("") }
+    // The Group ID is an advanced option (the relay assigns a random one); reveal its field only
+    // when the user opts in, so the common case stays uncluttered.
+    var showCustomId by remember { mutableStateOf(false) }
     var about by remember { mutableStateOf("") }
     var picture by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
@@ -204,28 +207,41 @@ fun CreateGroupModal(
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
 
-                    // Custom Group ID (optional)
-                    FieldLabel("Group ID (optional)")
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    AppField(
-                        value = customGroupId,
-                        onValueChange = {
-                            customGroupId =
-                                it.lowercase().filter { c ->
-                                    c.isLetterOrDigit() || c == '-' || c == '_'
-                                }
-                            errorMessage =
-                                null
-                        },
-                        placeholder = "my-group",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Text(
-                        text = "Leave empty for a random ID. The relay may override your choice.",
-                        style = NostrordTypography.Caption,
-                        color = NostrordColors.TextMuted,
-                    )
+                    // Custom Group ID (optional): hidden behind a disclosure link so the common
+                    // case (random relay-assigned ID) stays uncluttered.
+                    if (showCustomId) {
+                        FieldLabel("Group ID (optional)")
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        AppField(
+                            value = customGroupId,
+                            onValueChange = {
+                                customGroupId =
+                                    it.lowercase().filter { c ->
+                                        c.isLetterOrDigit() || c == '-' || c == '_'
+                                    }
+                                errorMessage = null
+                            },
+                            placeholder = "my-group",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        Text(
+                            text = "Leave empty for a random ID. The relay may override your choice.",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextMuted,
+                        )
+                    } else {
+                        Text(
+                            text = "Set a custom ID",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.Primary,
+                            textDecoration = TextDecoration.Underline,
+                            modifier =
+                            Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable { showCustomId = true },
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
 

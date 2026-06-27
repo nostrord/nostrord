@@ -63,6 +63,9 @@ val CreateGroupModal =
 
         val (name, setName) = useState { "" }
         val (groupId, setGroupId) = useState { "" }
+        // The Group ID is an advanced option (the relay assigns a random one); reveal its field
+        // only when the user opts in, so the common case stays uncluttered.
+        val (showCustomId, setShowCustomId) = useState { false }
         val (selectedRelay, setSelectedRelay) = useState { props.relayUrl ?: currentRelayUrl }
         // Custom relay: picking "Custom relay…" in the select reveals a text input so a
         // group can be created on any relay, not just the known ones. With no known relays the
@@ -187,26 +190,35 @@ val CreateGroupModal =
                     }
                 }
 
-                // Group ID (optional)
-                div {
-                    className = ClassName("field-label")
-                    +"Group ID (optional)"
-                }
-                input {
-                    className = ClassName("modal-input")
-                    placeholder = "my-group"
-                    value = groupId
-                    onChange = { event ->
-                        val cleaned =
-                            event.currentTarget.value.lowercase().filter { c ->
-                                c.isLetterOrDigit() || c == '-' || c == '_'
-                            }
-                        setGroupId(cleaned)
+                // Group ID (optional): hidden behind a disclosure link so the common case
+                // (random relay-assigned ID) stays uncluttered.
+                if (showCustomId) {
+                    div {
+                        className = ClassName("field-label")
+                        +"Group ID (optional)"
                     }
-                }
-                div {
-                    className = ClassName("field-hint")
-                    +"Leave empty for a random ID. The relay may override your choice."
+                    input {
+                        className = ClassName("modal-input")
+                        placeholder = "my-group"
+                        value = groupId
+                        onChange = { event ->
+                            val cleaned =
+                                event.currentTarget.value.lowercase().filter { c ->
+                                    c.isLetterOrDigit() || c == '-' || c == '_'
+                                }
+                            setGroupId(cleaned)
+                        }
+                    }
+                    div {
+                        className = ClassName("field-hint")
+                        +"Leave empty for a random ID. The relay may override your choice."
+                    }
+                } else {
+                    button {
+                        className = ClassName("field-link")
+                        onClick = { setShowCustomId(true) }
+                        +"Set a custom ID"
+                    }
                 }
 
                 // Relay

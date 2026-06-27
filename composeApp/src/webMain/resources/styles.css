@@ -4845,6 +4845,22 @@ body {
     cursor: pointer;
 }
 
+/* Link-styled button for in-form disclosures (e.g. "Set a custom ID" revealing an advanced field). */
+.field-link {
+    margin-top: 2px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.field-link:hover {
+    text-decoration: underline;
+}
+
 .modal-input,
 .modal-textarea,
 .modal-select {
