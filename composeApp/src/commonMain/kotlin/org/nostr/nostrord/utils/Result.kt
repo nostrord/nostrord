@@ -106,6 +106,11 @@ sealed class AppError(
             override val cause: Throwable? = null,
         ) : Group("Failed to leave group: $groupId", cause)
 
+        data class DeleteFailed(
+            val groupId: String,
+            override val cause: Throwable? = null,
+        ) : Group("Failed to delete group: ${cause?.message ?: groupId}", cause)
+
         data class SendFailed(
             val groupId: String,
             override val cause: Throwable? = null,

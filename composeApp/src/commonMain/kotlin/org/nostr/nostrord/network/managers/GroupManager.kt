@@ -1635,19 +1635,33 @@ class GroupManager(
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
-                ?: return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.DeleteFailed(groupId, Exception("Event ID not generated")))
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            when (val pub = currentClient.sendAndAwaitOk(message, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception(pub.reason)))
+            // A relay that refuses the deletion (kind:9008 rejected, e.g. it doesn't implement group
+            // deletion) leaves the user stuck, and leaving (kind:9022) is no help on such a relay. So a
+            // rejection falls through to the same local cleanup as a success: the group is dropped from
+            // kind:10009 and the sidebar even though the relay keeps it.
+            //
+            // A timeout usually means a half-open socket: the event went into a dead connection and no
+            // OK ever came back, which otherwise forces the user to delete a second time by hand. So on
+            // a timeout, reconnect the relay and retry the send once; only a still-failing timeout/error
+            // is reported.
+            var pub = currentClient.sendAndAwaitOk(message, eventId)
+            if (pub is org.nostr.nostrord.network.PublishResult.Timeout && connectionManager.reconnect()) {
+                val freshClient = connectionManager.getClientForRelay(groupRelayUrl)
+                    ?: connectionManager.getPrimaryClient()
+                if (freshClient != null) pub = freshClient.sendAndAwaitOk(message, eventId)
+            }
+            when (val result = pub) {
+                is org.nostr.nostrord.network.PublishResult.Rejected -> Unit
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Relay did not respond in time")))
+                    return Result.Error(AppError.Group.DeleteFailed(groupId, Exception("Relay did not respond in time")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, pub.exception))
+                    return Result.Error(AppError.Group.DeleteFailed(groupId, result.exception))
                 is org.nostr.nostrord.network.PublishResult.Success -> Unit
             }
 
@@ -1684,7 +1698,7 @@ class GroupManager(
 
             Result.Success(Unit)
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.LeaveFailed(groupId, e))
+            Result.Error(AppError.Group.DeleteFailed(groupId, e))
         }
     }
 
