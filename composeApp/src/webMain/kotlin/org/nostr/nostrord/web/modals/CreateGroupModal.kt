@@ -64,9 +64,12 @@ val CreateGroupModal =
         val (groupId, setGroupId) = useState { "" }
         val (selectedRelay, setSelectedRelay) = useState { props.relayUrl ?: currentRelayUrl }
         // Custom relay: picking "Custom relay…" in the select reveals a text input so a
-        // group can be created on any relay, not just the known ones.
+        // group can be created on any relay, not just the known ones. With no known relays the
+        // only option IS "Custom relay…", so force custom there: otherwise the empty `selectedRelay`
+        // matches no <option>, the browser shows the first one ("Custom relay…") while state stays
+        // blank, and the input never appears.
         val (customRelay, setCustomRelay) = useState { "" }
-        val usingCustom = selectedRelay == CUSTOM_RELAY
+        val usingCustom = selectedRelay == CUSTOM_RELAY || relayList.isEmpty()
         val effectiveRelay = if (usingCustom) customRelay.trim().toRelayUrl() else selectedRelay
         val (about, setAbout) = useState { "" }
         val (picture, setPicture) = useState { "" }
@@ -204,7 +207,9 @@ val CreateGroupModal =
                 }
                 select {
                     className = ClassName("modal-select")
-                    value = selectedRelay
+                    // Bind to usingCustom so the control matches state when custom is forced (no
+                    // known relays); a bare `selectedRelay` would leave the value matching no option.
+                    value = if (usingCustom) CUSTOM_RELAY else selectedRelay
                     onChange = { event -> setSelectedRelay(event.currentTarget.value) }
                     relayList.forEach { relay ->
                         option {

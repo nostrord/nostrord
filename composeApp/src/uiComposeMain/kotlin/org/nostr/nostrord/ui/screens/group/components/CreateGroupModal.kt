@@ -88,9 +88,11 @@ fun CreateGroupModal(
     var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
     // Custom relay: picking "Custom relay…" reveals a text field so a group can be
-    // created on any relay, not just the known ones.
+    // created on any relay, not just the known ones. With no known relays the only choice IS
+    // custom, so force it on: the selector then shows "Custom relay…" and reveals the input
+    // instead of an empty anchor with nowhere to type.
     var customRelay by remember { mutableStateOf("") }
-    val usingCustomRelay = selectedRelay == CUSTOM_RELAY
+    val usingCustomRelay = selectedRelay == CUSTOM_RELAY || relayOptions.isEmpty()
     val effectiveRelay = if (usingCustomRelay) customRelay.trim().toRelayUrl() else selectedRelay
 
     val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
