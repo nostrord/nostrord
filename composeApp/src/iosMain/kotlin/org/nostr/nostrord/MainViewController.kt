@@ -18,7 +18,10 @@ fun MainViewController(): UIViewController {
     SingletonImageLoader.setSafe { context ->
         ImageLoader.Builder(context)
             .memoryCache {
-                MemoryCache.Builder().maxSizePercent(context, 0.15).build()
+                // 20% of available memory (matches Android): keeps frequently-shown avatars
+                // resident so they aren't refetched over a long session, where each refetch is
+                // a chance to hit a transient failure that falls back to a placeholder.
+                MemoryCache.Builder().maxSizePercent(context, 0.20).build()
             }
             .apply {
                 val cachesDir =

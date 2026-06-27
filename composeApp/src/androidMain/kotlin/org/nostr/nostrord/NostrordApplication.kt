@@ -56,14 +56,15 @@ class NostrordApplication :
                 add(GifDecoder.Factory())
             }
         }
-        // Memory cache: 15% of available app heap.
-        // Adapts automatically to device capability without a fixed floor
-        // that could starve low-RAM devices (e.g. 128 MB heap → 19 MB cache,
-        // not the previous 64 MB floor that consumed half the heap).
+        // Memory cache: 20% of available app heap. Adapts to device capability
+        // without a fixed floor that could starve low-RAM devices (128 MB heap
+        // → ~26 MB cache). Sized so frequently-shown avatars stay resident
+        // rather than being refetched over a long session, since each refetch
+        // is a chance to hit a transient load failure that shows a placeholder.
         .memoryCache {
             MemoryCache
                 .Builder()
-                .maxSizePercent(context, percent = 0.15)
+                .maxSizePercent(context, percent = 0.20)
                 .build()
         }
         // Persistent disk cache so images survive app restarts without re-downloading.
