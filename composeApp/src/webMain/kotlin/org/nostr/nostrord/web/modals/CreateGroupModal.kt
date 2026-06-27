@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -87,8 +88,10 @@ val CreateGroupModal =
                 setError("Group name is required.")
                 return
             }
-            if (effectiveRelay.isBlank()) {
-                setError(if (usingCustom) "Enter a relay URL." else "Pick a relay.")
+            // Validate the (normalized) relay before publishing: an unchecked custom value like
+            // "asdasd" would be saved and then fail to connect (same gate as Add Relay).
+            if (!isValidRelayUrl(effectiveRelay)) {
+                setError(if (usingCustom) "Enter a valid relay URL (e.g. relay.example.com)." else "Pick a relay.")
                 return
             }
             setError(null)

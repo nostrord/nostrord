@@ -42,6 +42,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 
 /** Sentinel relay value that reveals the custom-relay text field. */
@@ -448,6 +449,17 @@ fun CreateGroupModal(
                             onClick = {
                                 if (name.isBlank()) {
                                     errorMessage = "Group name is required."
+                                    return@Button
+                                }
+                                // Validate the (normalized) relay before publishing: an unchecked
+                                // custom value like "asdasd" would be saved and then fail to connect.
+                                if (!isValidRelayUrl(effectiveRelay)) {
+                                    errorMessage =
+                                        if (usingCustomRelay) {
+                                            "Enter a valid relay URL (e.g. relay.example.com)."
+                                        } else {
+                                            "Pick a relay."
+                                        }
                                     return@Button
                                 }
                                 errorMessage = null
