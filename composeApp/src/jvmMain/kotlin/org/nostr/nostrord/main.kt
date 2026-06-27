@@ -31,6 +31,7 @@ import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.UnlockState
 import org.nostr.nostrord.ui.PassphraseGate
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
@@ -124,6 +125,8 @@ fun main(args: Array<String> = emptyArray()) {
             }
         ImageLoader
             .Builder(context)
+            // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
+            .eventListener(ImageLoadEventListener)
             .components {
                 add(KtorNetworkFetcherFactory(httpClient))
             }.memoryCache {

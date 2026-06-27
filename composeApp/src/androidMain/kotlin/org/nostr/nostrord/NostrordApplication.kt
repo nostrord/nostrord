@@ -15,6 +15,7 @@ import org.nostr.nostrord.notifications.AndroidNotificationSoundInit
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.cache.CacheStoreAndroid
 import org.nostr.nostrord.ui.components.media.VideoCache
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 
 /**
  * Custom Application class that registers Coil's animated GIF decoders.
@@ -46,6 +47,8 @@ class NostrordApplication :
 
     override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader
         .Builder(context)
+        // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
+        .eventListener(ImageLoadEventListener)
         .components {
             // AnimatedImageDecoder is hardware-accelerated via the platform ImageDecoder
             // API. GifDecoder is a pure-software fallback for older API levels.

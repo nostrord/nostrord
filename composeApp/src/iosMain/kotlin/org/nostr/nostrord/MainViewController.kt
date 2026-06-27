@@ -6,6 +6,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import okio.Path.Companion.toPath
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
@@ -17,6 +18,8 @@ fun MainViewController(): UIViewController {
     // so avatars survive app restarts without re-downloading.
     SingletonImageLoader.setSafe { context ->
         ImageLoader.Builder(context)
+            // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
+            .eventListener(ImageLoadEventListener)
             .memoryCache {
                 // 20% of available memory (matches Android): keeps frequently-shown avatars
                 // resident so they aren't refetched over a long session, where each refetch is
