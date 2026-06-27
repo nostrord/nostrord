@@ -11,7 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,6 +31,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.avatars.GroupGradientAvatar
+import org.nostr.nostrord.ui.components.avatars.rememberAvatarImageState
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -146,11 +146,13 @@ private fun GroupAvatar(
             .size(size)
             .clip(CircleShape),
     ) {
-        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        // Self-healing load (keyed on the URL): a transient failure no longer latches the avatar to
+        // its gradient placeholder for the rest of the session.
+        val avatar = rememberAvatarImageState(pictureUrl)
         val showPlaceholder =
             pictureUrl.isNullOrBlank() ||
-                imageState is AsyncImagePainter.State.Loading ||
-                imageState is AsyncImagePainter.State.Error
+                avatar.state is AsyncImagePainter.State.Loading ||
+                avatar.state is AsyncImagePainter.State.Error
 
         // Show the gradient fallback when no URL, loading, or error
         if (showPlaceholder) {
@@ -161,8 +163,8 @@ private fun GroupAvatar(
             )
         }
 
-        // Only attempt to load image if URL is provided and not in error state
-        if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+        // Only attempt to load image if URL is provided and not in error state (retry re-loads)
+        if (!pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model =
                 ImageRequest
@@ -178,7 +180,7 @@ private fun GroupAvatar(
                     .fillMaxSize()
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it },
+                onState = avatar.onState,
             )
         }
     }

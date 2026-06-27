@@ -41,14 +41,16 @@ fun ProfileAvatar(
         AvatarPlaceholder(displayName, pubkey, modifier.size(size), size)
     } else {
         Box(modifier = modifier) {
-            var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+            // Self-healing load (keyed on the URL): a transient failure no longer latches the avatar
+            // to its placeholder for the rest of the session.
+            val avatar = rememberAvatarImageState(imageUrl)
 
             // Show placeholder background while loading or on error
-            if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Error) {
+            if (avatar.state is AsyncImagePainter.State.Loading || avatar.state is AsyncImagePainter.State.Error) {
                 AvatarPlaceholder(displayName, pubkey, Modifier.size(size), size)
             }
 
-            if (imageState !is AsyncImagePainter.State.Error) {
+            if (avatar.state !is AsyncImagePainter.State.Error) {
                 // Memoize image request to prevent rebuilding on every recomposition
                 val imageRequest =
                     remember(imageUrl, sizeInPx, context) {
@@ -74,7 +76,7 @@ fun ProfileAvatar(
                         // White backdrop so a transparent avatar (PNG with alpha) shows on
                         // white instead of whatever is behind it.
                         .background(Color.White),
-                    onState = { imageState = it },
+                    onState = avatar.onState,
                 )
             }
         }

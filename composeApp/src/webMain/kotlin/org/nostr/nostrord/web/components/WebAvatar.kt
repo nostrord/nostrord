@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.components
 
 import js.objects.unsafeJso
+import kotlinx.browser.window
+import kotlinx.coroutines.awaitCancellation
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
 import react.ChildrenBuilder
@@ -51,10 +53,15 @@ external interface WebAvatarProps : Props {
 val WebAvatar =
     FC<WebAvatarProps> { props ->
         val (loaded, setLoaded) = useState { false }
-        val (failed, setFailed) = useState { false }
+        // `errored` is the current load's failure; `attempts` counts retries. A transient failure
+        // self-heals (remount + backoff) up to MAX_AVATAR_RETRIES, only then giving up to the
+        // fallback, so avatars no longer latch to their placeholder for the rest of the session.
+        val (errored, setErrored) = useState { false }
+        val (attempts, setAttempts) = useState { 0 }
         val imgRef = useRef<HTMLImageElement>(null)
         val lastUrlRef = useRef<String>(null)
         val lastSeedRef = useRef<String>(null)
+        val gaveUp = errored && attempts >= MAX_AVATAR_RETRIES
 
         val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
         val kind = props.kind ?: AvatarKind.USER
@@ -84,8 +91,27 @@ val WebAvatar =
             // synchronously so the photo is shown immediately.
             val el = imgRef.current
             val cached = el != null && el.complete && el.naturalWidth > 0
-            setFailed(false)
+            setErrored(false)
+            setAttempts(0)
             setLoaded(cached)
+        }
+
+        // Retry pump: when the current load errors and retries remain, wait an exponential backoff
+        // (2s, 4s, 8s) then bump `attempts`, which changes the <img> key and remounts it to re-issue
+        // the fetch. Mirrors the native rememberAvatarImageState helper. The timer is cleared on
+        // unmount / dep change via awaitCancellation + finally.
+        useEffect(errored, attempts) {
+            if (errored && attempts < MAX_AVATAR_RETRIES) {
+                val timer = window.setTimeout({
+                    setErrored(false)
+                    setAttempts { it + 1 }
+                }, 2_000 shl attempts)
+                try {
+                    awaitCancellation()
+                } finally {
+                    window.clearTimeout(timer)
+                }
+            }
         }
 
         div {
@@ -114,23 +140,31 @@ val WebAvatar =
                 }
             }
 
-            // Real picture on top: hidden until it loads, removed on error so the fallback shows.
-            if (!url.isNullOrBlank() && !failed) {
+            // Real picture on top: hidden until it loads, removed only once retries are exhausted
+            // so the fallback shows. Each retry changes `key` to remount and re-fetch.
+            if (!url.isNullOrBlank() && !gaveUp) {
                 // White backdrop for transparent user/group pictures (PNG with alpha) so they
                 // sit on white, not the surface colour. Relays keep a transparent backdrop: a
                 // white-on-transparent relay logo would vanish on white.
                 val whiteBg = if (kind != AvatarKind.RELAY) " avatar-photo-white" else ""
                 img {
+                    key = "$url#$attempts"
                     ref = imgRef
                     className = ClassName((if (loaded) "avatar-photo loaded" else "avatar-photo") + whiteBg)
                     src = url
                     alt = props.name
-                    onLoad = { setLoaded(true) }
-                    onError = { setFailed(true) }
+                    onLoad = {
+                        setErrored(false)
+                        setLoaded(true)
+                    }
+                    onError = { setErrored(true) }
                 }
             }
         }
     }
+
+/** Self-healing avatar load: at most this many retries per URL before giving up to the fallback. */
+private const val MAX_AVATAR_RETRIES = 3
 
 // Number of colours in the native NostrordColors.AvatarColors palette (see .avatar-color-N CSS).
 private const val AVATAR_COLOR_COUNT = 8

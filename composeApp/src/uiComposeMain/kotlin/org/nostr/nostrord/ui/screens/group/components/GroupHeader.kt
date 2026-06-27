@@ -43,6 +43,7 @@ import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.avatars.GroupGradientAvatar
+import org.nostr.nostrord.ui.components.avatars.rememberAvatarImageState
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 
@@ -492,10 +493,10 @@ internal fun GroupHeaderIcon(
 ) {
     val context = LocalPlatformContext.current
     val iconShape = RoundedCornerShape(cornerRadius)
-    var imageState by remember(pictureUrl) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
+    // Self-healing load (keyed on the URL): a transient failure no longer latches the icon to its
+    // gradient placeholder for the rest of the session.
+    val avatar = rememberAvatarImageState(pictureUrl)
+    val showImage = !pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error
 
     Box(
         modifier =
@@ -514,7 +515,8 @@ internal fun GroupHeaderIcon(
                 size = size,
             )
         }
-        if (!pictureUrl.isNullOrBlank()) {
+        // Gate out on Error so the retry's Error -> Empty reset re-composes a fresh load.
+        if (!pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model =
                 ImageRequest
@@ -530,7 +532,7 @@ internal fun GroupHeaderIcon(
                     .fillMaxSize()
                     .clip(iconShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it },
+                onState = avatar.onState,
             )
         }
     }

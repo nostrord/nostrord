@@ -121,13 +121,13 @@ fun OptimizedSmallAvatar(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
-        // Key on imageUrl so a composable reused for a different user (list slot reuse)
-        // resets its load state instead of showing the previous user's avatar.
-        var imageState by remember(imageUrl) { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        // Keyed on imageUrl (list slot reuse resets state) with a self-healing retry, so a transient
+        // load failure doesn't latch this avatar to its placeholder for the rest of the session.
+        val avatar = rememberAvatarImageState(imageUrl)
 
         val showPlaceholder =
-            imageState is AsyncImagePainter.State.Loading ||
-                imageState is AsyncImagePainter.State.Error
+            avatar.state is AsyncImagePainter.State.Loading ||
+                avatar.state is AsyncImagePainter.State.Error
 
         // Always render placeholder behind (for loading state and as fallback)
         if (showPlaceholder) {
@@ -141,8 +141,8 @@ fun OptimizedSmallAvatar(
             )
         }
 
-        // Attempt to load image unless in error state
-        if (imageState !is AsyncImagePainter.State.Error) {
+        // Attempt to load image unless in error state (the retry resets Error -> Empty to re-load)
+        if (avatar.state !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model =
                 ImageRequest
@@ -185,7 +185,7 @@ fun OptimizedSmallAvatar(
                             Modifier
                         },
                     ),
-                onState = { imageState = it },
+                onState = avatar.onState,
             )
         }
     }
