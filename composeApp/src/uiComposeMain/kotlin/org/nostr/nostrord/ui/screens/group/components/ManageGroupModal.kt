@@ -64,6 +64,7 @@ import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.IdentifierRow
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
+import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.components.forms.AppSearchField
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.InputSize
@@ -393,32 +394,28 @@ private fun ManageInfoSection(
 
         EditFieldLabel("Name")
         Spacer(modifier = Modifier.height(Spacing.xs))
-        OutlinedTextField(
+        AppField(
             value = name,
             onValueChange = {
                 name = it
                 error = null
             },
-            singleLine = true,
+            placeholder = "#example",
             modifier = Modifier.fillMaxWidth(),
-            colors = editFieldColors(),
-            textStyle = editFieldTextStyle(),
-            shape = RoundedCornerShape(8.dp),
         )
 
         Spacer(modifier = Modifier.height(Spacing.lg))
 
         EditFieldLabel("Description")
         Spacer(modifier = Modifier.height(Spacing.xs))
-        OutlinedTextField(
+        AppField(
             value = about,
             onValueChange = { about = it },
+            placeholder = "What is this group about?",
+            singleLine = false,
             minLines = 3,
             maxLines = 5,
             modifier = Modifier.fillMaxWidth(),
-            colors = editFieldColors(),
-            textStyle = editFieldTextStyle(),
-            shape = RoundedCornerShape(8.dp),
         )
 
         Spacer(modifier = Modifier.height(Spacing.xxl))

@@ -185,6 +185,7 @@ private val ManageInfoSection =
         }
         input {
             className = ClassName("modal-input")
+            placeholder = "#example"
             value = name
             onChange = { e ->
                 setName(e.currentTarget.value)
@@ -197,6 +198,7 @@ private val ManageInfoSection =
         }
         textarea {
             className = ClassName("modal-textarea")
+            placeholder = "What is this group about?"
             rows = 3
             value = about
             onChange = { e -> setAbout(e.currentTarget.value) }
