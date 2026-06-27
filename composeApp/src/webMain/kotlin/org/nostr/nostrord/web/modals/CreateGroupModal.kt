@@ -82,6 +82,12 @@ val CreateGroupModal =
         val (error, setError) = useState<String?> { null }
 
         val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
+        // Offer the relay-website link only when the failure is about web-only creation or auth
+        // (mirrors native): "website" matches the friendlyError text for the blocked case.
+        val showRelayLink =
+            relayWebUrl.isNotBlank() &&
+                listOf("website", "authorization", "auth-required", "not allowed", "restricted", "blocked")
+                    .any { error?.contains(it, ignoreCase = true) == true }
 
         fun submit() {
             if (name.isBlank()) {
@@ -131,7 +137,7 @@ val CreateGroupModal =
                         props.onCreated?.invoke(effectiveRelay, result.data)
                         props.onClose()
                     }
-                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to create group." })
+                    is Result.Error -> setError(friendlyError(result.error.cause?.message ?: result.error.message))
                 }
             }
         }
@@ -236,17 +242,6 @@ val CreateGroupModal =
                         }
                     }
                 }
-                div {
-                    className = ClassName("field-hint")
-                    span { +"Some relays require creating groups via their website. " }
-                    a {
-                        className = ClassName("inline-link")
-                        href = relayWebUrl
-                        asDynamic().target = "_blank"
-                        rel = "noopener noreferrer"
-                        +"Open →"
-                    }
-                }
 
                 // Description
                 div {
@@ -320,7 +315,16 @@ val CreateGroupModal =
                 if (error != null) {
                     div {
                         className = ClassName("modal-error")
-                        +error
+                        span { +error }
+                        if (showRelayLink) {
+                            a {
+                                className = ClassName("inline-link")
+                                href = relayWebUrl
+                                asDynamic().target = "_blank"
+                                rel = "noopener noreferrer"
+                                +" Open relay website →"
+                            }
+                        }
                     }
                 }
 
@@ -350,3 +354,22 @@ val CreateGroupModal =
             }
         }
     }
+
+// Map a raw relay error to a short, friendly message (mirrors the native CreateGroupModal). The
+// "must use the website" wording is what drives the "Open relay website" link in the error.
+private fun friendlyError(raw: String?): String = when {
+    raw == null -> "Something went wrong. Try again."
+    // "blocked: to create groups open https://... in your web browser"
+    raw.contains("blocked:", ignoreCase = true) ->
+        "Group creation on this relay must be done via the relay's website."
+    raw.contains("auth-required", ignoreCase = true) ||
+        raw.contains("not allowed", ignoreCase = true) ||
+        raw.contains("restricted", ignoreCase = true) ->
+        "This relay requires authorization to create groups."
+    raw.contains("did not respond", ignoreCase = true) ||
+        raw.contains("timeout", ignoreCase = true) ->
+        "Relay did not respond. Try again."
+    raw.contains("Not connected", ignoreCase = true) ->
+        "Not connected to relay. Try again."
+    else -> raw.ifBlank { "Failed to create group." }
+}

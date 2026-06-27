@@ -293,30 +293,6 @@ fun CreateGroupModal(
                         )
                     }
 
-                    // Always show a direct link to create the group on the relay's website.
-                    // Most NIP-29 relays require web-based creation; this sets the right expectation upfront.
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    ) {
-                        Text(
-                            text = "Some relays require creating groups via their website.",
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.TextMuted,
-                        )
-                        Text(
-                            text = "Open →",
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.Primary,
-                            textDecoration = TextDecoration.Underline,
-                            modifier =
-                            Modifier
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable { uriHandler.openUri(relayWebUrl) },
-                        )
-                    }
-
                     Spacer(modifier = Modifier.height(Spacing.lg))
 
                     // Description
@@ -403,9 +379,12 @@ fun CreateGroupModal(
                                 color = NostrordColors.Error,
                                 modifier = Modifier.weight(1f),
                             )
-                            // If the error is a restriction, offer a link
+                            // When the relay rejects in-app creation (must use its website) or
+                            // requires authorization, offer a link to the relay site. "website"
+                            // covers the friendlyError text for the blocked case.
                             val showLink =
-                                errorMessage!!.contains("not allowed", ignoreCase = true) ||
+                                errorMessage!!.contains("website", ignoreCase = true) ||
+                                    errorMessage!!.contains("not allowed", ignoreCase = true) ||
                                     errorMessage!!.contains("restricted", ignoreCase = true) ||
                                     errorMessage!!.contains("authorization", ignoreCase = true) ||
                                     errorMessage!!.contains("auth-required", ignoreCase = true) ||
@@ -413,7 +392,7 @@ fun CreateGroupModal(
                             if (showLink) {
                                 Spacer(modifier = Modifier.width(Spacing.xs))
                                 Text(
-                                    text = "Visit relay →",
+                                    text = "Open relay website →",
                                     style = NostrordTypography.Caption,
                                     color = NostrordColors.Error,
                                     textDecoration = TextDecoration.Underline,
