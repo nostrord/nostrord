@@ -1287,13 +1287,16 @@ class NostrRepository(
         // not here: advancing unconditionally on open skipped the whole undecrypted backlog on a
         // device that had never synced it. The EOSE means the relay actually delivered everything.
 
-        // Make ourselves reachable: publish a kind:10050 if we don't already have one.
+        // Make ourselves reachable: publish a default kind:10050 only if the account truly has none.
+        // Gate on the fetch landing an event (our pubkey appearing in dmRelaysByPubkey), not a fixed
+        // delay - the old 4s fired before the fetch finished and overwrote existing lists with the
+        // defaults.
         scope.launch {
-            delay(4_000)
-            if (dmManager.dmRelaysFor(myPub).isEmpty()) {
-                publishDmRelayList(defaultDmRelays)
-            } else {
+            val found = withTimeoutOrNull(12_000) { dmManager.dmRelaysByPubkey.first { myPub in it } } != null
+            if (found) {
                 _myDmRelays.value = dmRelaysFor(myPub)
+            } else {
+                publishDmRelayList(defaultDmRelays)
             }
         }
 
@@ -1514,7 +1517,11 @@ class NostrRepository(
         }
     }
 
-    /** One-shot fetch of [pubkey]'s kind:10050 DM relay list from the default relays. */
+    /**
+     * One-shot fetch of [pubkey]'s kind:10050 DM relay list. Queries the user's NIP-65 write relays
+     * and bootstrap relays (where the replaceable list is published, see publishDmRelayList) plus the
+     * defaults, so an existing list is actually found instead of falsely read as absent.
+     */
     private suspend fun fetchDmRelays(pubkey: String) {
         val filter =
             buildJsonObject {
@@ -1527,7 +1534,8 @@ class NostrRepository(
                 add("dmrelays_${pubkey.take(8)}")
                 add(filter)
             }.toString()
-        defaultDmRelays.forEach { url ->
+        val fetchFrom = (defaultDmRelays + outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
+        fetchFrom.forEach { url ->
             val client =
                 connectionManager.getClientForRelay(url)
                     ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
