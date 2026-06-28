@@ -55,7 +55,7 @@ external interface SettingsScreenProps : Props {
 }
 
 private val sections =
-    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Direct Messages", "Appearance", "Media", "Notifications", "Security", "Experimental")
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Direct Messages", "Appearance", "Media", "Notifications", "Security")
 
 /**
  * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
@@ -153,7 +153,6 @@ val SettingsScreen =
                     "Media" -> MediaPanel()
                     "Notifications" -> NotificationsPanel()
                     "Security" -> SecurityPanel()
-                    "Experimental" -> ExperimentalPanel()
                 }
             }
 
@@ -950,26 +949,6 @@ private fun react.ChildrenBuilder.passwordField(
         }
     }
 }
-
-// ── Experimental ─────────────────────────────────────────────────────────────
-
-private val ExperimentalPanel =
-    FC<Props> {
-        val flags = AppModule.featureFlags
-        val subgroups = useStateFlow(flags.subgroupsEnabled)
-        div {
-            className = ClassName("settings-card")
-            div {
-                className = ClassName("settings-section-head")
-                +"DRAFT PROTOCOL FEATURES"
-            }
-            settingsToggle(
-                "NIP-29 Subgroups (draft)",
-                "Enable nested subgroups. This is a draft protocol feature and may change.",
-                subgroups,
-            ) { flags.setSubgroupsEnabled(!subgroups) }
-        }
-    }
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
 

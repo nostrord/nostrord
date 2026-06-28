@@ -33,6 +33,7 @@ import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.shortNpub
 
 // Unit separator — safe field delimiter for encoding GroupInfo into the platform-agnostic
@@ -119,7 +120,9 @@ fun GroupScreen(
     // "no longer available" panel instead of the perpetual loading skeletons.
     val isOrphaned by vm.isOrphaned.collectAsState()
     val childrenByParent by vm.childrenByParent.collectAsState()
-    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    // Subgroup UI is gated on the relay advertising nip29:{subgroups:true} in its NIP-11 (mirrors GroupSidebar).
+    val supportsSubgroups =
+        (relayMetadata[currentRelayUrl] ?: relayMetadata[currentRelayUrl.normalizeRelayUrl()])?.supportsSubgroups == true
     val currentUserPubkey = vm.getPublicKey()
 
     val currentGroupMetadata =
@@ -465,7 +468,7 @@ fun GroupScreen(
                 onNavigateHome()
             },
             initialTab = ManageTab.Info,
-            supportsSubgroups = subgroupsEnabled,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
@@ -492,7 +495,7 @@ fun GroupScreen(
                 onNavigateHome()
             },
             initialTab = ManageTab.Members,
-            supportsSubgroups = subgroupsEnabled,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
@@ -714,7 +717,7 @@ fun GroupScreen(
                 onNavigateHome()
             },
             initialTab = ManageTab.Requests,
-            supportsSubgroups = subgroupsEnabled,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
@@ -826,7 +829,7 @@ fun GroupScreen(
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
                     onManageChildren = { showManageChildrenModal = true },
-                    showSubgroupControls = subgroupsEnabled,
+                    showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent
@@ -968,7 +971,7 @@ fun GroupScreen(
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
                     onManageChildren = { showManageChildrenModal = true },
-                    showSubgroupControls = subgroupsEnabled,
+                    showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent

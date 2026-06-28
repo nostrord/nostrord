@@ -40,7 +40,6 @@ import org.nostr.nostrord.notifications.NotificationService
 import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.AppearanceSettings
-import org.nostr.nostrord.settings.FeatureFlags
 import org.nostr.nostrord.settings.MediaSettings
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
@@ -499,8 +498,6 @@ object AppModule {
     val relayMetadataManager: RelayMetadataManager by lazy {
         RelayMetadataManager(scope = appScope)
     }
-
-    val featureFlags: FeatureFlags by lazy { FeatureFlags() }
 
     val notificationSettings: NotificationSettings by lazy { NotificationSettings() }
 

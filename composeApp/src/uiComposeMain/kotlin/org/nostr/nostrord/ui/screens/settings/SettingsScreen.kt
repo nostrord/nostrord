@@ -87,7 +87,6 @@ enum class SettingsSection(val label: String) {
     Media("Media"),
     Notifications("Notifications"),
     Security("Security"),
-    Experimental("Experimental"),
 }
 
 /**
@@ -249,14 +248,6 @@ fun SettingsScreen(
         )
     }
 
-    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
-    val experimentalContent: @Composable () -> Unit = {
-        ExperimentalPanelContent(
-            subgroupsEnabled = subgroupsEnabled,
-            onToggleSubgroups = { AppModule.featureFlags.setSubgroupsEnabled(it) },
-        )
-    }
-
     val securityContent: @Composable () -> Unit = {
         SecurityPanelContent()
     }
@@ -311,7 +302,6 @@ fun SettingsScreen(
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
-                experimentalContent = experimentalContent,
             )
         } else {
             DesktopSettings(
@@ -328,7 +318,6 @@ fun SettingsScreen(
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
-                experimentalContent = experimentalContent,
             )
         }
     }
@@ -351,7 +340,6 @@ private fun DesktopSettings(
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Centered layout: sidebar(218) + content(740) + close(80) = 1038dp center block.
@@ -398,7 +386,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
                     }
                 }
 
@@ -429,7 +417,6 @@ private fun MobileSettings(
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
 ) {
     if (!showPanel) {
         Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark).statusBarsPadding()) {
@@ -470,7 +457,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
             }
         }
     }
@@ -532,9 +519,6 @@ private fun SettingsSidebar(
         SettingsNavItem("Security", activeSection == SettingsSection.Security, compact = compact) {
             onSelectSection(SettingsSection.Security)
         }
-    }
-    SettingsNavItem("Experimental", activeSection == SettingsSection.Experimental, compact = compact) {
-        onSelectSection(SettingsSection.Experimental)
     }
     SettingsNavDivider(compact)
     SettingsNavItem(
@@ -646,7 +630,6 @@ private fun SettingsPanel(
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -668,7 +651,6 @@ private fun SettingsPanel(
             SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()
             SettingsSection.Security -> securityContent()
-            SettingsSection.Experimental -> experimentalContent()
         }
     }
 }
@@ -1266,44 +1248,6 @@ private fun MediaPanelContent(
                     "each one shows a tap-to-load placeholder so you choose what to fetch.",
                 checked = autoLoadMedia,
                 onCheckedChange = onToggleAutoLoad,
-            )
-        }
-    }
-}
-
-// ── Experimental panel content ───────────────────────────────────────────────
-
-@Composable
-private fun ExperimentalPanelContent(
-    subgroupsEnabled: Boolean,
-    onToggleSubgroups: (Boolean) -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-    ) {
-        InfoCard(
-            title = "Draft protocol features",
-            titleColor = NostrordColors.Warning,
-            icon = Icons.Default.Lightbulb,
-            content = "Features here rely on NIP drafts that haven't been accepted " +
-                "upstream yet. Behavior, event kinds, and tags may change. Use " +
-                "at your own risk.",
-            isCompact = false,
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
-        ) {
-            ExperimentalToggleRow(
-                label = "NIP-29 Subgroups (draft)",
-                description = "Show parent/child group hierarchy, create subgroups, " +
-                    "and manage attestations. When off, groups are rendered as a " +
-                    "flat list and subgroup actions are hidden.",
-                checked = subgroupsEnabled,
-                onCheckedChange = onToggleSubgroups,
             )
         }
     }
