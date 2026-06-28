@@ -12,6 +12,7 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.GroupAvatarUploadRow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierRow
@@ -118,6 +119,7 @@ val ManageGroupModal =
                             ManageTab.Info ->
                                 ManageInfoSection {
                                     this.group = group
+                                    this.relayUrl = relayUrl
                                     onClose = props.onClose
                                 }
                             ManageTab.Members -> ManageMembersSection { groupId = group.id }
@@ -144,6 +146,7 @@ val ManageGroupModal =
 
 private external interface ManageInfoProps : Props {
     var group: GroupMetadata
+    var relayUrl: String
     var onClose: () -> Unit
 }
 
@@ -159,6 +162,10 @@ private val ManageInfoSection =
         val (isHidden, setIsHidden) = useState { group.isHidden }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
+        val relayHost = props.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+        val relayIconUrl =
+            (relayMetadata[props.relayUrl] ?: relayMetadata[props.relayUrl.normalizeRelayUrl()])?.icon
 
         GroupAvatarUploadRow {
             pictureUrl = picture
@@ -178,6 +185,22 @@ private val ManageInfoSection =
             onChange = { e ->
                 setName(e.currentTarget.value)
                 setError(null)
+            }
+        }
+        if (relayHost.isNotBlank()) {
+            div {
+                className = ClassName("group-side-banner-relay manage-relay-chip")
+                WebAvatar {
+                    url = relayIconUrl
+                    seed = props.relayUrl
+                    this.name = relayHost
+                    kind = AvatarKind.RELAY
+                    cls = "group-side-banner-relay-icon"
+                }
+                span {
+                    className = ClassName("manage-relay-chip-host")
+                    +relayHost
+                }
             }
         }
         div {

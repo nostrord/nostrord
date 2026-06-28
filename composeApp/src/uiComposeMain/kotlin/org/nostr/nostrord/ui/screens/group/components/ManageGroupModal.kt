@@ -70,10 +70,12 @@ import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
+import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.utils.shortNpub
 
@@ -233,7 +235,7 @@ private fun ManageTabContent(
     onDeleted: () -> Unit,
 ) {
     when (tab) {
-        ManageTab.Info -> ManageInfoSection(groupId, currentMetadata)
+        ManageTab.Info -> ManageInfoSection(groupId, currentMetadata, relayUrl)
         ManageTab.Members -> ManageMembersSection(vm, groupId)
         ManageTab.Invites -> ManageInvitesSection(vm, groupId, relayUrl)
         ManageTab.Requests -> ManageRequestsSection(vm, groupId, isOpen = currentMetadata?.isOpen != false)
@@ -316,6 +318,7 @@ private fun ManageNavItem(
 private fun ManageInfoSection(
     groupId: String,
     currentMetadata: GroupMetadata?,
+    relayUrl: String,
 ) {
     val scope = rememberCoroutineScope()
     var name by remember(currentMetadata) { mutableStateOf(currentMetadata?.name ?: "") }
@@ -327,6 +330,9 @@ private fun ManageInfoSection(
     var isHidden by remember(currentMetadata) { mutableStateOf(currentMetadata?.isHidden == true) }
     var isSaving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+    val relayIconUrl = (relayMetadata[relayUrl] ?: relayMetadata[relayUrl.normalizeRelayUrl()])?.icon
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         GroupAvatarUploadRow(
@@ -350,6 +356,23 @@ private fun ManageInfoSection(
             placeholder = "#example",
             modifier = Modifier.fillMaxWidth(),
         )
+
+        if (relayHost.isNotBlank()) {
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                RelayHeaderIcon(
+                    relayUrl = relayUrl,
+                    iconUrl = relayIconUrl,
+                    label = relayHost,
+                    size = 14.dp,
+                    cornerRadius = 3.dp,
+                )
+                Text(relayHost, color = NostrordColors.TextSecondary, style = NostrordTypography.Caption)
+            }
+        }
 
         Spacer(modifier = Modifier.height(Spacing.lg))
 
