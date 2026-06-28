@@ -2,10 +2,15 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
@@ -182,6 +187,7 @@ class GroupViewModel(
      * withheld, not absent), and the EOSE gate prevents a still-loading group from reading as deleted.
      * Drives the "Group no longer available" panel instead of perpetual loading skeletons.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val isOrphaned: StateFlow<Boolean> =
         combine(
             repo.groups,
@@ -192,6 +198,18 @@ class GroupViewModel(
             val hasMetadata = groups.any { it.id == groupId }
             val relayDone = currentRelay.normalizeRelayUrl() in doneRelays
             relayDone && !hasMetadata && groupId !in restricted
+        }.flatMapLatest { gone ->
+            // The relay's group-list EOSE can land before this group's kind:39000, so hold the verdict
+            // for a short grace (staying in loading); flatMapLatest cancels the delay the moment
+            // metadata arrives, so a real group never flashes the panel.
+            if (gone) {
+                flow {
+                    delay(4_000)
+                    emit(true)
+                }
+            } else {
+                flowOf(false)
+            }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _isSending = MutableStateFlow(false)
