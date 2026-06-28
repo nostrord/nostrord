@@ -1242,7 +1242,7 @@ private fun MediaPanelContent(
             shape = NostrordShapes.cardShape,
             colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
-            ExperimentalToggleRow(
+            SettingsToggleRow(
                 label = "Auto-load media",
                 description = "Automatically load images and videos in chat. When off, " +
                     "each one shows a tap-to-load placeholder so you choose what to fetch.",
@@ -1254,7 +1254,7 @@ private fun MediaPanelContent(
 }
 
 @Composable
-private fun ExperimentalToggleRow(
+private fun SettingsToggleRow(
     label: String,
     description: String,
     checked: Boolean,
