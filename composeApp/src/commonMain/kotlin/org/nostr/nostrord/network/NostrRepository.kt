@@ -158,6 +158,17 @@ class NostrRepository(
     // decrypt in-process and don't care about it.
     private val dmDecryptSemaphore = Semaphore(6)
 
+    // A bunker decrypt PUBLISHES a kind:24133 request to the bunker relay. A full DM backlog (two
+    // publishes per gift wrap) bursts hundreds of events at once and trips the relay's publish rate
+    // limit ("you are noting too much"), which REJECTS them before the signer ever sees them. So the
+    // request publishes are spaced out by this gate. Crucially the gate is released BEFORE the await,
+    // not held across it: the signer answers nip44_decrypt in bursts, so we keep many requests
+    // in-flight for one burst to satisfy at once (serializing the await instead collapses throughput
+    // and every wrap hits the 90s timeout). Local / NIP-07 decrypt in-process (no publish), skip the
+    // gate, and keep the full semaphore concurrency above.
+    private val bunkerPublishGate = Mutex()
+    private val BUNKER_PUBLISH_INTERVAL_MS = 400L
+
     // Cap one wrap's decryption. The signer RPC's own timeout is 120s; an intermittently
     // unresponsive bunker would otherwise pin a decrypt permit for that long per stuck wrap. But too
     // short a cap kills decrypts the signer answers in its NEXT burst (it replies in bursts with
@@ -199,8 +210,11 @@ class NostrRepository(
     @kotlin.concurrent.Volatile
     private var dmGivenUpWrapIds: Set<String> = emptySet()
 
+    // Which DM relays have EOSEd the inbox sub this session. The full-sync latch waits for ALL
+    // subscribed DM relays, so a relay that EOSEs early with an empty/partial set can't latch
+    // "synced" before the slower relays deliver the rest of the backlog.
     @kotlin.concurrent.Volatile
-    private var dmInboxEoseSeen = false
+    private var dmInboxEosedRelays: Set<String> = emptySet()
     private var dmProcessedSaveJob: kotlinx.coroutines.Job? = null
 
     // Upper bound on how long a bunker account holds its DM gift-wrap backlog
@@ -1278,7 +1292,7 @@ class NostrRepository(
         dmInFlightWrapIds = emptySet()
         dmFailCounts = emptyMap()
         dmGivenUpWrapIds = emptySet()
-        dmInboxEoseSeen = false
+        dmInboxEosedRelays = emptySet()
 
         _myDmRelays.value = dmRelaysFor(myPub)
         fetchDmRelays(myPub)
@@ -1431,9 +1445,14 @@ class NostrRepository(
     // keeps `since = 0`, so a slow/interrupted bunker backfill resumes next session (skipping the
     // wraps already in dmProcessedWrapIds) instead of stranding the undecrypted ones.
     private fun maybeLatchDmFullSync(myPub: String) {
-        if (!dmInboxEoseSeen) return
         if (SecureStorage.getBooleanPref(dmFullSyncKey(myPub), false)) return
-        if (dmReceivedWrapIds.isNotEmpty() && !dmProcessedWrapIds.containsAll(dmReceivedWrapIds)) return
+        // Every subscribed DM relay must have EOSEd. Otherwise a fast relay that returns nothing (or
+        // a subset) latches "synced" while another relay still holds the bulk of the backlog, which
+        // freezes `since` at now so the next launch's incremental REQ excludes the older wraps and
+        // they are never re-requested (the inbox stalls partway through across restarts).
+        val subscribed = dmInboxSubscribedRelays
+        if (subscribed.isEmpty() || !dmInboxEosedRelays.containsAll(subscribed)) return
+        if (!dmProcessedWrapIds.containsAll(dmReceivedWrapIds)) return
         SecureStorage.saveDmProcessedWrapIds(myPub, dmProcessedWrapIds)
         SecureStorage.saveBooleanPref(dmFullSyncKey(myPub), true)
         SecureStorage.saveDmSyncCursor(myPub, epochSeconds())
@@ -3359,13 +3378,13 @@ class NostrRepository(
                 relayEventCounts.remove(url)
             }
             if (subId == "dm_inbox") {
-                // The relay has delivered the whole backlog, but decryption (bunker round-trips)
-                // is still draining. Record the EOSE and only latch "full sync" once every
-                // delivered wrap is actually processed (maybeLatchDmFullSync), so a slow/partial
-                // decrypt keeps `since = 0` and resumes next session instead of stranding wraps.
+                // This relay finished delivering its share of the backlog (decryption may still be
+                // draining). Record WHICH relay EOSEd so maybeLatchDmFullSync only latches "synced"
+                // once EVERY subscribed DM relay is done and every delivered wrap is processed; until
+                // then resendDmInboxReq keeps `since = 0` and resumes next session instead of stranding.
                 val myPub = sessionManager.getPublicKey()
                 if (myPub != null) {
-                    dmInboxEoseSeen = true
+                    dmInboxEosedRelays = dmInboxEosedRelays + url.normalizeRelayUrl()
                     maybeLatchDmFullSync(myPub)
                 }
             }
@@ -3469,12 +3488,12 @@ class NostrRepository(
                         if (signer is NostrSigner.Bunker) {
                             connectionManager.getPrimaryClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
                         }
-                        val handled = dmDecryptSemaphore.withPermit {
-                            // This wrap captured myPub/signer when it arrived; the AUTH grace and
-                            // semaphore queue above can take seconds (bunker round-trips), so the
-                            // active account may have switched meanwhile. A previous account's wrap
-                            // must never land in (and then get persisted under) the new account's
-                            // inbox, so drop it once the active pubkey no longer matches.
+                        // This wrap captured myPub/signer when it arrived; the AUTH grace and the gate
+                        // below can take seconds (bunker round-trips), so the active account may have
+                        // switched meanwhile. A previous account's wrap must never land in (and then get
+                        // persisted under) the new account's inbox, so drop it once the active pubkey no
+                        // longer matches.
+                        val decrypt: suspend () -> Boolean = {
                             if (sessionManager.getPublicKey() != myPub) {
                                 false
                             } else {
@@ -3483,6 +3502,15 @@ class NostrRepository(
                                 } ?: false
                             }
                         }
+                        val handled =
+                            if (signer is NostrSigner.Bunker) {
+                                // Space out the publish, then release the gate before awaiting so many
+                                // requests stay in-flight for the signer's next response burst.
+                                bunkerPublishGate.withLock { delay(BUNKER_PUBLISH_INTERVAL_MS) }
+                                decrypt()
+                            } else {
+                                dmDecryptSemaphore.withPermit { decrypt() }
+                            }
                         if (handled && wrapId != null && wrapId !in dmProcessedWrapIds) {
                             dmProcessedWrapIds = dmProcessedWrapIds + wrapId
                             dmFailCounts = dmFailCounts - wrapId
