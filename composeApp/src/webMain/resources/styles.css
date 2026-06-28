@@ -8758,14 +8758,15 @@ body {
 }
 
 /* Info tab: square group avatar preview next to the Change-photo upload button. */
-.manage-avatar-row {
+/* Avatar preview + upload control, shared by the group create and edit forms. */
+.avatar-upload-row {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 4px;
 }
 
-.manage-avatar {
+.avatar-upload {
     width: 56px;
     height: 56px;
     flex-shrink: 0;

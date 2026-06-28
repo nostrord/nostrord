@@ -12,10 +12,9 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
-import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.GroupAvatarUploadRow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierRow
-import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
@@ -161,23 +160,12 @@ private val ManageInfoSection =
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
-        div {
-            className = ClassName("manage-avatar-row")
-            WebAvatar {
-                url = picture.ifBlank { null }
-                seed = group.id
-                this.name = name.ifBlank { group.id }
-                kind = AvatarKind.GROUP
-                cls = "manage-avatar"
-            }
-            UploadButton {
-                cls = "btn-secondary"
-                icon = Ic.Upload
-                label = "Change photo"
-                imagesOnly = true
-                onUploaded = { setPicture(it.url) }
-                onError = { setError(it) }
-            }
+        GroupAvatarUploadRow {
+            pictureUrl = picture
+            seed = group.id
+            this.name = name
+            onPictureChange = { setPicture(it) }
+            onError = { setError(it) }
         }
         div {
             className = ClassName("field-label")

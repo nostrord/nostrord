@@ -36,7 +36,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.forms.AppField
-import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -192,6 +191,17 @@ fun CreateGroupModal(
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
 
+                    GroupAvatarUploadRow(
+                        pictureUrl = picture,
+                        seed = customGroupId.ifBlank { name },
+                        name = name,
+                        onPictureChange = { picture = it },
+                        onError = { errorMessage = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+
                     // Group Name
                     FieldLabel("Group Name")
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -321,16 +331,6 @@ fun CreateGroupModal(
                         singleLine = false,
                         minLines = 3,
                         maxLines = 5,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    Spacer(modifier = Modifier.height(Spacing.lg))
-
-                    UploadImageField(
-                        label = "Group Image URL",
-                        value = picture,
-                        onValueChange = { picture = it },
-                        placeholder = "https://example.com/image.jpg",
                         modifier = Modifier.fillMaxWidth(),
                     )
 

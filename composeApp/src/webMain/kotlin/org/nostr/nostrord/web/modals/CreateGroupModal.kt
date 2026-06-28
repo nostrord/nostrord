@@ -7,8 +7,8 @@ import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.GroupAvatarUploadRow
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
@@ -175,6 +175,15 @@ val CreateGroupModal =
                     }
                 }
 
+                // Group photo
+                GroupAvatarUploadRow {
+                    pictureUrl = picture
+                    seed = groupId.ifBlank { name }
+                    this.name = name
+                    onPictureChange = { setPicture(it) }
+                    onError = { setError(it) }
+                }
+
                 // Group Name
                 div {
                     className = ClassName("field-label")
@@ -266,28 +275,6 @@ val CreateGroupModal =
                     rows = 3
                     value = about
                     onChange = { event -> setAbout(event.currentTarget.value) }
-                }
-
-                // Image URL
-                div {
-                    className = ClassName("field-label")
-                    +"Group Image URL"
-                }
-                div {
-                    className = ClassName("upload-field")
-                    input {
-                        className = ClassName("modal-input flush")
-                        placeholder = "https://example.com/image.jpg"
-                        value = picture
-                        onChange = { event -> setPicture(event.currentTarget.value) }
-                    }
-                    UploadButton {
-                        cls = "upload-btn"
-                        icon = Ic.Upload
-                        imagesOnly = true
-                        onUploaded = { setPicture(it.url) }
-                        onError = { setError(it) }
-                    }
                 }
 
                 // Access settings
