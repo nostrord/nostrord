@@ -14,6 +14,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /** A group offered in the `%group` mention autocomplete (with its hosting relay). */
 data class MentionableGroup(
@@ -173,6 +174,26 @@ class GroupViewModel(
             GroupMembershipState(status, requestedAt)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupMembershipState())
 
+    /**
+     * True when this group is no longer available: the relay it lives on finished serving its group
+     * list (EOSE) but returned no kind:39000 for it, i.e. it was deleted or never existed. Broader
+     * than the kind:10009 "orphaned" notion, so it also catches a group you deleted yourself and then
+     * navigate back to (no longer pinned). Restricted/private groups are excluded (their metadata is
+     * withheld, not absent), and the EOSE gate prevents a still-loading group from reading as deleted.
+     * Drives the "Group no longer available" panel instead of perpetual loading skeletons.
+     */
+    val isOrphaned: StateFlow<Boolean> =
+        combine(
+            repo.groups,
+            repo.completeGroupLoadRelays,
+            repo.restrictedGroups,
+            repo.currentRelayUrl,
+        ) { groups, doneRelays, restricted, currentRelay ->
+            val hasMetadata = groups.any { it.id == groupId }
+            val relayDone = currentRelay.normalizeRelayUrl() in doneRelays
+            relayDone && !hasMetadata && groupId !in restricted
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
 
@@ -250,6 +271,21 @@ class GroupViewModel(
     fun deleteGroup(onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             onResult(repo.deleteGroup(groupId))
+        }
+    }
+
+    /**
+     * Drop an orphaned group from the joined list (kind:10009) without a relay event - used by the
+     * "no longer available" state. The relay is taken from the orphan map, falling back to the
+     * active relay.
+     */
+    fun forget(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            val relay =
+                repo.orphanedJoinedByRelay.value.entries.firstOrNull { groupId in it.value }?.key
+                    ?: repo.currentRelayUrl.value
+            repo.forgetGroup(groupId, relay)
+            onDone()
         }
     }
 

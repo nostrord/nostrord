@@ -536,6 +536,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     }
 
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val completeGroupLoadRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override fun setGroupFetchLazy(
         relayUrl: String,

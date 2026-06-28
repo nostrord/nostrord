@@ -62,6 +62,9 @@ interface NostrRepositoryApi {
     /** Relays (in LAZY mode) whose full group list has been fetched this session. */
     val fullGroupListFetchedRelays: StateFlow<Set<String>>
 
+    /** Relays that finished serving their group list (EOSE); gates the "group no longer available" UI. */
+    val completeGroupLoadRelays: StateFlow<Set<String>>
+
     /** Relays that returned CLOSED "restricted" — access permanently denied. */
     val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>

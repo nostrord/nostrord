@@ -42,8 +42,10 @@ import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
 import org.nostr.nostrord.storage.isMessageBlobMigratedFor
+import org.nostr.nostrord.storage.loadDroppedGroupIds
 import org.nostr.nostrord.storage.loadGroupMembershipFor
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
+import org.nostr.nostrord.storage.saveDroppedGroupIds
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupMembershipFor
@@ -128,6 +130,10 @@ class GroupManager(
             _currentRelayUrl.value = value
         }
     private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Relays that finished serving their group list (EOSE this session); gates the "group no
+     * longer available" check so a not-yet-loaded relay doesn't read as deleted. */
+    val completeGroupLoadRelays: StateFlow<Set<String>> = _completeGroupLoadRelays.asStateFlow()
 
     /**
      * Joined groups on a relay that have no corresponding `kind:39000` after the
@@ -1043,6 +1049,9 @@ class GroupManager(
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         currentPubkey = pubKey
+        // Restore the persisted dropped-group guard: a relay that missed our delete still serves the
+        // old kind:10009, and the additive merge would resurrect the group on restart without this.
+        deletedGroupIds.addAll(SecureStorage.loadDroppedGroupIds(pubKey))
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
         // Additive: a join that landed before this async restore must not be wiped
         // by the (older) persisted set.
@@ -1066,6 +1075,12 @@ class GroupManager(
                 current + updates.mapValues { (relay, groups) -> current[relay].orEmpty() + groups }
             }
         }
+    }
+
+    /** Persist [deletedGroupIds] so the dropped-group guard survives a restart (see its callers). */
+    private fun persistDroppedGroups(pubKey: String? = currentPubkey) {
+        val pk = pubKey?.takeIf { it.isNotBlank() } ?: return
+        SecureStorage.saveDroppedGroupIds(pk, deletedGroupIds.toSet())
     }
 
     /**
@@ -1119,6 +1134,7 @@ class GroupManager(
 
         return try {
             deletedGroupIds.remove(groupId)
+            persistDroppedGroups()
             recentlyLeftAt.remove(groupId)
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
@@ -1694,6 +1710,7 @@ class GroupManager(
             _groupMembers.update { it - idsToRemove }
             idsToRemove.forEach { loadingRegistry.remove(it) }
             deletedGroupIds.addAll(idsToRemove)
+            persistDroppedGroups(pubKey)
             recomputeSubgroupTopology()
 
             Result.Success(Unit)
@@ -1739,6 +1756,7 @@ class GroupManager(
         _groupMembers.update { it - idsToRemove }
         idsToRemove.forEach { loadingRegistry.remove(it) }
         deletedGroupIds.addAll(idsToRemove)
+        persistDroppedGroups(pubKey)
         recomputeSubgroupTopology()
         return false
     }
@@ -1767,6 +1785,7 @@ class GroupManager(
             } catch (_: Exception) {}
         }
         deletedGroupIds.add(groupId)
+        persistDroppedGroups(pubKey)
         return true
     }
 
@@ -3934,6 +3953,8 @@ class GroupManager(
         roleEventTimestamps.clear()
         pendingApprovalSince.clear()
         recentlyLeftAt.clear()
+        // Pubkey-scoped: the next account reloads its own set from storage in loadJoinedGroupsFromStorage.
+        deletedGroupIds.clear()
         // The mux tracker remembers what was last sent per relay. Without
         // clearing it on identity swap, refreshMuxSubscriptionsForRelay can
         // see "no change" and skip the REQ. Private-group 39002 then never
@@ -3962,6 +3983,7 @@ class GroupManager(
      */
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
+        SecureStorage.saveDroppedGroupIds(pubKey, emptySet())
         SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
         SecureStorage.clearGroupMembershipFor(pubKey)
         // Wipe the persistent history cache and let a re-added account re-seed from its blobs.

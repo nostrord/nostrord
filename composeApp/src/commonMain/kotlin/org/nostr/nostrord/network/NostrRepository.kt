@@ -2180,6 +2180,9 @@ class NostrRepository(
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> =
         groupManager.fullGroupListFetchedRelays
 
+    override val completeGroupLoadRelays: StateFlow<Set<String>> =
+        groupManager.completeGroupLoadRelays
+
     override suspend fun requestFullGroupListForRelay(relayUrl: String) {
         // Only guard against in-flight duplicates — hasFullGroupListBeenFetched is intentionally
         // NOT checked here: a stale persisted timestamp can make it return true when the current

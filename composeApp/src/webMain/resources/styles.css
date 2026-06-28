@@ -5801,6 +5801,9 @@ body {
     max-width: 360px;
     line-height: 1.5;
 }
+.chat-restricted-action {
+    margin-top: 16px;
+}
 
 .chat-loading-more {
     /* Float over the top of the chat instead of taking layout space — its

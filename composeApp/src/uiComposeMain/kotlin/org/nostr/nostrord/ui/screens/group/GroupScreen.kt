@@ -25,6 +25,7 @@ import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
 import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageTab
+import org.nostr.nostrord.ui.screens.group.components.OrphanedGroupContent
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -114,6 +115,9 @@ fun GroupScreen(
     val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val allRestrictedGroups by vm.restrictedGroups.collectAsState()
+    // Orphaned: pinned in kind:10009 but no kind:39000 from the relay (deleted / gone). Shows a
+    // "no longer available" panel instead of the perpetual loading skeletons.
+    val isOrphaned by vm.isOrphaned.collectAsState()
     val childrenByParent by vm.childrenByParent.collectAsState()
     val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
@@ -750,7 +754,9 @@ fun GroupScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val isCompact = !forceDesktop
 
-            if (isCompact) {
+            if (isOrphaned) {
+                OrphanedGroupContent(onForget = { vm.forget { onNavigateHome() } })
+            } else if (isCompact) {
                 GroupScreenMobile(
                     groupId = groupId,
                     groupName = groupName,

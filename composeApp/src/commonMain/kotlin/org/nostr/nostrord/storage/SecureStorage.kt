@@ -1121,3 +1121,33 @@ suspend fun SecureStorage.getJoinedGroups(): Set<String> = getJoinedGroupsForRel
 suspend fun SecureStorage.clearJoinedGroups() {
     clearJoinedGroupsForRelay("legacy", "legacy")
 }
+
+private fun droppedGroupsForAccountKey(pubkey: String) = "dropped_groups_${pubkeyDigest(pubkey)}"
+
+/**
+ * Group ids the user deleted or left on this device. Persisted so the additive kind:10009 merge
+ * (OutboxManager) keeps skipping them after a restart: a relay that never received the updated list
+ * still serves the old one, and without this guard the stale copy resurrects the group in the rail.
+ * Cleared (per id) on re-join.
+ */
+fun SecureStorage.saveDroppedGroupIds(
+    pubkey: String,
+    ids: Set<String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(droppedGroupsForAccountKey(pubkey), Json.encodeToString<List<String>>(ids.toList()))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadDroppedGroupIds(pubkey: String): Set<String> {
+    if (pubkey.isBlank()) return emptySet()
+    val raw = getStringPref(droppedGroupsForAccountKey(pubkey), "")
+    if (raw.isBlank()) return emptySet()
+    return try {
+        Json.decodeFromString<List<String>>(raw).toSet()
+    } catch (_: Exception) {
+        emptySet()
+    }
+}

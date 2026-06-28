@@ -258,6 +258,9 @@ private external interface ChatComposerProps : Props {
     var groupName: String
     var groupIsOpen: Boolean
     var canPost: Boolean
+
+    /** Group deleted / no longer on the relay: render no composer or join bar. */
+    var isOrphaned: Boolean
     var isPending: Boolean
     var members: List<String>
     var allGroups: List<MentionableGroup>
@@ -586,9 +589,10 @@ private val ChatComposer =
             return true
         }
 
-        if (props.membersResolving) {
-            // Member list still loading for a group we're in our list of: render neither the
-            // composer nor the pending/join bar until we know which to show (no flash on refresh).
+        if (props.membersResolving || props.isOrphaned) {
+            // Member list still loading, or the group is gone (orphaned / deleted): render neither
+            // the composer nor the pending/join bar (the message area shows the "no longer
+            // available" panel instead).
         } else if (!props.canPost) {
             // Not a member — prompt to join (or show pending) instead of the composer.
             div {
@@ -1111,6 +1115,10 @@ val ChatScreen =
         // account has no read access (NIP-29 private+closed group).
         val restrictedGroups = useStateFlow(vm.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
+        // Orphaned: pinned in kind:10009 but the relay served no kind:39000 after its group list
+        // finished, i.e. the group was deleted / no longer exists. Drives the "no longer available"
+        // panel instead of perpetual loading skeletons.
+        val isOrphaned = useStateFlow(vm.isOrphaned)
         // Pending join-request count (admin only) drives the header badge. Shares the Manage >
         // Requests logic (pendingJoinRequests) so the badge and the list never disagree: a member
         // removed by an admin (kind 9001) must not resurface as pending. Open groups count too:
@@ -1739,7 +1747,7 @@ val ChatScreen =
                             icon(Ic.People)
                         }
                     }
-                    if (!canPost && !membersResolving) {
+                    if (!canPost && !membersResolving && !isOrphaned) {
                         if (composerPending) {
                             span {
                                 className = ClassName("chat-pending")
@@ -1913,7 +1921,28 @@ val ChatScreen =
                     // arrive late); if the panel could win with messages present, that
                     // flip would unmount and remount ChatMessageList, and each remount
                     // snapped the feed to the bottom (the pagination "jump to bottom").
-                    if (messages.isEmpty() && (isGroupRestricted || isPendingApproval)) {
+                    // Not gated on messages.isEmpty(): a deleted group can still have leftover
+                    // moderation events (e.g. the kind:9002 that named it) that the relay keeps
+                    // serving, and isOrphaned already means "no kind:39000", so it can't hide a live group.
+                    if (isOrphaned) {
+                        div {
+                            className = ClassName("chat-restricted")
+                            icon(Ic.Block, "chat-restricted-icon")
+                            div {
+                                className = ClassName("chat-restricted-title")
+                                +"Group no longer available"
+                            }
+                            div {
+                                className = ClassName("chat-restricted-body")
+                                +"This group has been deleted or is no longer on the relay."
+                            }
+                            button {
+                                className = ClassName("btn-secondary chat-restricted-action")
+                                onClick = { vm.forget { props.onLeave() } }
+                                +"Remove from your list"
+                            }
+                        }
+                    } else if (messages.isEmpty() && (isGroupRestricted || isPendingApproval)) {
                         div {
                             className = ClassName("chat-restricted")
                             icon(Ic.Lock, "chat-restricted-icon")
@@ -2134,6 +2163,7 @@ val ChatScreen =
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
                     this.canPost = canPost
+                    this.isOrphaned = isOrphaned
                     this.isPending = composerPending
                     this.mentionRequest = mentionRequest
                     this.members = members
