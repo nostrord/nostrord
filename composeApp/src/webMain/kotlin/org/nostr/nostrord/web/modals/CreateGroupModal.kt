@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.isValidRelayUrl
@@ -60,20 +61,21 @@ val CreateGroupModal =
             (kind10009.toList() + groupTagRelays.toList() + currentRelayUrl)
                 .filter { it.isNotBlank() }
                 .distinct()
+        // With no relays yet, offer a known NIP-29 group relay so the user can create without
+        // typing one; "Custom relay…" stays available.
+        val relayOptions = relayList.ifEmpty { RelayListManager.SUGGESTED_GROUP_RELAYS }
 
         val (name, setName) = useState { "" }
         val (groupId, setGroupId) = useState { "" }
         // The Group ID is an advanced option (the relay assigns a random one); reveal its field
         // only when the user opts in, so the common case stays uncluttered.
         val (showCustomId, setShowCustomId) = useState { false }
-        val (selectedRelay, setSelectedRelay) = useState { props.relayUrl ?: currentRelayUrl }
-        // Custom relay: picking "Custom relay…" in the select reveals a text input so a
-        // group can be created on any relay, not just the known ones. With no known relays the
-        // only option IS "Custom relay…", so force custom there: otherwise the empty `selectedRelay`
-        // matches no <option>, the browser shows the first one ("Custom relay…") while state stays
-        // blank, and the input never appears.
+        val (selectedRelay, setSelectedRelay) =
+            useState { props.relayUrl ?: currentRelayUrl.ifBlank { relayOptions.first() } }
+        // Custom relay: picking "Custom relay…" in the select reveals a text input so a group can be
+        // created on any relay, not just the listed ones.
         val (customRelay, setCustomRelay) = useState { "" }
-        val usingCustom = selectedRelay == CUSTOM_RELAY || relayList.isEmpty()
+        val usingCustom = selectedRelay == CUSTOM_RELAY
         val effectiveRelay = if (usingCustom) customRelay.trim().toRelayUrl() else selectedRelay
         val (about, setAbout) = useState { "" }
         val (picture, setPicture) = useState { "" }
@@ -237,11 +239,9 @@ val CreateGroupModal =
                 }
                 select {
                     className = ClassName("modal-select")
-                    // Bind to usingCustom so the control matches state when custom is forced (no
-                    // known relays); a bare `selectedRelay` would leave the value matching no option.
                     value = if (usingCustom) CUSTOM_RELAY else selectedRelay
                     onChange = { event -> setSelectedRelay(event.currentTarget.value) }
-                    relayList.forEach { relay ->
+                    relayOptions.forEach { relay ->
                         option {
                             value = relay
                             +relay.removePrefix("wss://")

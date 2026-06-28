@@ -35,6 +35,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -86,16 +87,18 @@ fun CreateGroupModal(
                 list.remove(currentRelayUrl)
                 list.add(0, currentRelayUrl)
             }
-            list.filter { it.isNotBlank() }.distinct()
+            // With no relays yet, offer a known NIP-29 group relay so the user can create without
+            // typing one; "Custom relay…" stays available.
+            list.filter { it.isNotBlank() }.distinct().ifEmpty { RelayListManager.SUGGESTED_GROUP_RELAYS }
         }
-    var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
+    var selectedRelay by remember(currentRelayUrl) {
+        mutableStateOf(currentRelayUrl.ifBlank { RelayListManager.SUGGESTED_GROUP_RELAYS.first() })
+    }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
-    // Custom relay: picking "Custom relay…" reveals a text field so a group can be
-    // created on any relay, not just the known ones. With no known relays the only choice IS
-    // custom, so force it on: the selector then shows "Custom relay…" and reveals the input
-    // instead of an empty anchor with nowhere to type.
+    // Custom relay: picking "Custom relay…" reveals a text field so a group can be created on any
+    // relay, not just the listed ones.
     var customRelay by remember { mutableStateOf("") }
-    val usingCustomRelay = selectedRelay == CUSTOM_RELAY || relayOptions.isEmpty()
+    val usingCustomRelay = selectedRelay == CUSTOM_RELAY
     val effectiveRelay = if (usingCustomRelay) customRelay.trim().toRelayUrl() else selectedRelay
 
     val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
