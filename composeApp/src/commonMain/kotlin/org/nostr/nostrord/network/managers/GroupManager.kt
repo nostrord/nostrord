@@ -1235,7 +1235,8 @@ class GroupManager(
             publishJoinedGroups()
 
             clearGroupRestricted(groupId)
-            _pendingApprovalSince.update { it + (groupId to epochMillis()) }
+            // Seconds, to match GroupMembershipState.requestedAtSeconds (the "Requested ..." label).
+            _pendingApprovalSince.update { it + (groupId to epochSeconds()) }
             refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             kotlinx.coroutines.delay(500)
