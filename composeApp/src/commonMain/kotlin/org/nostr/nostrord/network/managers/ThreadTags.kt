@@ -21,10 +21,11 @@ internal object ThreadTags {
     }
 
     /**
-     * Tags for a kind:1111 reply. Uppercase E/K/P carry the root scope, kept identical across the
-     * whole thread so nested replies stay attached to the original kind:11 root; lowercase e/k/p
-     * point at the immediate [parent] (which equals [root] for a top-level reply). Plus the group
-     * `h` (and `-` for `_`) tags so the relay scopes it to the group.
+     * Tags for a kind:1111 reply. Uppercase E/K/P carry the root scope (every reply has them, so
+     * readers thread by `E`); the group `h` (and `-` for `_`) tag scopes it. The lowercase parent
+     * triple e/k/p is added ONLY for a nested reply (parent != root): for a top-level reply the
+     * parent IS the root, so e/k/p would just duplicate E/K/P and inflate the indexable-tag count,
+     * which some NIP-29 relays reject ("blocked: too many indexable tags").
      */
     fun reply(
         groupId: String,
@@ -38,8 +39,10 @@ internal object ThreadTags {
         add(listOf("E", root.id, hint, root.pubkey))
         add(listOf("K", root.kind.toString()))
         add(listOf("P", root.pubkey))
-        add(listOf("e", parent.id, hint, parent.pubkey))
-        add(listOf("k", parent.kind.toString()))
-        add(listOf("p", parent.pubkey))
+        if (parent.id != root.id) {
+            add(listOf("e", parent.id, hint, parent.pubkey))
+            add(listOf("k", parent.kind.toString()))
+            add(listOf("p", parent.pubkey))
+        }
     }
 }

@@ -930,7 +930,9 @@ class NostrGroupClient(
                 buildJsonObject {
                     putJsonArray("kinds") { add(1111) } // NIP-22 comment = thread reply
                     put("#h", buildJsonArray { add(groupId) })
-                    put("#k", buildJsonArray { add("11") }) // replies whose root scope is a kind:11 thread
+                    // Match by the uppercase root-scope kind (K), present on every reply; the
+                    // lowercase k (parent) is omitted on top-level replies to save indexable tags.
+                    put("#K", buildJsonArray { add("11") })
                     if (rootId != null) put("#E", buildJsonArray { add(rootId) })
                     if (until != null) put("until", until)
                     put("limit", limit)

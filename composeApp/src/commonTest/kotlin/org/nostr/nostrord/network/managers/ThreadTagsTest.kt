@@ -36,10 +36,13 @@ class ThreadTagsTest {
         assertEquals(listOf("E", "rootid", "wss://r", "rootpk"), tags.first { it[0] == "E" })
         assertEquals(listOf("K", "11"), tags.first { it[0] == "K" })
         assertEquals(listOf("P", "rootpk"), tags.first { it[0] == "P" })
-        // Immediate parent (lowercase) equals the root for a top-level reply.
-        assertEquals(listOf("e", "rootid", "wss://r", "rootpk"), tags.first { it[0] == "e" })
-        assertEquals(listOf("k", "11"), tags.first { it[0] == "k" })
-        assertEquals(listOf("p", "rootpk"), tags.first { it[0] == "p" })
+        // A top-level reply (parent == root) omits the lowercase parent triple - it would only
+        // duplicate E/K/P and inflate the indexable-tag count that strict relays reject. So just
+        // h + E/K/P = 4 tags.
+        assertEquals(4, tags.size)
+        assertEquals(0, tags.count { it[0] == "e" })
+        assertEquals(0, tags.count { it[0] == "k" })
+        assertEquals(0, tags.count { it[0] == "p" })
     }
 
     @Test
