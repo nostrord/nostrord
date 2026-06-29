@@ -4,6 +4,7 @@ import kotlinx.browser.window
 import org.nostr.nostrord.AppViewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.notifications.installPlatformFocusListeners
+import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.theme.paletteForTheme
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -116,8 +117,19 @@ val WebApp =
         // True while we don't yet know whether the active account has groups (its list hasn't
         // resolved): show the loading screen instead of guessing Home vs onboarding.
         val onboardingPending = useStateFlow(vm.onboardingDecisionPending)
+        // A group deep-link (#/g/…) is an explicit intent to open that group, so it must win over
+        // the AUTOMATIC onboarding wizard: an account whose kind:10009 is empty (brand new, or it
+        // just left its only group) that opens a group invite link should land on the group's
+        // join/locked view, not on "Welcome to Nostrord". The sidebar's explicit onboardingRequested
+        // still overrides. Read at render: the needsOnboarding/onboardingPending StateFlows already
+        // re-render the moment the onboarding decision resolves, when the deep-link hash is present.
+        val onGroupDeepLink = currentHashRoute() is GroupRoute
         val showingOnboarding =
-            loggedIn && (onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped))
+            loggedIn &&
+                (
+                    onboardingRequested ||
+                        ((needsOnboarding || stayInOnboarding) && !onboardingSkipped && !onGroupDeepLink)
+                    )
 
         // Hash-route mirror: #/login, #/onboarding, Home at the root. A page hash
         // (#/g/…, #/u/…) is AppFrame's territory: entering logged-in with one (deep

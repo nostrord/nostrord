@@ -93,6 +93,9 @@ val AppFrame =
         val activeId = useStateFlow(AppModule.accountStore.activeId)
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        // Groups the relay CLOSED with restricted/auth-required: we are outside a private group and
+        // cannot read its kind:39000, so the placeholder below must not claim it is public/open.
+        val restrictedGroups = useStateFlow(repo.restrictedGroups)
         val (hub, setHub) = useState { 0 }
         val (friendQuery, setFriendQuery) = useState { "" }
         val (menuOpen, setMenuOpen) = useState { false }
@@ -201,13 +204,19 @@ val AppFrame =
                     lastGroupRef.current = real
                     real
                 } else {
+                    // No real kind:39000 yet. If the relay restricted this group we are a non-member
+                    // of a private group, so default to private + closed (shows "Private"/"Closed"
+                    // and the invite-code affordance) instead of the misleading public/open. A plain
+                    // unknown group (metadata still loading on a public relay) keeps the permissive
+                    // public/open default.
+                    val restricted = r.groupId in restrictedGroups
                     lastGroupRef.current ?: GroupMetadata(
                         id = r.groupId,
                         name = null,
                         about = null,
                         picture = null,
-                        isPublic = true,
-                        isOpen = true,
+                        isPublic = !restricted,
+                        isOpen = !restricted,
                     )
                 }
             }
