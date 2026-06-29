@@ -2073,11 +2073,24 @@ class GroupManager(
                         content = reason.orEmpty(),
                     )
                     val signedEvent = signEvent(event)
+                    val eventId = signedEvent.id
                     val message = buildJsonArray {
                         add("EVENT")
                         add(signedEvent.toJsonObject())
                     }.toString()
-                    currentClient.send(message)
+                    // Private/closed relays gate the leave-request behind NIP-42 AUTH. Firing the
+                    // 9022 on an unauthenticated socket gets it dropped "auth-required", so the relay
+                    // never removes the user and re-fetched members keep listing them (the group looks
+                    // joined again on reopen). Wait for AUTH like the join path, then await the OK.
+                    // Still best-effort: a dead relay / rejection falls through to the local cleanup.
+                    if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+                        currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+                    }
+                    if (eventId != null) {
+                        currentClient.sendAndAwaitOk(message, eventId)
+                    } else {
+                        currentClient.send(message)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
