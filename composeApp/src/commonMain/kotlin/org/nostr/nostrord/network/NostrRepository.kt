@@ -338,6 +338,8 @@ class NostrRepository(
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = groupManager.groupsByRelay
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
     override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = groupManager.messageStatus
+    override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadRoots
+    override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadReplies
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
@@ -2642,6 +2644,40 @@ class NostrRepository(
     override fun retrySend(eventId: String) = groupManager.retrySend(eventId)
 
     override fun dismissFailed(groupId: String, eventId: String) = groupManager.dismissFailed(groupId, eventId)
+
+    override suspend fun requestGroupThreads(groupId: String): Boolean = groupManager.requestGroupThreads(groupId)
+
+    override fun closeThreadSubscriptions(groupId: String) = groupManager.closeThreadSubscriptions(groupId)
+
+    override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.createThread(
+            groupId = groupId,
+            title = title,
+            content = content,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
+
+    override suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.sendThreadReply(
+            groupId = groupId,
+            root = root,
+            parent = parent,
+            content = content,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
 
     override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()

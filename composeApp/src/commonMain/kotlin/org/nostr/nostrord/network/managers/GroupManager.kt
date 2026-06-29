@@ -357,6 +357,15 @@ class GroupManager(
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 
+    // Forum threads live in their own stores, keyed by group id, so kind:11 roots and their
+    // NIP-22 kind:1111 replies never enter the chat timeline (_messages) or its pagination.
+    // Replies are kept per-group and grouped by their root `E` tag in the ViewModel.
+    private val _threadRoots = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadRoots.asStateFlow()
+
+    private val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies.asStateFlow()
+
     /**
      * Delivery status of the local user's own messages (optimistic send).
      * Sending = the message is on screen and awaiting relay confirmation (or
@@ -631,6 +640,13 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+
+        // Forum threads: page size for kind:11 roots and the cap on the batched kind:1111
+        // reply feed used to derive per-thread counts/previews on the list. A group with more
+        // than THREAD_REPLY_BATCH replies across all threads would under-count on the list (the
+        // detail view still filters whatever is loaded); fine for an MVP, revisit if it bites.
+        const val THREAD_PAGE_SIZE = 50
+        const val THREAD_REPLY_BATCH = 500
 
         // Cap the disk-first cache read so a hung IndexedDB cursor on web can never dead-lock
         // pagination — fall through to the relay if the cache does not answer in time.
@@ -2769,6 +2785,141 @@ class GroupManager(
         messageIdIndex[groupId]?.remove(eventId)
     }
 
+    // ---- Forum threads (NIP-29 kind:11 root + NIP-22 kind:1111 replies) ----
+
+    private fun threadRootsSubId(groupId: String) = "threads_$groupId"
+
+    private fun threadRepliesSubId(groupId: String) = "threadrepl_$groupId"
+
+    /** Route a parsed thread event into its store (kind:11 roots, kind:1111 replies), deduped. */
+    private fun applyThreadEvent(groupId: String, message: NostrGroupClient.NostrMessage) {
+        val store = if (message.kind == 11) _threadRoots else _threadReplies
+        store.update { current ->
+            val list = current[groupId] ?: emptyList()
+            if (list.any { it.id == message.id }) return@update current
+            current + (groupId to (list + message).sortedBy { it.createdAt })
+        }
+    }
+
+    /**
+     * Open the threads pane for a group: subscribe to kind:11 roots plus the batched kind:1111
+     * reply feed (for per-thread counts/previews). Both subscriptions stay open for live updates
+     * until [closeThreadSubscriptions]. Waits for AUTH on a private group, like the chat read.
+     */
+    suspend fun requestGroupThreads(groupId: String): Boolean {
+        val client = clientForGroup(groupId) ?: return false
+        if (client.requiresAuth() && !client.hasAuthSucceeded()) {
+            client.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+        }
+        return try {
+            client.requestGroupThreadRoots(
+                groupId,
+                limit = THREAD_PAGE_SIZE,
+                subscriptionId = threadRootsSubId(groupId),
+            )
+            client.requestThreadReplies(
+                groupId,
+                rootId = null,
+                limit = THREAD_REPLY_BATCH,
+                subscriptionId = threadRepliesSubId(groupId),
+            )
+            true
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget on
+     * the manager scope so a ViewModel can call it from onCleared without a live caller scope.
+     */
+    fun closeThreadSubscriptions(groupId: String) {
+        scope.launch {
+            val client = clientForGroup(groupId) ?: return@launch
+            runCatching {
+                client.closeSubscription(threadRootsSubId(groupId))
+                client.closeSubscription(threadRepliesSubId(groupId))
+            }
+        }
+    }
+
+    /**
+     * Create a forum thread (kind:11 root). Optimistically inserts into the thread store and
+     * publishes on the manager scope so a pane switch does not cancel the send; the relay echo
+     * is deduped by id. [title] becomes a NIP-14 `subject` tag (omitted when blank).
+     */
+    suspend fun createThread(
+        groupId: String,
+        title: String,
+        content: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> = try {
+        val tags = ThreadTags.root(groupId, getRelayForGroup(groupId), title)
+        publishThreadEvent(groupId, kind = 11, content = content, tags = tags, pubKey = pubKey, signEvent = signEvent)
+    } catch (e: Throwable) {
+        Result.Error(AppError.Group.SendFailed(groupId, e))
+    }
+
+    /**
+     * Publish a NIP-22 reply (kind:1111) to a thread. [root] is always the kind:11 thread root;
+     * [parent] is the item being replied to (the root for a top-level reply, or another reply
+     * for a nested one). Uppercase E/K/P carry the root scope (kept identical across the whole
+     * thread so nested replies stay attached to the original root); lowercase e/k/p the parent.
+     */
+    suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> = try {
+        val tags = ThreadTags.reply(groupId, getRelayForGroup(groupId), root, parent)
+        publishThreadEvent(groupId, kind = 1111, content = content, tags = tags, pubKey = pubKey, signEvent = signEvent)
+    } catch (e: Throwable) {
+        Result.Error(AppError.Group.SendFailed(groupId, e))
+    }
+
+    /** Shared sign + optimistic-insert + deliver pipeline for thread events (kind 11 / 1111). */
+    private suspend fun publishThreadEvent(
+        groupId: String,
+        kind: Int,
+        content: String,
+        tags: List<List<String>>,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> {
+        val event = Event(
+            pubkey = pubKey,
+            createdAt = epochMillis() / 1000,
+            kind = kind,
+            tags = tags,
+            content = content,
+        )
+        val signed = signEvent(event)
+        val eventId = signed.id
+            ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+        val eventJson = buildJsonArray {
+            add("EVENT")
+            add(signed.toJsonObject())
+        }.toString()
+        applyThreadEvent(
+            groupId,
+            NostrGroupClient.NostrMessage(
+                id = eventId,
+                pubkey = signed.pubkey,
+                content = signed.content,
+                createdAt = signed.createdAt,
+                kind = signed.kind,
+                tags = signed.tags,
+            ),
+        )
+        _messageStatus.update { it + (eventId to MessageStatus.Sending) }
+        scope.launch { deliverMessage(groupId, eventJson, eventId) }
+        return Result.Success(Unit)
+    }
+
     /**
      * Send a reaction to a message (NIP-25: kind 7 reaction event).
      * Uses optimistic update: shows the reaction immediately, rolls back on rejection.
@@ -3463,6 +3614,11 @@ class GroupManager(
         9005, // Group admin: delete event (NIP-29 moderation)
     )
 
+    // Forum threads: kind:11 root + NIP-22 kind:1111 replies. Deliberately NOT in
+    // validMessageKinds — handleMessage routes them to the thread stores (applyThreadEvent)
+    // before the chat-only bookkeeping, so they never touch _messages or the chat cursor.
+    private val threadKinds = setOf(11, 1111)
+
     /**
      * Handle incoming message.
      * Returns the pubkey of the message sender if metadata should be fetched.
@@ -3481,6 +3637,18 @@ class GroupManager(
             }
             handleDeletion(message, rawMsg)
             return null
+        }
+
+        // Forum threads (kind:11) and their NIP-22 replies (kind:1111) go to a separate store,
+        // ahead of the chat-only bookkeeping below (live cursor, member changes, ordering
+        // buffer). Returning the author pubkey still backfills their profile metadata.
+        if (message.kind in threadKinds) {
+            if (message.id.isBlank()) return null
+            if (!eventDeduplicator.tryAddSync(message.id)) return null
+            val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
+            if (isRecentlyLeft(groupId)) return null
+            applyThreadEvent(groupId, message)
+            return message.pubkey
         }
 
         // Only process valid message kinds
@@ -4027,6 +4195,8 @@ class GroupManager(
         // (not in clearForRelaySwitch) because relay switch must preserve the
         // user's message history for the active account.
         _messages.value = emptyMap()
+        _threadRoots.value = emptyMap()
+        _threadReplies.value = emptyMap()
         groupMessageRecency.clear()
         _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()

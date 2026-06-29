@@ -91,6 +91,10 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages
     val _messageStatus = MutableStateFlow<Map<String, GroupManager.MessageStatus>>(emptyMap())
     override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = _messageStatus
+    val _threadRoots = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadRoots
+    val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies
     val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
@@ -245,6 +249,30 @@ class FakeNostrRepository : NostrRepositoryApi {
         groupId: String,
         inviteCode: String?,
     ): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun requestGroupThreads(groupId: String): Boolean {
+        calls += "requestGroupThreads:$groupId"
+        return true
+    }
+
+    override fun closeThreadSubscriptions(groupId: String) {
+        calls += "closeThreadSubscriptions:$groupId"
+    }
+
+    override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {
+        calls += "createThread:$groupId:$title"
+        return Result.Success(Unit)
+    }
+
+    override suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit> {
+        calls += "sendThreadReply:$groupId:${root.id}:${parent.id}"
+        return Result.Success(Unit)
+    }
 
     override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean {
         if (groupId in (_joinedGroupsByRelay.value[relayUrl] ?: emptySet())) return false

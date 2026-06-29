@@ -32,7 +32,18 @@ data class GroupRoute(
     // loads. Set when opening from a notification or a shared message link; cleared from
     // the hash after the scroll so a refresh/back-forward replay doesn't re-jump.
     val messageId: String? = null,
+    // Which pane of the group page is showing. Chat is the default live chat; Threads swaps
+    // the centre pane for the forum-style threads list (or a single thread when
+    // [threadRootId] is set). Carried in the hash as a `/threads` path suffix so a refresh or
+    // a shared link reopens the same pane. The rail and group sidebar stay mounted either way.
+    val view: GroupView = GroupView.Chat,
+    // The open thread root (kind:11 event id) when [view] is Threads; null shows the list.
+    // Appended as a fourth path segment: #/g/<relay>/<id>/threads/<rootId>.
+    val threadRootId: String? = null,
 ) : HashRoute
+
+/** Which pane of a [GroupRoute] is showing: the live chat (default) or the threads pane. */
+enum class GroupView { Chat, Threads }
 
 /**
  * Route for a relay page (#/r/<relay>): the relay's NIP-11 header plus the groups on it
@@ -184,23 +195,52 @@ fun GroupRoute.toHash(): String {
     // ws:// relay doesn't leak its scheme into the segment.
     val relay = encodeSegment(relayUrl.removePrefix("wss://").removePrefix("ws://"))
     val id = encodeSegment(groupId)
+    val threadsPath =
+        if (view == GroupView.Threads) {
+            "/threads" + (threadRootId?.let { "/${encodeSegment(it)}" } ?: "")
+        } else {
+            ""
+        }
     val params =
         buildList {
             inviteCode?.let { add("invite=${encodeSegment(it)}") }
             messageId?.let { add("e=${encodeSegment(it)}") }
         }
     val query = if (params.isEmpty()) "" else "?" + params.joinToString("&")
-    return "$GROUP_HASH_PREFIX$relay/$id$query"
+    return "$GROUP_HASH_PREFIX$relay/$id$threadsPath$query"
 }
 
-/** Parses a `#/g/<relay>/<groupId>[?invite=…]` hash; null for any other hash. */
+/**
+ * Parses a `#/g/<relay>/<groupId>` hash, optionally with a `/threads` (list) or
+ * `/threads/<rootId>` (single thread) suffix and an `?invite=`/`?e=` query; null otherwise.
+ */
 fun parseGroupHash(hash: String): GroupRoute? {
     if (!hash.startsWith(GROUP_HASH_PREFIX)) return null
     val rest = hash.removePrefix(GROUP_HASH_PREFIX)
     val path = rest.substringBefore('?')
     val query = rest.substringAfter('?', "")
     val parts = path.split('/')
-    if (parts.size != 2 || parts.any { it.isEmpty() }) return null
+    // <relay>/<id> for chat, plus an optional /threads[/<rootId>] pane suffix.
+    if (parts.size < 2 || parts.size > 4) return null
+    if (parts[0].isEmpty() || parts[1].isEmpty()) return null
+    val view: GroupView
+    val threadRootId: String?
+    when (parts.size) {
+        2 -> {
+            view = GroupView.Chat
+            threadRootId = null
+        }
+        3 -> {
+            if (parts[2] != "threads") return null
+            view = GroupView.Threads
+            threadRootId = null
+        }
+        else -> {
+            if (parts[2] != "threads" || parts[3].isEmpty()) return null
+            view = GroupView.Threads
+            threadRootId = decodeSegment(parts[3])
+        }
+    }
     val params = query.split('&')
     fun param(key: String) = params
         .firstOrNull { it.startsWith("$key=") }
@@ -215,6 +255,8 @@ fun parseGroupHash(hash: String): GroupRoute? {
         groupId = decodeSegment(parts[1]),
         inviteCode = param("invite"),
         messageId = param("e"),
+        view = view,
+        threadRootId = threadRootId,
     )
 }
 

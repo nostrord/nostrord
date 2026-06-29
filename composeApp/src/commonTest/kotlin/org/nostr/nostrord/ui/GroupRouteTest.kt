@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui
 
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.navigation.parseDmHash
@@ -73,6 +74,35 @@ class GroupRouteTest {
         assertNull(parseGroupHash("#/login"))
         assertNull(parseGroupHash("#/g/only-one-segment"))
         assertNull(parseGroupHash("#/g//empty"))
+    }
+
+    @Test
+    fun `round-trips the threads list pane`() {
+        val route = GroupRoute("wss://groups.0xchat.com", "chachi", view = GroupView.Threads)
+        assertEquals("#/g/groups.0xchat.com/chachi/threads", route.toHash())
+        assertEquals(route, parseGroupHash(route.toHash()))
+        assertEquals(route, parseHashRoute(route.toHash()))
+    }
+
+    @Test
+    fun `round-trips an open thread`() {
+        val rootId = "16ca49adc1425d11b58c00f66ff27a5d"
+        val route =
+            GroupRoute(
+                "wss://groups.0xchat.com",
+                "chachi",
+                view = GroupView.Threads,
+                threadRootId = rootId,
+            )
+        assertEquals("#/g/groups.0xchat.com/chachi/threads/$rootId", route.toHash())
+        assertEquals(route, parseGroupHash(route.toHash()))
+    }
+
+    @Test
+    fun `rejects an unknown group sub-route`() {
+        assertNull(parseGroupHash("#/g/groups.0xchat.com/chachi/pinned"))
+        assertNull(parseGroupHash("#/g/groups.0xchat.com/chachi/threads/"))
+        assertNull(parseGroupHash("#/g/groups.0xchat.com/chachi/threads/x/y"))
     }
 
     @Test

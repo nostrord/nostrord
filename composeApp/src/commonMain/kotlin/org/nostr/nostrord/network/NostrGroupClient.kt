@@ -871,6 +871,86 @@ class NostrGroupClient(
         return subId
     }
 
+    /**
+     * Subscribe to a group's forum thread roots (kind:11). The subscription stays open after EOSE
+     * so new threads stream in live; the caller CLOSEs it on leaving the threads pane. Sends
+     * CLOSE before REQ so re-entry with the same id is idempotent.
+     */
+    suspend fun requestGroupThreadRoots(
+        groupId: String,
+        until: Long? = null,
+        limit: Int = 50,
+        subscriptionId: String,
+    ): String {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+        val req = buildJsonArray {
+            add("REQ")
+            add(subscriptionId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(11) } // NIP-29 forum thread root
+                    put("#h", buildJsonArray { add(groupId) })
+                    if (until != null) put("until", until)
+                    put("limit", limit)
+                },
+            )
+        }.toString()
+        send(req)
+        return subscriptionId
+    }
+
+    /**
+     * Subscribe to NIP-22 replies (kind:1111) for a group's threads. With [rootId] null this is
+     * the batched group-wide reply feed used to derive per-thread counts and previews; with a
+     * [rootId] it focuses a single thread (#E = root). Stays open after EOSE for live updates;
+     * sends CLOSE before REQ for idempotency.
+     */
+    suspend fun requestThreadReplies(
+        groupId: String,
+        rootId: String? = null,
+        until: Long? = null,
+        limit: Int = 500,
+        subscriptionId: String,
+    ): String {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+        val req = buildJsonArray {
+            add("REQ")
+            add(subscriptionId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(1111) } // NIP-22 comment = thread reply
+                    put("#h", buildJsonArray { add(groupId) })
+                    put("#k", buildJsonArray { add("11") }) // replies whose root scope is a kind:11 thread
+                    if (rootId != null) put("#E", buildJsonArray { add(rootId) })
+                    if (until != null) put("until", until)
+                    put("limit", limit)
+                },
+            )
+        }.toString()
+        send(req)
+        return subscriptionId
+    }
+
+    /** CLOSE a subscription by id (no-op on the relay if it is not open). */
+    suspend fun closeSubscription(subscriptionId: String) {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+    }
+
 /**
      * Fetch reactions (kind 7) for specific message IDs.
      * Chachi-style approach: after loading messages, request reactions by event ID

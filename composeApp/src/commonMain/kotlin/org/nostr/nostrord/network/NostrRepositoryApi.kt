@@ -55,6 +55,13 @@ interface NostrRepositoryApi {
 
     /** Per-message delivery status for the local user's own messages (optimistic send). */
     val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>>
+
+    // --- Forum threads (NIP-29 kind:11 root + NIP-22 kind:1111 replies) ---
+    /** Thread roots (kind:11) per group; the threads-pane list source. */
+    val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+
+    /** Thread replies (kind:1111) per group; grouped by their root `E` tag in the ViewModel. */
+    val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
@@ -481,6 +488,26 @@ interface NostrRepositoryApi {
 
     /** Drop a failed own message from the chat. */
     fun dismissFailed(groupId: String, eventId: String)
+
+    /** Open the threads-pane subscriptions for a group (kind:11 roots + batched kind:1111 replies). */
+    suspend fun requestGroupThreads(groupId: String): Boolean
+
+    /** CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget. */
+    fun closeThreadSubscriptions(groupId: String)
+
+    /** Create a forum thread (kind:11 root). [title] becomes a NIP-14 subject tag when non-blank. */
+    suspend fun createThread(groupId: String, title: String, content: String): Result<Unit>
+
+    /**
+     * Publish a NIP-22 reply (kind:1111). [root] is the kind:11 thread root; [parent] is the item
+     * being replied to (pass [root] itself for a top-level reply).
+     */
+    suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit>
 
     suspend fun addUser(
         groupId: String,
