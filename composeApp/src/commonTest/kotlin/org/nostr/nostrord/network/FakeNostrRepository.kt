@@ -485,6 +485,7 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = MutableStateFlow(emptyMap())
     override val restrictedGroups: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
+    override val leftGroups: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override suspend fun sendReaction(
         groupId: String,

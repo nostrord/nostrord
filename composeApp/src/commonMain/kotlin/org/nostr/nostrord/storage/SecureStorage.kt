@@ -748,6 +748,90 @@ fun SecureStorage.removeRestrictedGroupForRelay(
     }
 }
 
+// ── Left-groups persistence ─────────────────────────────────────────────────
+// Durable per-account/per-relay record of groups the user EXPLICITLY left (sent a
+// kind:9022). Survives restart so the membership derivation can report NONE even when
+// the relay still lists us in its kind:39002 (some relays keep a member listed after a
+// leave). Entries auto-expire after LEFT_GROUPS_TTL_S so a long-abandoned marker can't
+// keep a group out forever; a rejoin clears it immediately.
+private const val LEFT_GROUPS_TTL_S = 30 * 24 * 3600L
+
+private fun leftGroupsKey(
+    pubkey: String,
+    relayUrl: String,
+): String = "left_groups_${pubkeyDigest(pubkey)}_${relayUrl.hashCode()}"
+
+fun SecureStorage.getLeftGroupsForRelay(
+    pubkey: String,
+    relayUrl: String,
+    nowSeconds: Long,
+): Map<String, Long> {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return emptyMap()
+    val parsed: Map<String, Long> =
+        try {
+            Json.decodeFromString(raw)
+        } catch (_: Exception) {
+            return emptyMap()
+        }
+    val fresh = parsed.filterValues { nowSeconds - it < LEFT_GROUPS_TTL_S }
+    if (fresh.size != parsed.size) {
+        try {
+            saveStringPref(key, Json.encodeToString(fresh))
+        } catch (_: Exception) {
+        }
+    }
+    return fresh
+}
+
+fun SecureStorage.addLeftGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+    nowSeconds: Long,
+) {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    val current: MutableMap<String, Long> =
+        if (raw.isBlank()) {
+            mutableMapOf()
+        } else {
+            try {
+                Json.decodeFromString<Map<String, Long>>(raw).toMutableMap()
+            } catch (_: Exception) {
+                mutableMapOf()
+            }
+        }
+    current[groupId] = nowSeconds
+    try {
+        saveStringPref(key, Json.encodeToString<Map<String, Long>>(current))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.removeLeftGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+) {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return
+    val current: MutableMap<String, Long> =
+        try {
+            Json.decodeFromString<Map<String, Long>>(raw).toMutableMap()
+        } catch (_: Exception) {
+            return
+        }
+    if (current.remove(groupId) != null) {
+        try {
+            saveStringPref(key, Json.encodeToString<Map<String, Long>>(current))
+        } catch (_: Exception) {
+        }
+    }
+}
+
 // ── Unread state persistence ────────────────────────────────────────────────
 // Persists per-account unread counters + high-water timestamps so badges,
 // rail bubbles, and the title counter survive app restarts. The high-water

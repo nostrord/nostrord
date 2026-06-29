@@ -110,6 +110,9 @@ interface NostrRepositoryApi {
     /** Groups whose subscriptions were CLOSED with "restricted" — private group, non-member. */
     val restrictedGroups: StateFlow<Map<String, String>>
 
+    /** Groups the user explicitly LEFT (durable, survives restart); membership reads NONE for these. */
+    val leftGroups: StateFlow<Set<String>>
+
     // --- Metadata state ---
     val userMetadata: StateFlow<Map<String, UserMetadata>>
     val cachedEvents: StateFlow<Map<String, CachedEvent>>

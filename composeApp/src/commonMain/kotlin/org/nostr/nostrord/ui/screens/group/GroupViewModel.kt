@@ -58,8 +58,13 @@ internal fun deriveMembershipStatus(
     hasOwnJoinRequest: Boolean,
     members: List<String>,
     admins: List<String>,
+    locallyLeft: Boolean = false,
 ): GroupMembership = when {
     pubkey == null -> GroupMembership.NONE
+    // Durable leave intent beats a stale relay kind:39002: some relays keep us listed after our
+    // 9022, which would otherwise resurrect us as MEMBER. Checked before admins/members so a left
+    // group reads NONE ("Request to Join"). A rejoin clears the marker.
+    locallyLeft -> GroupMembership.NONE
     pubkey in admins -> GroupMembership.ADMIN
     pubkey in members -> GroupMembership.MEMBER
     joined && members.isNotEmpty() -> GroupMembership.PENDING
@@ -148,6 +153,7 @@ class GroupViewModel(
                 repo.groups,
                 AppModule.accountStore.activeId,
                 repo.pendingApprovalSince,
+                repo.leftGroups,
             ),
         ) { arr ->
             val joinedByRelay = arr[0] as Map<String, Set<String>>
@@ -156,8 +162,10 @@ class GroupViewModel(
             val messagesByGroup = arr[3] as Map<String, List<NostrGroupClient.NostrMessage>>
             val allGroups = arr[4] as List<GroupMetadata>
             val pendingByGroup = arr[6] as Map<String, Long>
+            val leftSet = arr[7] as Set<String>
 
             val pubkey = repo.getPublicKey()
+            val locallyLeft = groupId in leftSet
             val joined = joinedByRelay.values.any { groupId in it }
             val members = membersByGroup[groupId].orEmpty()
             val admins = adminsByGroup[groupId].orEmpty()
@@ -186,6 +194,7 @@ class GroupViewModel(
                     hasOwnJoinRequest = requestedAt != null,
                     members = members,
                     admins = admins,
+                    locallyLeft = locallyLeft,
                 )
             GroupMembershipState(status, requestedAt)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupMembershipState())

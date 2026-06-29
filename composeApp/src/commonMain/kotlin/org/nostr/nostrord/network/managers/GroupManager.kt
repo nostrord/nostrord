@@ -32,13 +32,16 @@ import org.nostr.nostrord.network.groupMetadataListSerializer
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.addLeftGroupForRelay
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.cache.CacheStore
 import org.nostr.nostrord.storage.cache.CachedMsg
 import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
+import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
 import org.nostr.nostrord.storage.isMessageBlobMigratedFor
@@ -477,6 +480,16 @@ class GroupManager(
     private val _restrictedGroups = MutableStateFlow<Map<String, String>>(emptyMap())
     val restrictedGroups: StateFlow<Map<String, String>> = _restrictedGroups.asStateFlow()
 
+    // Durable "I explicitly left this group" intent (kind:9022 sent), persisted per-account/per-relay
+    // with a 30-day TTL and restored on cold start. This is the authoritative override the membership
+    // derivation checks BEFORE the relay's kind:39002, so a left group reads as not-a-member ("Request
+    // to Join") even when the relay keeps listing us (some relays do after a 9022). A rejoin clears it.
+    private val _leftGroups = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val leftGroups: StateFlow<Set<String>> =
+        _leftGroups
+            .map { it.keys }
+            .stateIn(scope, SharingStarted.Eagerly, emptySet())
+
     // Lets clientForGroup reconnect a group's own relay on demand. Wired by NostrRepository.
     var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
 
@@ -757,7 +770,10 @@ class GroupManager(
             val relay = getRelayForGroup(groupId)?.normalizeRelayUrl()
             relay == normalized || (relay == null && normalized == currentRelayUrl)
         }
-        return (joined + loaded + opened).distinct()
+        // A group we durably left must not re-enter the shared mux via the loaded/opened terms
+        // (reopening it to see the locked panel would otherwise re-subscribe its live chat).
+        val left = _leftGroups.value.keys
+        return (joined + loaded + opened).distinct().filter { it !in left }
     }
 
     /**
@@ -1057,7 +1073,11 @@ class GroupManager(
         // Restore the persisted dropped-group guard: a relay that missed our delete still serves the
         // old kind:10009, and the additive merge would resurrect the group on restart without this.
         deletedGroupIds.addAll(SecureStorage.loadDroppedGroupIds(pubKey))
-        val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
+        // Skip durably-left groups: a lagging relay's stale kind:10009 (or the persisted slot before a
+        // leave's republish landed) must not resurrect a group the user explicitly left. Read straight
+        // from storage so this holds regardless of whether loadLeftGroupsFromStorage has run yet.
+        val left = SecureStorage.getLeftGroupsForRelay(pubKey, relayUrl, epochSeconds()).keys
+        val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl).filter { it !in left }
         // Additive: a join that landed before this async restore must not be wiped
         // by the (older) persisted set.
         _joinedGroupsByRelay.update { current ->
@@ -1071,9 +1091,17 @@ class GroupManager(
      * only touching the per-relay cache.
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
+        val now = epochSeconds()
+        // Restore the durable left markers into the flow here too (called at every restore path), so a
+        // left group reads NONE after a restart without a separate ordered call. Order-independent: the
+        // joined filter below reads storage directly, not this flow.
+        val leftAll = mutableMapOf<String, Long>()
         val updates = relayUrls.associate { url ->
-            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
+            val left = SecureStorage.getLeftGroupsForRelay(pubKey, url, now)
+            leftAll.putAll(left)
+            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url).filterTo(mutableSetOf()) { it !in left.keys }
         }.filter { (_, groups) -> groups.isNotEmpty() }
+        if (leftAll.isNotEmpty()) _leftGroups.update { it + leftAll }
         if (updates.isNotEmpty()) {
             // Additive, like loadJoinedGroupsFromStorage: never wipe a fresher join.
             _joinedGroupsByRelay.update { current ->
@@ -1141,6 +1169,12 @@ class GroupManager(
             deletedGroupIds.remove(groupId)
             persistDroppedGroups()
             recentlyLeftAt.remove(groupId)
+            // Rejoining clears the durable left marker BEFORE the optimistic bookkeeping below adds
+            // the group back, so the additive kind:10009 merge can't drop the fresh join.
+            _leftGroups.update { it - groupId }
+            try {
+                SecureStorage.removeLeftGroupForRelay(pubKey, groupRelayUrl.normalizeRelayUrl(), groupId)
+            } catch (_: Exception) {}
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
             if (effectiveCode != null) {
@@ -2108,6 +2142,12 @@ class GroupManager(
             publishJoinedGroups()
 
             recentlyLeftAt[groupId] = epochMillis()
+            // Durable leave intent: outlives recentlyLeftAt (5s) and a restart, so the membership
+            // derivation keeps reporting NONE even when the relay still lists us in kind:39002.
+            _leftGroups.update { it + (groupId to epochSeconds()) }
+            try {
+                SecureStorage.addLeftGroupForRelay(pubKey, groupRelayUrl, groupId, epochSeconds())
+            } catch (_: Exception) {}
 
             _messages.update { it - groupId }
             _isLoadingMore.update { it - groupId }
@@ -3973,6 +4013,7 @@ class GroupManager(
         // the notification lands in the new account's history.
         _joinedGroupsByRelay.value = emptyMap()
         _restrictedGroups.value = emptyMap()
+        _leftGroups.value = emptyMap()
         // Per-group state from the previous account must be cleared too.
         // Without this, an account switch leaves stale kind:39002/39001/39003
         // caches that don't include the new account's pubkey, so opening a

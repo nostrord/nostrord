@@ -173,7 +173,34 @@ class GroupViewModelTest {
         members: List<String> = emptyList(),
         admins: List<String> = emptyList(),
         pubkey: String? = me,
-    ) = deriveMembershipStatus(pubkey, joined, isOpen, hasOwnJoinRequest, members, admins)
+        locallyLeft: Boolean = false,
+    ) = deriveMembershipStatus(pubkey, joined, isOpen, hasOwnJoinRequest, members, admins, locallyLeft)
+
+    @Test
+    fun `locally left beats a stale relay member list`() {
+        // 0xchat keeps us in 39002 after our 9022; the durable leave marker must still read NONE.
+        assertEquals(GroupMembership.NONE, status(members = listOf(me), locallyLeft = true))
+    }
+
+    @Test
+    fun `locally left beats a stale admin list`() {
+        assertEquals(GroupMembership.NONE, status(admins = listOf(me), locallyLeft = true))
+    }
+
+    @Test
+    fun `locally left with an outstanding feed request is still NONE`() {
+        // Cancel (9022) leaves a stale 9021 in the feed; locallyLeft wins.
+        assertEquals(
+            GroupMembership.NONE,
+            status(isOpen = false, hasOwnJoinRequest = true, locallyLeft = true),
+        )
+    }
+
+    @Test
+    fun `not left and in members is still MEMBER`() {
+        // No regression: the durable override only triggers when actually left.
+        assertEquals(GroupMembership.MEMBER, status(members = listOf(me), locallyLeft = false))
+    }
 
     @Test
     fun `no pubkey is NONE`() {

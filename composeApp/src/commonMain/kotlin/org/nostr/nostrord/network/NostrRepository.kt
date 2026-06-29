@@ -361,6 +361,7 @@ class NostrRepository(
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
     override val restrictedGroups: StateFlow<Map<String, String>> = groupManager.restrictedGroups
+    override val leftGroups: StateFlow<Set<String>> = groupManager.leftGroups
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
