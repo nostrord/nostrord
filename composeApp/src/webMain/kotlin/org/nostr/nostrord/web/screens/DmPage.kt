@@ -106,10 +106,19 @@ val DmPage =
             messagesRef.current?.let { el -> el.scrollTop = el.scrollHeight.toDouble() }
         }
         val (text, setText) = useState { "" }
+        val (sending, setSending) = useState { false }
         val send = {
-            if (text.isNotBlank()) {
-                dmVm.send(pubkey, text)
-                setText("")
+            if (text.isNotBlank() && !sending) {
+                setSending(true)
+                dmVm.send(
+                    pubkey,
+                    text,
+                    onSuccess = {
+                        setText("")
+                        setSending(false)
+                    },
+                    onFailure = { setSending(false) },
+                )
             }
         }
         val name =
@@ -274,10 +283,10 @@ val DmPage =
                     button {
                         className = ClassName("dm-composer-btn send")
                         title = "Send"
-                        disabled = (text.isBlank() && uploadCount == 0) || uploadCount > 0
+                        disabled = (text.isBlank() && uploadCount == 0) || uploadCount > 0 || sending
                         onMouseDown = { e -> e.preventDefault() }
                         onClick = { send() }
-                        icon(Ic.Send)
+                        if (sending) span { className = ClassName("btn-spinner") } else icon(Ic.Send)
                     }
                     if (emojiOpen) {
                         div {

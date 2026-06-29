@@ -95,6 +95,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadRoots
     val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies
+    val _threadsLoaded = MutableStateFlow<Set<String>>(emptySet())
+    override val threadsLoaded: StateFlow<Set<String>> = _threadsLoaded
     val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
@@ -257,6 +259,10 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun closeThreadSubscriptions(groupId: String) {
         calls += "closeThreadSubscriptions:$groupId"
+    }
+
+    override suspend fun fetchThread(groupId: String, rootId: String) {
+        calls += "fetchThread:$groupId:$rootId"
     }
 
     override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {

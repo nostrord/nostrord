@@ -51,6 +51,7 @@ import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
+import org.nostr.nostrord.web.components.messageSendStatus
 import org.nostr.nostrord.web.components.messageSkeleton
 import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.uploadBlob
@@ -2934,28 +2935,8 @@ private val MessageRow =
                     )
                 }
                 // Optimistic-send status (own messages only). Delivered = null = nothing.
-                val ownStatus = props.status
-                if (props.myPubkey != null && props.myPubkey == props.pubkey && ownStatus != null) {
-                    when (ownStatus) {
-                        is GroupManager.MessageStatus.Sending -> div {
-                            className = ClassName("msg-status sending")
-                            +"Sending..."
-                        }
-                        is GroupManager.MessageStatus.Failed -> div {
-                            className = ClassName("msg-status failed")
-                            span { +"Not delivered" }
-                            button {
-                                className = ClassName("msg-status-action")
-                                onClick = { props.onRetrySend() }
-                                +"Retry"
-                            }
-                            button {
-                                className = ClassName("msg-status-action dismiss")
-                                onClick = { props.onDismissFailed() }
-                                +"Dismiss"
-                            }
-                        }
-                    }
+                if (props.myPubkey != null && props.myPubkey == props.pubkey) {
+                    messageSendStatus(props.status, props.onRetrySend, props.onDismissFailed)
                 }
                 // Pending emojis still waiting on signEvent + relay; hide any
                 // that the optimistic update already merged into props.reactions

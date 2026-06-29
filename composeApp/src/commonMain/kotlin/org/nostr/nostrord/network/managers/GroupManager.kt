@@ -366,6 +366,16 @@ class GroupManager(
     private val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies.asStateFlow()
 
+    // Group ids whose thread-roots subscription has received its EOSE (stored events done), so the
+    // ViewModel can show "No threads yet" only once loading is genuinely finished, not on a guess.
+    private val _threadsLoaded = MutableStateFlow<Set<String>>(emptySet())
+    val threadsLoaded: StateFlow<Set<String>> = _threadsLoaded.asStateFlow()
+
+    /** Mark a group's thread-roots subscription as having reached EOSE. Called from the EOSE handler. */
+    fun markThreadsLoaded(groupId: String) {
+        _threadsLoaded.update { it + groupId }
+    }
+
     /**
      * Delivery status of the local user's own messages (optimistic send).
      * Sending = the message is on screen and awaiting relay confirmation (or
@@ -2801,13 +2811,19 @@ class GroupManager(
         }
     }
 
+    // Groups with an open threads pane, so they can be resubscribed after NIP-42 AUTH: a private
+    // group's pre-AUTH thread REQ comes back CLOSED "auth-required" and otherwise never retries.
+    private val openThreadGroups = mutableSetOf<String>()
+
     /**
      * Open the threads pane for a group: subscribe to kind:11 roots plus the batched kind:1111
      * reply feed (for per-thread counts/previews). Both subscriptions stay open for live updates
-     * until [closeThreadSubscriptions]. Waits for AUTH on a private group, like the chat read.
+     * until [closeThreadSubscriptions]. Waits for AUTH on a private group, like the chat read; if
+     * AUTH lands later, [resubscribeOpenThreadsAfterAuth] re-fires these.
      */
     suspend fun requestGroupThreads(groupId: String): Boolean {
         val client = clientForGroup(groupId) ?: return false
+        openThreadGroups.add(groupId)
         if (client.requiresAuth() && !client.hasAuthSucceeded()) {
             client.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
         }
@@ -2830,16 +2846,56 @@ class GroupManager(
     }
 
     /**
+     * Re-fire thread subscriptions for any open threads pane on [relayUrl] after NIP-42 AUTH
+     * succeeds. A private group's pre-AUTH thread REQ is CLOSED "auth-required"; this is the
+     * threads analogue of the chat mux's resubscribeAfterAuth.
+     */
+    suspend fun resubscribeOpenThreadsAfterAuth(relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
+        for (groupId in openThreadGroups.toList()) {
+            if (getRelayForGroup(groupId)?.normalizeRelayUrl() != normalized) continue
+            val client = clientForGroup(groupId) ?: continue
+            runCatching {
+                client.requestGroupThreadRoots(groupId, limit = THREAD_PAGE_SIZE, subscriptionId = threadRootsSubId(groupId))
+                client.requestThreadReplies(groupId, rootId = null, limit = THREAD_REPLY_BATCH, subscriptionId = threadRepliesSubId(groupId))
+            }
+        }
+    }
+
+    /**
      * CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget on
      * the manager scope so a ViewModel can call it from onCleared without a live caller scope.
      */
     fun closeThreadSubscriptions(groupId: String) {
+        openThreadGroups.remove(groupId)
         scope.launch {
             val client = clientForGroup(groupId) ?: return@launch
             runCatching {
                 client.closeSubscription(threadRootsSubId(groupId))
                 client.closeSubscription(threadRepliesSubId(groupId))
             }
+        }
+    }
+
+    /**
+     * Backfill one thread for a deep link (#/g/.../threads/<rootId>): the roots subscription only
+     * returns the latest [THREAD_PAGE_SIZE], so an older root (and its replies) may never arrive
+     * from it, leaving the detail view stuck on "Loading thread...". Fetch the kind:11 root by id
+     * (routes into [_threadRoots]) and a focused #E reply page so the detail resolves.
+     */
+    suspend fun fetchThread(groupId: String, rootId: String) {
+        // Retry so a cold-start deep link (the group client is still connecting when the screen
+        // mounts) still lands the fetch instead of silently no-op'ing on a null client.
+        repeat(8) {
+            val client = clientForGroup(groupId)
+            if (client != null) {
+                runCatching {
+                    client.requestGroupMessageById(groupId, rootId)
+                    client.requestThreadReplies(groupId, rootId = rootId, subscriptionId = "threadfocus_$rootId")
+                }
+                return
+            }
+            delay(500)
         }
     }
 
@@ -3027,7 +3083,13 @@ class GroupManager(
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
-        val messageAuthor = _messages.value[groupId]?.firstOrNull { it.id == messageId }?.pubkey
+        // Thread roots/replies live in their own stores, so check those too or deleting a thread
+        // would misread ownership (author null -> wrong deletion kind).
+        val messageAuthor = (
+            _messages.value[groupId].orEmpty() +
+                _threadRoots.value[groupId].orEmpty() +
+                _threadReplies.value[groupId].orEmpty()
+        ).firstOrNull { it.id == messageId }?.pubkey
         val deletionKind = deletionKindFor(
             isOwnMessage = messageAuthor == pubKey,
             isAdmin = isGroupAdmin(groupId, pubKey),
@@ -3922,6 +3984,20 @@ class GroupManager(
             }
         }
 
+        // Threads live in their own stores; remove deleted roots/replies there too so a deleted
+        // thread disappears from the forum list (its own author's delete and admin deletes both
+        // arrive here).
+        _threadRoots.update { current ->
+            val list = current[groupId] ?: return@update current
+            val filtered = list.filterNot { it.id in eventIdsToDelete }
+            if (filtered.size == list.size) current else current + (groupId to filtered)
+        }
+        _threadReplies.update { current ->
+            val list = current[groupId] ?: return@update current
+            val filtered = list.filterNot { it.id in eventIdsToDelete }
+            if (filtered.size == list.size) current else current + (groupId to filtered)
+        }
+
         // Also remove deleted reactions — flush pending first so deletions apply to full state.
         flushPendingReactions()
         _reactions.update { currentReactions ->
@@ -4197,6 +4273,8 @@ class GroupManager(
         _messages.value = emptyMap()
         _threadRoots.value = emptyMap()
         _threadReplies.value = emptyMap()
+        _threadsLoaded.value = emptySet()
+        openThreadGroups.clear()
         groupMessageRecency.clear()
         _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()

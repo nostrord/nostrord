@@ -340,6 +340,7 @@ class NostrRepository(
     override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = groupManager.messageStatus
     override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadRoots
     override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadReplies
+    override val threadsLoaded: StateFlow<Set<String>> = groupManager.threadsLoaded
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
@@ -2649,6 +2650,8 @@ class NostrRepository(
 
     override fun closeThreadSubscriptions(groupId: String) = groupManager.closeThreadSubscriptions(groupId)
 
+    override suspend fun fetchThread(groupId: String, rootId: String) = groupManager.fetchThread(groupId, rootId)
+
     override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -3671,6 +3674,11 @@ class NostrRepository(
                             fetchZapReceiptsFromGeneralRelays(messageIds)
                         }
                     }
+                    // The forum thread-roots sub (threads_<groupId>) reached EOSE: stored threads
+                    // are in, so the list can settle (show "No threads yet" only now, not on a timer).
+                    if (subId.startsWith("threads_")) {
+                        groupManager.markThreadsLoaded(subId.removePrefix("threads_"))
+                    }
                     closeOneShotSubAfterEose(subId, client)
                 }
             }
@@ -3938,6 +3946,7 @@ class NostrRepository(
             subId.startsWith("a_") ||
             subId.startsWith("reactions_") ||
             subId.startsWith("zaps_") ||
+            subId.startsWith("threadfocus_") ||
             subId.startsWith("event_")
         ) {
             scope.launch {
@@ -4268,6 +4277,9 @@ class NostrRepository(
         for (groupId in needHistory) {
             groupManager.requestGroupMessages(groupId)
         }
+        // Re-fire forum thread subscriptions: a private group's pre-AUTH thread REQ was CLOSED
+        // auth-required, and the threads pane has no mux to refresh it post-AUTH.
+        groupManager.resubscribeOpenThreadsAfterAuth(relayUrl)
     }
 }
 

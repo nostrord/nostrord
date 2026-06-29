@@ -62,6 +62,9 @@ interface NostrRepositoryApi {
 
     /** Thread replies (kind:1111) per group; grouped by their root `E` tag in the ViewModel. */
     val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+
+    /** Group ids whose thread-roots subscription has reached EOSE (so an empty list is real). */
+    val threadsLoaded: StateFlow<Set<String>>
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
@@ -494,6 +497,9 @@ interface NostrRepositoryApi {
 
     /** CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget. */
     fun closeThreadSubscriptions(groupId: String)
+
+    /** Backfill a single thread by id (deep link): fetch the kind:11 root and its replies. */
+    suspend fun fetchThread(groupId: String, rootId: String)
 
     /** Create a forum thread (kind:11 root). [title] becomes a NIP-14 subject tag when non-blank. */
     suspend fun createThread(groupId: String, title: String, content: String): Result<Unit>

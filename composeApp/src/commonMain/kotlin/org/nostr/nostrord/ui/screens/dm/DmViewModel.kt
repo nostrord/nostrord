@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.utils.Result
 
 /**
  * Shared DM screen logic (commonMain): the conversation list, per-peer message threads, and
@@ -48,10 +49,20 @@ class DmViewModel(
 
     fun getPublicKey(): String? = repo.getPublicKey()
 
-    fun send(recipientPubkey: String, content: String) {
+    fun send(
+        recipientPubkey: String,
+        content: String,
+        onSuccess: () -> Unit = {},
+        onFailure: () -> Unit = {},
+    ) {
         val text = content.trim()
         if (text.isEmpty()) return
-        viewModelScope.launch { repo.sendDm(recipientPubkey, text) }
+        viewModelScope.launch {
+            when (repo.sendDm(recipientPubkey, text)) {
+                is Result.Error -> onFailure()
+                is Result.Success -> onSuccess()
+            }
+        }
     }
 
     /** Clear the unread badge for a conversation when it is open on screen. */

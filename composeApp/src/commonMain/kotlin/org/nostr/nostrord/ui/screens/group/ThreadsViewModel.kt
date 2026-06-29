@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.utils.Result
 
 /** One row in the threads list: a kind:11 root plus stats derived from its kind:1111 replies. */
 data class ThreadSummary(
@@ -84,6 +86,9 @@ class ThreadsViewModel(
 ) : ViewModel() {
     val userMetadata = repo.userMetadata
 
+    /** Optimistic-send status per event id (Sending / Failed) - shared with chat via the repo. */
+    val messageStatus = repo.messageStatus
+
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading
 
@@ -104,20 +109,38 @@ class ThreadsViewModel(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        viewModelScope.launch { repo.requestGroupThreads(groupId) }
+        // Subscribe to the group's threads, retrying until the group client is ready: a cold-start
+        // deep link races the relay connection, and a one-shot request would silently no-op
+        // (leaving the list stuck empty / "No threads yet").
         viewModelScope.launch {
-            // Settle the skeleton as soon as a root arrives, or after a grace period for an empty
-            // group (which never emits) - mirrors the chat read's "don't flash empty" guard.
+            repeat(THREAD_REQUEST_ATTEMPTS) {
+                if (repo.requestGroupThreads(groupId)) return@launch
+                delay(THREAD_REQUEST_RETRY_MS)
+            }
+        }
+        // Settle the skeleton once a root arrives OR the roots sub reaches EOSE (a real empty
+        // result), so "No threads yet" never flashes before slow threads land. The timeout is
+        // only a fallback for a stalled relay that never EOSEs.
+        viewModelScope.launch {
             withTimeoutOrNull(THREAD_LOAD_SETTLE_MS) {
-                repo.threadRoots.first { (it[groupId]?.isNotEmpty() == true) }
+                combine(repo.threadRoots, repo.threadsLoaded) { roots, loaded ->
+                    roots[groupId]?.isNotEmpty() == true || loaded.contains(groupId)
+                }.first { it }
             }
             _isLoading.value = false
         }
     }
 
-    /** Select the open thread by its kind:11 root id, or null to show the list. */
+    /**
+     * Select the open thread by its kind:11 root id, or null to show the list. Backfills the root
+     * + replies by id so a deep link to an older thread (not in the loaded roots page) resolves
+     * instead of hanging on "Loading thread...".
+     */
     fun openThread(rootId: String?) {
         _openRootId.value = rootId
+        if (rootId != null) {
+            viewModelScope.launch { repo.fetchThread(groupId, rootId) }
+        }
     }
 
     /** Create a forum thread (kind:11). No-op on blank content. */
@@ -126,12 +149,33 @@ class ThreadsViewModel(
         viewModelScope.launch { repo.createThread(groupId, title.trim(), content.trim()) }
     }
 
-    /** Post a top-level reply (kind:1111) to the open thread. No-op on blank content. */
-    fun sendReply(content: String) {
+    /**
+     * Post a top-level reply (kind:1111) to the open thread. No-op on blank content. [onSuccess]/
+     * [onFailure] fire after the local build/sign step (the reply then appears with a Sending
+     * status and delivers in the background), so the composer can show a send spinner like chat.
+     */
+    fun sendReply(content: String, onSuccess: () -> Unit = {}, onFailure: () -> Unit = {}) {
         if (content.isBlank()) return
         val root = openThread.value?.root ?: return
-        viewModelScope.launch { repo.sendThreadReply(groupId, root = root, parent = root, content = content.trim()) }
+        viewModelScope.launch {
+            when (repo.sendThreadReply(groupId, root = root, parent = root, content = content.trim())) {
+                is Result.Error -> onFailure()
+                is Result.Success -> onSuccess()
+            }
+        }
     }
+
+    fun getPublicKey() = repo.getPublicKey()
+
+    /** Delete a thread you authored (NIP-09/NIP-29 deletion of the kind:11 root). The relay echo
+     *  removes it from the list. Runs on viewModelScope, which survives list <-> detail nav. */
+    fun deleteThread(rootId: String) {
+        viewModelScope.launch { repo.deleteMessage(groupId, rootId) }
+    }
+
+    fun retrySend(eventId: String) = repo.retrySend(eventId)
+
+    fun dismissFailed(eventId: String) = repo.dismissFailed(groupId, eventId)
 
     override fun onCleared() {
         super.onCleared()
@@ -139,6 +183,9 @@ class ThreadsViewModel(
     }
 
     companion object {
-        const val THREAD_LOAD_SETTLE_MS = 4_000L
+        // Fallback only: the list normally settles on the roots-sub EOSE, not this timer.
+        const val THREAD_LOAD_SETTLE_MS = 12_000L
+        const val THREAD_REQUEST_ATTEMPTS = 12
+        const val THREAD_REQUEST_RETRY_MS = 600L
     }
 }

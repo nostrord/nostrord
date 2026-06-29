@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -18,11 +19,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,9 +46,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
+import org.nostr.nostrord.ui.components.chat.MessageStatusIndicator
 import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
@@ -71,12 +78,16 @@ fun ThreadsScreen(
     val isLoading by vm.isLoading.collectAsState()
     val openThread by vm.openThread.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
+    val messageStatus by vm.messageStatus.collectAsState()
+    val myPubkey = remember { vm.getPublicKey() }
 
     // Keep the open thread synced with the route (#/g/<relay>/<id>/threads/<rootId>).
     LaunchedEffect(route.threadRootId) { vm.openThread(route.threadRootId) }
 
     var showCompose by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     var reply by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
         if (route.threadRootId != null) {
@@ -93,7 +104,19 @@ fun ThreadsScreen(
                         tint = NostrordColors.TextSecondary,
                     )
                 }
-                Text("Thread", color = NostrordColors.TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Thread",
+                    color = NostrordColors.TextPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                val ownRoot = openThread?.root
+                if (myPubkey != null && ownRoot != null && ownRoot.pubkey == myPubkey) {
+                    IconButton(onClick = { showDeleteConfirm = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete thread", tint = NostrordColors.TextSecondary)
+                    }
+                }
             }
             HorizontalDivider(color = NostrordColors.Divider)
 
@@ -105,7 +128,15 @@ fun ThreadsScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth()
                         .verticalScroll(rememberScrollState()).padding(Spacing.md),
                 ) {
-                    ThreadMessage(detail.root, userMetadata, isRoot = true)
+                    ThreadMessage(
+                        detail.root,
+                        userMetadata,
+                        isRoot = true,
+                        myPubkey,
+                        messageStatus[detail.root.id],
+                        { vm.retrySend(detail.root.id) },
+                        { vm.dismissFailed(detail.root.id) },
+                    )
                     Text(
                         if (detail.replies.size == 1) "1 REPLY" else "${detail.replies.size} REPLIES",
                         color = NostrordColors.TextMuted,
@@ -114,7 +145,17 @@ fun ThreadsScreen(
                         letterSpacing = 0.5.sp,
                         modifier = Modifier.padding(vertical = Spacing.sm),
                     )
-                    detail.replies.forEach { ThreadMessage(it, userMetadata, isRoot = false) }
+                    detail.replies.forEach {
+                        ThreadMessage(
+                            it,
+                            userMetadata,
+                            isRoot = false,
+                            myPubkey,
+                            messageStatus[it.id],
+                            { vm.retrySend(it.id) },
+                            { vm.dismissFailed(it.id) },
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(Spacing.md),
@@ -130,17 +171,32 @@ fun ThreadsScreen(
                         maxLines = 4,
                     )
                     IconButton(
-                        enabled = reply.isNotBlank(),
+                        enabled = reply.isNotBlank() && !sending,
                         onClick = {
-                            vm.sendReply(reply)
-                            reply = ""
+                            sending = true
+                            vm.sendReply(
+                                reply,
+                                onSuccess = {
+                                    reply = ""
+                                    sending = false
+                                },
+                                onFailure = { sending = false },
+                            )
                         },
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send reply",
-                            tint = if (reply.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
-                        )
+                        if (sending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = NostrordColors.Primary,
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send reply",
+                                tint = if (reply.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
+                            )
+                        }
                     }
                 }
             }
@@ -184,6 +240,27 @@ fun ThreadsScreen(
         CreateThreadDialog(
             onDismiss = { showCompose = false },
             onCreate = { title, content -> vm.createThread(title, content) },
+        )
+    }
+
+    if (showDeleteConfirm) {
+        val ownRoot = openThread?.root
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete thread?") },
+            text = { Text("This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    if (ownRoot != null) {
+                        vm.deleteThread(ownRoot.id)
+                        onNavigate(route.copy(threadRootId = null))
+                    }
+                }) { Text("Delete", color = NostrordColors.Error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            },
         )
     }
 }
@@ -244,7 +321,15 @@ private fun ThreadCard(t: ThreadSummary, userMetadata: Map<String, UserMetadata>
 }
 
 @Composable
-private fun ThreadMessage(msg: NostrGroupClient.NostrMessage, userMetadata: Map<String, UserMetadata>, isRoot: Boolean) {
+private fun ThreadMessage(
+    msg: NostrGroupClient.NostrMessage,
+    userMetadata: Map<String, UserMetadata>,
+    isRoot: Boolean,
+    myPubkey: String?,
+    status: GroupManager.MessageStatus?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val meta = userMetadata[msg.pubkey]
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
@@ -276,6 +361,9 @@ private fun ThreadMessage(msg: NostrGroupClient.NostrMessage, userMetadata: Map<
                 )
             }
             Text(msg.content, color = NostrordColors.TextContent, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
+            if (myPubkey != null && myPubkey == msg.pubkey && status != null) {
+                MessageStatusIndicator(status, onRetry, onDismiss)
+            }
         }
     }
 }

@@ -1,10 +1,12 @@
 package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.ThreadsViewModel
 import org.nostr.nostrord.ui.screens.group.threadTitle
@@ -17,6 +19,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.Portal
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.messageSendStatus
 import org.nostr.nostrord.web.modals.CreateThreadModal
 import react.ChildrenBuilder
 import react.FC
@@ -71,19 +74,29 @@ val ThreadsScreen =
         val isLoading = useStateFlow(vm.isLoading)
         val openThread = useStateFlow(vm.openThread)
         val userMetadata = useStateFlow(vm.userMetadata)
+        val messageStatus = useStateFlow(vm.messageStatus)
+        val myPubkey = vm.getPublicKey()
 
         // Keep the open thread synced with the URL (#/g/<relay>/<id>/threads/<rootId>).
         useEffect(route.threadRootId) { vm.openThread(route.threadRootId) }
 
         val (composing, setComposing) = useState { false }
         val (reply, setReply) = useState { "" }
+        val (sending, setSending) = useState { false }
         val (emojiOpen, setEmojiOpen) = useState { false }
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
 
         fun sendReply() {
-            if (reply.isBlank()) return
-            vm.sendReply(reply)
-            setReply("")
+            if (reply.isBlank() || sending) return
+            setSending(true)
+            vm.sendReply(
+                reply,
+                onSuccess = {
+                    setReply("")
+                    setSending(false)
+                },
+                onFailure = { setSending(false) },
+            )
         }
 
         // execCommand keeps the cursor position so an emoji lands where the caret is, not appended.
@@ -114,6 +127,20 @@ val ThreadsScreen =
                         className = ClassName("threads-title")
                         +"Thread"
                     }
+                    val ownRoot = openThread?.root
+                    if (myPubkey != null && ownRoot != null && ownRoot.pubkey == myPubkey) {
+                        button {
+                            className = ClassName("icon-btn")
+                            title = "Delete thread"
+                            onClick = {
+                                if (window.confirm("Delete this thread? This cannot be undone.")) {
+                                    vm.deleteThread(ownRoot.id)
+                                    props.onNavigate(route.copy(threadRootId = null))
+                                }
+                            }
+                            icon(Ic.Delete)
+                        }
+                    }
                 }
                 val detail = openThread
                 if (detail == null) {
@@ -124,13 +151,29 @@ val ThreadsScreen =
                 } else {
                     div {
                         className = ClassName("thread-detail-body")
-                        threadMessage(detail.root, userMetadata, isRoot = true)
+                        threadMessage(
+                            detail.root,
+                            userMetadata,
+                            isRoot = true,
+                            myPubkey,
+                            messageStatus[detail.root.id],
+                            { vm.retrySend(detail.root.id) },
+                            { vm.dismissFailed(detail.root.id) },
+                        )
                         div {
                             className = ClassName("thread-replies-divider")
                             +(if (detail.replies.size == 1) "1 reply" else "${detail.replies.size} replies")
                         }
                         detail.replies.forEach { r ->
-                            threadMessage(r, userMetadata, isRoot = false)
+                            threadMessage(
+                                r,
+                                userMetadata,
+                                isRoot = false,
+                                myPubkey,
+                                messageStatus[r.id],
+                                { vm.retrySend(r.id) },
+                                { vm.dismissFailed(r.id) },
+                            )
                         }
                     }
                     // Same composer as DM (.dm-composer): rounded bar, Enter to send, emoji picker.
@@ -160,10 +203,10 @@ val ThreadsScreen =
                             button {
                                 className = ClassName("dm-composer-btn send")
                                 title = "Send"
-                                disabled = reply.isBlank()
+                                disabled = reply.isBlank() || sending
                                 onMouseDown = { e -> e.preventDefault() }
                                 onClick = { sendReply() }
-                                icon(Ic.Send)
+                                if (sending) span { className = ClassName("btn-spinner") } else icon(Ic.Send)
                             }
                             if (emojiOpen) {
                                 div {
@@ -271,6 +314,10 @@ private fun ChildrenBuilder.threadMessage(
     msg: NostrGroupClient.NostrMessage,
     userMetadata: Map<String, UserMetadata>,
     isRoot: Boolean,
+    myPubkey: String?,
+    status: GroupManager.MessageStatus?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     div {
         className = ClassName(if (isRoot) "thread-msg thread-msg-root" else "thread-msg")
@@ -303,6 +350,9 @@ private fun ChildrenBuilder.threadMessage(
             div {
                 className = ClassName("thread-msg-content")
                 +msg.content
+            }
+            if (myPubkey != null && myPubkey == msg.pubkey) {
+                messageSendStatus(status, onRetry, onDismiss)
             }
         }
     }
