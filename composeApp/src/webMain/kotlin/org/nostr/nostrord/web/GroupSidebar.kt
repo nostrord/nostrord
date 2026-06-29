@@ -4,6 +4,7 @@ import js.objects.unsafeJso
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -132,6 +133,25 @@ val GroupSidebar =
                             className = ClassName("group-side-row-label")
                             +(p.name ?: p.id)
                         }
+                    }
+                }
+                button {
+                    className = ClassName(if (route.view == GroupView.Chat) "group-side-row active" else "group-side-row")
+                    onClick = { props.onNavigateGroup(route.copy(view = GroupView.Chat, threadRootId = null)) }
+                    icon(Ic.Chat)
+                    span {
+                        className = ClassName("group-side-row-label")
+                        +"Chat"
+                    }
+                }
+                button {
+                    className = ClassName(if (route.view == GroupView.Threads) "group-side-row active" else "group-side-row")
+                    // Forum-style threads (kind:11 + kind:1111), shown in the centre pane.
+                    onClick = { props.onNavigateGroup(route.copy(view = GroupView.Threads, threadRootId = null)) }
+                    icon(Ic.Forum)
+                    span {
+                        className = ClassName("group-side-row-label")
+                        +"Threads"
                     }
                 }
                 button {

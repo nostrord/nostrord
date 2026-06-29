@@ -1806,6 +1806,191 @@ body {
     border-radius: var(--radius-sm);
 }
 
+.group-side-row.active {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+/* Threads pane (forum-style kind:11 root + NIP-22 kind:1111 replies). Web mirror of the
+   Compose ThreadsScreen and the prototype's GroupPanels.ThreadsPanel / ThreadPanel, as a page. */
+.threads-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    background: var(--color-background);
+}
+
+.threads-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--color-divider);
+}
+
+.threads-title {
+    flex: 1;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.thread-new-btn {
+    padding: 6px var(--space-md);
+    font-size: 13px;
+}
+
+.thread-new-btn .ico {
+    width: 16px;
+    height: 16px;
+}
+
+.thread-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+}
+
+.thread-card {
+    display: flex;
+    gap: var(--space-md);
+    width: 100%;
+    padding: var(--space-md);
+    border: 0;
+    border-radius: var(--radius-lg);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.thread-card:hover {
+    background: var(--color-hover);
+}
+
+.thread-card-avatar,
+.thread-msg-avatar {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+}
+
+.thread-card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.thread-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thread-card-preview {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thread-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.thread-card-dot {
+    color: var(--color-text-muted);
+}
+
+.threads-empty {
+    padding: var(--space-xxl) var(--space-lg);
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 14px;
+}
+
+.thread-detail-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-md) var(--space-lg);
+}
+
+.thread-msg {
+    display: flex;
+    gap: var(--space-md);
+    padding: var(--space-sm) 0;
+}
+
+.thread-msg-root {
+    padding-bottom: var(--space-md);
+}
+
+.thread-msg-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.thread-msg-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.thread-msg-author {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.thread-msg-time {
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.thread-msg-title {
+    margin: var(--space-xs) 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.thread-msg-content {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-content);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.thread-replies-divider {
+    margin: var(--space-md) 0;
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--color-divider);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-muted);
+}
+
 .group-side-label {
     display: flex;
     align-items: center;

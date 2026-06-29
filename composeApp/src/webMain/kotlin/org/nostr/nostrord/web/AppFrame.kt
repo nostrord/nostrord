@@ -12,6 +12,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
@@ -55,6 +56,7 @@ import org.nostr.nostrord.web.screens.NotificationsSidebar
 import org.nostr.nostrord.web.screens.ProfilePage
 import org.nostr.nostrord.web.screens.RelayScreen
 import org.nostr.nostrord.web.screens.SettingsScreen
+import org.nostr.nostrord.web.screens.ThreadsScreen
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -639,6 +641,14 @@ val AppFrame =
                             relayUrl = r.relayUrl
                             onOpenGroup = { g -> pushRoute(GroupRoute(g.relayUrl, g.meta.id)) }
                             onOpenDrawer = { setDrawerOpen(true) }
+                        }
+                    r is GroupRoute && r.view == GroupView.Threads && selectedGroup != null ->
+                        // Forum threads pane (kind:11 + kind:1111). The group rail + sidebar stay
+                        // mounted, so only this centre pane swaps when leaving chat.
+                        ThreadsScreen {
+                            this.route = r
+                            this.group = selectedGroup
+                            onNavigate = { pushRoute(it) }
                         }
                     r is GroupRoute && selectedGroup != null ->
                         // The legacy full-featured chat (messages, composer, search, member
