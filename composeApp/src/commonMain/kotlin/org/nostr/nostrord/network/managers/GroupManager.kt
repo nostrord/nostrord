@@ -1150,13 +1150,34 @@ class GroupManager(
             )
 
             val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.JoinFailed(groupId, Exception("Event ID not generated")))
 
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            currentClient.send(message)
+            // Private/closed relays gate the join-request publish behind NIP-42 AUTH. Firing the
+            // 9021 on an unauthenticated socket gets it dropped "auth-required" and the admin never
+            // sees the pending request (only invite-code joins, which the relay auto-admits, slip
+            // through). Wait for AUTH first, like the private-group read paths. No-op on open/public
+            // relays that never challenge.
+            if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+                currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+            }
+
+            // Await the OK so an auth/policy rejection surfaces as a failed join (reverting the
+            // optimistic membership) instead of silently leaving the user stuck "pending".
+            when (val publish = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Unit
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception(publish.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception("Join request timed out")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, publish.exception))
+            }
 
             // Normalized key, like every other _joinedGroupsByRelay writer: a raw URL
             // variant ("wss://x/" vs "wss://x") would start a parallel entry whose set
