@@ -164,8 +164,17 @@ val ChatMessageList =
                 // is no prepend-restore to protect, so the pin must always win, otherwise a
                 // group whose tail has unsized media opens parked just above the true bottom.
                 // During the open settle window we re-pin even if the latch briefly read false.
-                if (atBottom.current == true || settling()) {
-                    el.current?.let { it.scrollTop = it.scrollHeight.toDouble() }
+                el.current?.let { node ->
+                    // Also re-pin when the viewport is still within ~1.5 screens of the bottom: a
+                    // burst of image messages grows scrollHeight as each image decodes, and the
+                    // atBottom latch can read false mid-growth, stranding the view above the new tail
+                    // (live messages then land below the fold and look "not received"). A genuine
+                    // scroll-up past this band clears the intent and stops the pin.
+                    val distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight)
+                    val nearBottom = distanceFromBottom < node.clientHeight * 1.5
+                    if (atBottom.current == true || settling() || nearBottom) {
+                        node.scrollTop = node.scrollHeight.toDouble()
+                    }
                 }
             }
             val factory =
