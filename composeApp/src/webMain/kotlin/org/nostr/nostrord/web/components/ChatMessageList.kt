@@ -14,6 +14,12 @@ import react.useRef
 import web.cssom.ClassName
 import web.html.HTMLDivElement
 
+// How long after opening a group the view is kept pinned to the bottom unconditionally and
+// auto-pagination is suppressed. Covers the window where late media decode / streaming system
+// events grow the content, so the open settles at the true bottom and entering a group never
+// triggers a history load on its own.
+private const val SETTLE_MS = 1500.0
+
 external interface ChatMessageListProps : Props {
     /** Opaque rows; index 0 = oldest/top, last = newest/bottom. */
     var items: Array<dynamic>
@@ -70,6 +76,10 @@ val ChatMessageList =
         val wasLoading = useRef(false)
         val markDebounce = useRef<Int>(null)
         val prevScrollHeight = useRef(0.0)
+        val openedAt = useRef(0.0)
+        // True for SETTLE_MS after the group opened: keep pinning to the bottom and hold off
+        // pagination so the open lands at the true bottom and entry never auto-loads history.
+        val settling = { window.performance.now() - (openedAt.current ?: 0.0) < SETTLE_MS }
 
         // Following the feed: pin to bottom, scroll-anchoring OFF. Reading history:
         // anchoring ON and never touch scrollTop, so the browser holds position across
@@ -83,6 +93,7 @@ val ChatMessageList =
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
                 openedFor.current = props.resetKey
+                openedAt.current = window.performance.now()
                 loadingOlder.current = false
                 if (atBottom.current != true) {
                     atBottom.current = true
@@ -92,9 +103,10 @@ val ChatMessageList =
                 return@useLayoutEffect
             }
 
-            if (atBottom.current == true) {
-                // Following: stay pinned to the bottom as content streams in. Anchor OFF
-                // so it doesn't re-anchor to a row above and drift us up.
+            if (atBottom.current == true || settling()) {
+                // Following (or inside the open settle window): stay pinned to the bottom as
+                // content streams in / media decodes. Anchor OFF so it doesn't re-anchor to a
+                // row above and drift us up.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
             } else {
@@ -146,7 +158,13 @@ val ChatMessageList =
         useEffect(Unit) {
             val inner = innerEl.current ?: return@useEffect
             val onResize: () -> Unit = {
-                if (atBottom.current == true && loadingOlder.current != true) {
+                // While following the feed, ANY content growth re-pins to the bottom: late
+                // media (including imeta-less images that grow from the placeholder floor),
+                // reactions, system rows. Not gated by loadingOlder: when at the bottom there
+                // is no prepend-restore to protect, so the pin must always win, otherwise a
+                // group whose tail has unsized media opens parked just above the true bottom.
+                // During the open settle window we re-pin even if the latch briefly read false.
+                if (atBottom.current == true || settling()) {
                     el.current?.let { it.scrollTop = it.scrollHeight.toDouble() }
                 }
             }
@@ -231,7 +249,8 @@ val ChatMessageList =
                     val st = node.scrollTop.toDouble()
                     val ch = node.clientHeight.toDouble()
                     val mayPaginate = atBottom.current != true || sh <= ch + 4.0
-                    if (st < ch * 2.5 &&
+                    if (!settling() &&
+                        st < ch * 2.5 &&
                         mayPaginate &&
                         props.hasMore &&
                         !props.isLoadingMore &&
@@ -251,7 +270,11 @@ val ChatMessageList =
                 // 80px threshold matches the prototype: the jump pill appears once the
                 // user is more than ~80px up from the bottom.
                 val isAtBottom = (sh - st - ch) < 80.0
-                if (atBottom.current != isAtBottom) {
+                // During the open settle window, ignore a transient "not at bottom" reading
+                // caused by content still growing/reflowing — flipping the latch there would
+                // desarm the pin and strand the open above the true bottom. A genuine user
+                // scroll after the window flips it as normal.
+                if (!(settling() && !isAtBottom) && atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
                     props.onAtBottomChange(isAtBottom)
                     // Anchoring ON while reading history (holds position across prepends and
@@ -263,7 +286,8 @@ val ChatMessageList =
                 // at the bottom, except when the feed doesn't fill the viewport (sh <= ch)
                 // and the user can't scroll up to ask for more.
                 val mayPaginate = atBottom.current != true || sh <= ch + 4.0
-                if (st < ch * 2.5 &&
+                if (!settling() &&
+                    st < ch * 2.5 &&
                     mayPaginate &&
                     props.hasMore &&
                     !props.isLoadingMore &&

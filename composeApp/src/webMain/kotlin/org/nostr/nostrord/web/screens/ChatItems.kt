@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.ui.screens.group.clampSystemEventsToLoadedWindow
 import org.nostr.nostrord.utils.getDateLabel
 import kotlin.math.abs
 
@@ -59,20 +60,8 @@ fun buildWebChatItems(
     val items = mutableListOf<WebChatItem>()
     val sortedAll = messages.sortedBy { it.createdAt }
 
-    // Bound the rendered timeline to the loaded MESSAGE window. Join/leave + moderation
-    // events arrive in full from a dedicated subscription (no page limit), so the oldest
-    // one would become a false "top" far above the oldest paginated message — pagination
-    // then fills messages BELOW it instead of prepending at the real top, which looks
-    // wrong and stalls the scroll (first row never changes). Hide system events older
-    // than the oldest loaded message; they reveal as pagination lowers the frontier. With
-    // no messages yet, show everything (a fresh group is only join/leave).
-    val oldestMessageTs = sortedAll.filter { it.kind == 9 }.minOfOrNull { it.createdAt }
-    val sorted =
-        if (oldestMessageTs == null) {
-            sortedAll
-        } else {
-            sortedAll.filter { it.kind == 9 || it.createdAt >= oldestMessageTs }
-        }
+    // Bound the rendered timeline to the loaded message window (shared with the native list).
+    val sorted = clampSystemEventsToLoadedWindow(sortedAll)
 
     val leaveRequestTimestamps: Map<String, List<Long>> =
         sortedAll.filter { it.kind == 9022 }.groupBy({ it.pubkey }, { it.createdAt })

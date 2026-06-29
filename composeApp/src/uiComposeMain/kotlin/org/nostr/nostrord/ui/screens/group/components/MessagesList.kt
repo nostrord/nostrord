@@ -79,7 +79,6 @@ import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
-import org.nostr.nostrord.ui.scroll.ScrollEntryTarget
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.buildShareMessageLink
@@ -226,22 +225,16 @@ fun MessagesList(
     // so the first pill tap from there goes straight to the latest.
     var dividerSeen by remember(groupId) { mutableStateOf(false) }
 
-    // One-shot entry alignment to the "New messages" divider (Telegram pattern).
-    // Decided exactly once per entry and latched via entryResolved, so streaming
-    // chunks / pagination don't re-anchor. Aligning to a divider sets atBottom = false
-    // to suppress the bottom-pin from yanking the view down on later chunks. Entering
-    // with no divider (everything already read) still latches (atBottom stays true, so
-    // the group opens at the bottom) — this is what stops a divider that appears LATER,
-    // when a message arrives while the user is reading history, from re-anchoring and
-    // jerking the view to the divider.
+    // The group always opens at the bottom (newest). The "New messages" line still
+    // renders in the list, and the jump pill still offers a tap to it (see dividerSeen
+    // below), but we no longer auto-scroll to the divider on entry: it landed far up in
+    // unread history and dragged the view away from the latest. Resolving the entry as
+    // "bottom" (hasDivider = false) keeps atBottom = true and still latches entryResolved,
+    // so a divider that appears LATER (a message arriving while reading history) does not
+    // re-anchor the view.
     LaunchedEffect(groupId, chatItems) {
         if (scrollStateHolder.entryResolved || chatItems.isEmpty()) return@LaunchedEffect
-        val idx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
-        val target = scrollStateHolder.applyEntryChange(hasDivider = idx >= 0, isSeeking = isSeekingTarget)
-        if (target == ScrollEntryTarget.Divider && idx >= 0) {
-            listState.scrollToItem(idx)
-            dividerSeen = true
-        }
+        scrollStateHolder.applyEntryChange(hasDivider = false, isSeeking = isSeekingTarget)
     }
 
     fun getItemKey(item: ChatItem): String = when (item) {
@@ -469,7 +462,10 @@ fun MessagesList(
             Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0 && !currentSearchActive)
         }.distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
-                firstVisible <= 5 && canLoad
+                // Only paginate once the user has actually scrolled up off the bottom. On open the
+                // view sits at the bottom (atBottom = true), so entering a group never triggers a
+                // history load on its own; pagination resumes when the user scrolls toward the top.
+                firstVisible <= 5 && canLoad && !scrollStateHolder.atBottom
             }.collect {
                 currentOnLoadMore()
             }

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import org.nostr.nostrord.nostr.Nip27
+import org.nostr.nostrord.nostr.Nip68
 
 /**
  * # Chat Message Content Parser
@@ -288,55 +289,9 @@ object MessageContentParser {
      *
      * @return Map of image URL to (width, height) pair
      */
-    fun extractImetaDimensions(tags: List<List<String>>): Map<String, Pair<Int, Int>> {
-        val result = mutableMapOf<String, Pair<Int, Int>>()
-        for (tag in tags) {
-            if (tag.isEmpty() || tag[0] != "imeta") continue
-            var url: String? = null
-            var dim: Pair<Int, Int>? = null
-            for (i in 1 until tag.size) {
-                val field = tag[i]
-                when {
-                    field.startsWith("url ") -> url = field.removePrefix("url ")
-                    field.startsWith("dim ") -> {
-                        val parts = field.removePrefix("dim ").split("x", limit = 2)
-                        if (parts.size == 2) {
-                            val w = parts[0].toIntOrNull()
-                            val h = parts[1].toIntOrNull()
-                            if (w != null && h != null && w > 0 && h > 0) {
-                                dim = w to h
-                            }
-                        }
-                    }
-                }
-            }
-            if (url != null && dim != null) {
-                result[url] = dim
-            }
-        }
-        return result
-    }
+    fun extractImetaDimensions(tags: List<List<String>>): Map<String, Pair<Int, Int>> = Nip68.extractImetaDimensions(tags)
 
-    fun extractImetaThumbnails(tags: List<List<String>>): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        for (tag in tags) {
-            if (tag.isEmpty() || tag[0] != "imeta") continue
-            var url: String? = null
-            var thumb: String? = null
-            for (i in 1 until tag.size) {
-                val field = tag[i]
-                when {
-                    field.startsWith("url ") -> url = field.removePrefix("url ")
-                    field.startsWith("thumb ") -> thumb = field.removePrefix("thumb ")
-                    field.startsWith("image ") -> if (thumb == null) thumb = field.removePrefix("image ")
-                }
-            }
-            if (url != null && thumb != null) {
-                result[url] = thumb
-            }
-        }
-        return result
-    }
+    fun extractImetaThumbnails(tags: List<List<String>>): Map<String, String> = Nip68.extractImetaThumbnails(tags)
 
     /**
      * Validate shortcode format.

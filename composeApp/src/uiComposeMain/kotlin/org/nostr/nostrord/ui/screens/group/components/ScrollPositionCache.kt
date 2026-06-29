@@ -172,6 +172,16 @@ fun <T> ScrollPositionEffect(
 ) {
     val currentItems by rememberUpdatedState(items)
 
+    // Open settle window: for a short time after entering the group, keep pinning to the bottom
+    // regardless of the atBottom latch, so late-decoding media or streaming system events can't
+    // strand the open above the true bottom (the latch can briefly read "not at bottom" mid-reflow).
+    var settling by remember(groupId) { mutableStateOf(true) }
+    LaunchedEffect(groupId) {
+        settling = true
+        kotlinx.coroutines.delay(1500)
+        settling = false
+    }
+
     // Resolve the restoration gate once items first appear. The authoritative entry
     // positioning (divider vs bottom) is decided by the entry effect in
     // MessagesList; here we only flip isRestored so the user-scroll tracker and the
@@ -204,10 +214,20 @@ fun <T> ScrollPositionEffect(
     // discarded state and never move the visible list.
     LaunchedEffect(groupId, listState) {
         if (!initialScrollToEnd) return@LaunchedEffect
-        snapshotFlow { currentItems.size to listState.canScrollForward }
+        snapshotFlow {
+            // Height-aware key. Re-pin on a new tail item (size) AND on tail height growth
+            // (the last visible item's index and measured size), so a late-decoding image,
+            // including imeta-less media that grows from text height, still drops the newest
+            // content flush to the bottom. The former `canScrollForward` key missed this:
+            // once it was already `true`, distinctUntilChanged dropped the unchanged value
+            // and the view stayed parked above the true bottom while the image expanded.
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            Triple(currentItems.size, last?.index ?: -1, last?.size ?: 0)
+        }
             .distinctUntilChanged()
             .collect {
-                if (stateHolder.atBottom) {
+                if (stateHolder.atBottom || settling) {
                     val idx = currentItems.lastIndex
                     if (idx >= 0) listState.scrollToItem(idx, Int.MAX_VALUE)
                 }

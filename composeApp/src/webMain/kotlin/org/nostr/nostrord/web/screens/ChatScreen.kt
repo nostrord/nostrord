@@ -19,6 +19,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.nostr.Nip68
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
@@ -1271,11 +1272,6 @@ val ChatScreen =
         // Two-stage jump: false until the first tap focuses the "New messages" divider,
         // then the next tap drops to the bottom. Reset per group on entry.
         val dividerSeen = useRef(false)
-        // One-shot guard for the entry alignment to the "New messages" divider. Once the
-        // divider first appears for a group we scroll to it (parity with native, which
-        // opens at the divider rather than the bottom), then latch so streaming chunks
-        // and pagination don't re-anchor. Reset per group on entry.
-        val dividerAligned = useRef(false)
 
         // Entering reply mode grows the composer with the reply banner, which can
         // cover the message being replied to. Once the banner has grown (.chat-messages
@@ -1370,7 +1366,6 @@ val ChatScreen =
             setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
             dividerSeen.current = false
-            dividerAligned.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -1512,28 +1507,12 @@ val ChatScreen =
             useMemo(messages, lastReadSnapshot, myPubkey) {
                 if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
             }
-        // Entry alignment to the "New messages" divider (parity with native, which opens
-        // at the divider rather than the bottom). The first time the divider appears for a
-        // group, scroll to it and mark the user as above the bottom, then latch
-        // dividerAligned so streaming chunks and pagination never re-anchor. The latch is
-        // what keeps this safe: it fires at most once per entry, so it cannot loop and
-        // lurch the feed the way an un-latched scroll-to-index would during the
-        // connect/initial-load churn. ChatMessageList holds the position with
-        // overflow-anchor afterwards. A pending deep-link seek owns scrolling, so defer.
-        useEffect(chatItems.size, lastReadSnapshot) {
-            if (dividerAligned.current == true) return@useEffect
-            if (lastReadSnapshot == null || props.scrollToMessageId != null) return@useEffect
-            val hasDivider = chatItems.any { it is WebChatItem.NewMessagesDivider }
-            if (!hasDivider) return@useEffect
-            dividerAligned.current = true
-            // The entry alignment is the "scrolled up" half of the divider-clear
-            // round-trip: reaching the bottom afterwards clears the divider with no
-            // separate manual round-trip (issue #83).
-            wasNotAtBottom.current = true
-            atBottom.current = false
-            setAtBottomState(false)
-            setScrollKey("new-msg-divider")
-        }
+        // The group always opens at the bottom (newest). The "New messages" line still
+        // renders in the feed, and the jump-to-bottom pill still offers a tap to it, but we
+        // no longer auto-scroll to the divider on entry: it landed far up in unread history
+        // and the scroll-into-view tripped the near-top auto-pagination, walking the view
+        // upward on its own. Mark-as-read still advances from the bottom (onRangeChange /
+        // onAtBottomChange), so the line clears on the next entry.
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
         // a single targeted REQ that lands the message even when it's far older than the loaded
         // window, instead of paginating the whole history (mirrors native's fetchMessageById).
@@ -3312,10 +3291,11 @@ private fun ChildrenBuilder.renderMessageContent(
 ) {
     val emojiMap = extractEmojiMap(tags)
     val posters = extractVideoPosters(tags)
+    val dims = Nip68.extractImetaDimensions(tags)
     var last = 0
     for (block in CODE_BLOCK_REGEX.findAll(content)) {
         if (block.range.first > last) {
-            renderInline(content.substring(last, block.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderInline(content.substring(last, block.range.first), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         val lang = block.groupValues[1].takeIf { it.isNotBlank() }
         div {
@@ -3334,7 +3314,7 @@ private fun ChildrenBuilder.renderMessageContent(
         last = block.range.last + 1
     }
     if (last < content.length) {
-        renderInline(content.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderInline(content.substring(last), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
@@ -3343,6 +3323,7 @@ private fun ChildrenBuilder.renderInline(
     text: String,
     emojiMap: Map<String, String>,
     posters: Map<String, String>,
+    dims: Map<String, Pair<Int, Int>>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -3352,7 +3333,7 @@ private fun ChildrenBuilder.renderInline(
     var last = 0
     for (m in INLINE_CODE_REGEX.findAll(text)) {
         if (m.range.first > last) {
-            renderEntities(text.substring(last, m.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderEntities(text.substring(last, m.range.first), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         code {
             className = ClassName("msg-code")
@@ -3361,7 +3342,7 @@ private fun ChildrenBuilder.renderInline(
         last = m.range.last + 1
     }
     if (last < text.length) {
-        renderEntities(text.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderEntities(text.substring(last), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
@@ -3369,6 +3350,7 @@ private fun ChildrenBuilder.renderEntities(
     content: String,
     emojiMap: Map<String, String>,
     posters: Map<String, String>,
+    dims: Map<String, Pair<Int, Int>>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -3382,18 +3364,25 @@ private fun ChildrenBuilder.renderEntities(
         }
         val token = match.value
         if (token.startsWith("data:image/")) {
-            ChatImage { imageUrl = token }
+            ChatImage {
+                imageUrl = token
+                dimensions = dims[token]
+            }
         } else if (token.startsWith("http")) {
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
             val youtubeId = YOUTUBE_REGEX.find(url)?.groupValues?.get(1)
             if (youtubeId != null) {
                 YouTubeEmbed { videoId = youtubeId }
             } else if (IMAGE_EXT.containsMatchIn(url)) {
-                ChatImage { imageUrl = url }
+                ChatImage {
+                    imageUrl = url
+                    dimensions = dims[url]
+                }
             } else if (VIDEO_EXT.containsMatchIn(url)) {
                 ChatVideo {
                     videoUrl = url
                     posterUrl = posters[url]
+                    dimensions = dims[url]
                 }
             } else {
                 a {
