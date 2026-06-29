@@ -93,6 +93,7 @@ fun GroupScreen(
     val sendError by vm.sendError.collectAsState()
     val deleteMessageError by vm.deleteMessageError.collectAsState()
     val reactionError by vm.reactionError.collectAsState()
+    val joinError by vm.joinError.collectAsState()
     val moderationError by vm.moderationError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     // Cross-relay membership view. `vm.joinedGroups` is filtered by
@@ -361,11 +362,13 @@ fun GroupScreen(
     }
 
     // Unread-from-others count for the FAB badge (Telegram pattern). Mirrors
-    // the divider's filter — own messages don't count as unread.
+    // the divider's filter — own messages and membership/moderation events (9021
+    // join, 9022 leave, 9000/9001) don't count as unread, only kind:9 chat. Without
+    // the kind guard a single chat plus a join would read as "3 new".
     val unreadFromOthersCount =
         remember(messages, lastReadSnapshot, currentUserPubkey) {
             val snapshot = lastReadSnapshot ?: return@remember 0
-            messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey }
+            messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey && it.kind == 9 }
         }
 
     // `awaitingAuthReadSet` keeps the skeleton up while a private group's initial read waits on
@@ -641,6 +644,18 @@ fun GroupScreen(
         )
     }
 
+    // Join error dialog (relay rejected the kind:9021 join request)
+    joinError?.let { error ->
+        ConfirmDialog(
+            title = "Could Not Join",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearJoinError() },
+            onDismiss = { vm.clearJoinError() },
+        )
+    }
+
     // Send message error dialog
     sendError?.let { error ->
         val isPendingError = error.contains("pending admin approval", ignoreCase = true)
@@ -894,7 +909,16 @@ fun GroupScreen(
                         // divider, not pinned to the bottom). (issue #83)
                         lastReadSnapshot = null
                     },
-                    onLeftBottom = {},
+                    onLeftBottom = {
+                        // Re-arm the unread baseline when leaving the bottom already caught up
+                        // (snapshot cleared by a prior onReachedBottom). Without this the jump
+                        // FAB count stays 0 for the rest of the session, so a message arriving
+                        // while scrolled up never shows "N new". Anchor to the current newest so
+                        // only later arrivals count.
+                        if (lastReadSnapshot == null) {
+                            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+                        }
+                    },
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
@@ -1046,7 +1070,16 @@ fun GroupScreen(
                         // divider, not pinned to the bottom). (issue #83)
                         lastReadSnapshot = null
                     },
-                    onLeftBottom = {},
+                    onLeftBottom = {
+                        // Re-arm the unread baseline when leaving the bottom already caught up
+                        // (snapshot cleared by a prior onReachedBottom). Without this the jump
+                        // FAB count stays 0 for the rest of the session, so a message arriving
+                        // while scrolled up never shows "N new". Anchor to the current newest so
+                        // only later arrivals count.
+                        if (lastReadSnapshot == null) {
+                            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+                        }
+                    },
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,

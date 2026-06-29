@@ -1161,6 +1161,10 @@ val ChatScreen =
         // (GroupViewModel.kt:148-157 + GroupScreen.kt:620-665) — the web used to
         // swallow it, so the reaction just blinked away with no explanation.
         val reactionError = useStateFlow(vm.reactionError)
+        // Relay rejected the kind:9021 join request (closed group needing an invite code, auth
+        // failure, etc.). Surfaced so tapping Join is never a silent no-op. Mirrors native's
+        // join-error dialog and the reactionError flow above.
+        val joinError = useStateFlow(vm.joinError)
 
         // In-chat search (UI-local). matchIds is cheap to recompute per render; the current
         // index walks it with wraparound and drives a scroll command to that row.
@@ -1301,14 +1305,16 @@ val ChatScreen =
         // hot-path source of truth for the scroll handler; setAtBottomState is
         // only invoked on the transition so we don't re-render every scroll tick.
         val (atBottomState, setAtBottomState) = useState { true }
-        // Unread count for the FAB badge — only counts unread messages from
-        // *other* users, mirroring the divider's own filter. Updates whenever
-        // messages or the snapshot change.
+        // Unread count for the FAB badge — only counts unread CHAT messages (kind:9) from
+        // *other* users, mirroring the divider's own filter (ChatItems.kt:116). Without the
+        // kind:9 guard, membership/moderation events (9021 join, 9022 leave, 9000/9001) that the
+        // divider deliberately skips would still inflate the count, so a single "hi" plus a join
+        // shows "3 new". Updates whenever messages or the snapshot change.
         val unreadCount =
             if (lastReadSnapshot == null) {
                 0
             } else {
-                messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
+                messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey && it.kind == 9 }
             }
 
         // Load messages + author/member metadata when the group (or its rosters)
@@ -1975,6 +1981,14 @@ val ChatScreen =
                                 setAtBottomState(ab)
                                 if (!ab) {
                                     wasNotAtBottom.current = true
+                                    // Re-arm the unread baseline at the moment we leave the bottom when
+                                    // it was already cleared (caught up). Otherwise the jump pill's count
+                                    // stays dead for the rest of the session: a message arriving while
+                                    // scrolled up is never newer than a null snapshot, so "N new" never
+                                    // shows. Anchoring to the current newest means only later arrivals count.
+                                    if (lastReadSnapshot == null) {
+                                        messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
+                                    }
                                 } else {
                                     if (wasNotAtBottom.current == true && lastReadSnapshot != null) setLastReadSnapshot(null)
                                     vm.markAsRead()
@@ -2400,8 +2414,40 @@ val ChatScreen =
                     },
                 )
             }
+            // Relay rejected the join request — show the reason instead of a silent no-op.
+            joinError?.let { error ->
+                joinErrorDialog(error) { vm.clearJoinError() }
+            }
         }
     }
+
+/** Error dialog shown when the relay rejects a kind:9021 join request. Single OK button. */
+private fun ChildrenBuilder.joinErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +"Could Not Join"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
+                }
+            }
+        }
+    }
+}
 
 /** Error dialog shown when the relay rejects a kind:5. Single OK button —
  *  matches the native AlertDialog at GroupScreen.kt:548-562. */
