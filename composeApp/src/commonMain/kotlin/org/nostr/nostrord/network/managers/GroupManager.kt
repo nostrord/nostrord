@@ -3089,7 +3089,7 @@ class GroupManager(
             _messages.value[groupId].orEmpty() +
                 _threadRoots.value[groupId].orEmpty() +
                 _threadReplies.value[groupId].orEmpty()
-        ).firstOrNull { it.id == messageId }?.pubkey
+            ).firstOrNull { it.id == messageId }?.pubkey
         val deletionKind = deletionKindFor(
             isOwnMessage = messageAuthor == pubKey,
             isAdmin = isGroupAdmin(groupId, pubKey),
