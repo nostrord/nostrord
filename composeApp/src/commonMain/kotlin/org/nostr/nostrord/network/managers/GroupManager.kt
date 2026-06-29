@@ -3230,23 +3230,25 @@ class GroupManager(
         _loadingMembers.value = _loadingMembers.value - members.groupId
 
         val self = currentPubkey
-        if (self != null &&
-            members.groupId in _pendingApprovalSince.value &&
-            self in members.members &&
-            currentMembers?.contains(self) != true
+        val selfNowMember = self != null && self in members.members
+        val selfWasAbsent = currentMembers?.contains(self) != true
+
+        // The relay listing us in 39002 is the ground-truth approval signal. If we were gated
+        // (locally pending OR persisted/CLOSED as restricted) and have just transitioned into the
+        // member list, we gained read access this moment: clear the gate AND re-arm the live
+        // subscription. Keyed on the restricted marker too, not only _pendingApprovalSince, because
+        // some join paths (invite link / deep link) never set the pending marker, yet the relay
+        // still CLOSED our pre-approval mux as "restricted" — without the re-arm the admin's later
+        // messages never reach us until an app restart.
+        if (selfNowMember &&
+            selfWasAbsent &&
+            (members.groupId in _pendingApprovalSince.value || members.groupId in _restrictedGroups.value)
         ) {
             onApprovalDetected(members.groupId)
-        }
-
-        // A confirmed membership contradicts any persisted restricted marker.
-        // The marker can survive 7 days in SecureStorage, so a stale CLOSED
-        // "restricted" from a past auth race would otherwise keep the group
-        // showing the "Private group / invite code" placeholder forever, even
-        // after the relay returned 39002 listing self as a member.
-        if (self != null &&
-            self in members.members &&
-            members.groupId in _restrictedGroups.value
-        ) {
+        } else if (selfNowMember && members.groupId in _restrictedGroups.value) {
+            // Confirmed membership with no live transition (e.g. a stale 7-day restricted marker
+            // restored from SecureStorage on cold start): just drop the "Private group / invite
+            // code" placeholder. The mux is built fresh this session, so no re-arm is needed.
             clearGroupRestricted(members.groupId)
         }
 
@@ -3288,6 +3290,12 @@ class GroupManager(
             val relayUrl = getRelayForGroup(groupId)
             if (relayUrl != null) {
                 try {
+                    // Pre-approval the relay CLOSED our batched mux subs with "restricted"; a relay
+                    // CLOSE does not update muxTracker, so it still believes the live chat sub is
+                    // active and a same-state refresh would be skipped (needsRefresh == false),
+                    // leaving the tail dead until an app restart. Invalidate so the re-subscribe
+                    // actually fires now that we have read access.
+                    muxTracker.clearRelay(relayUrl)
                     refreshMuxSubscriptionsForRelay(relayUrl)
                 } catch (_: Exception) {}
             }
