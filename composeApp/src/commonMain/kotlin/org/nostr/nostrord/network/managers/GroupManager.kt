@@ -482,7 +482,12 @@ class GroupManager(
 
     // Gate for the approval-recovery path: only fires when the user actually
     // sent kind:9021, never for historical events on already-joined groups.
-    private val pendingApprovalSince = mutableMapOf<String, Long>()
+    // Exposed as a StateFlow so the membership derivation reads "I have an outstanding join request"
+    // from this LOCAL truth (set on our 9021, cleared on our 9022/leave/approval) instead of the
+    // kind:9021 echo in the message feed, which leaveGroup clears and a re-fetch races, leaving a
+    // left group stuck on "Request pending" until a reload.
+    private val _pendingApprovalSince = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val pendingApprovalSince: StateFlow<Map<String, Long>> = _pendingApprovalSince.asStateFlow()
 
     // Drops the relay's kind:9022 echo and updated kind:39002 that arrive in
     // the milliseconds after a leave, otherwise they re-populate the lists we
@@ -1160,21 +1165,21 @@ class GroupManager(
 
             // Private/closed relays gate the join-request publish behind NIP-42 AUTH. Firing the
             // 9021 on an unauthenticated socket gets it dropped "auth-required" and the admin never
-            // sees the pending request (only invite-code joins, which the relay auto-admits, slip
-            // through). Wait for AUTH first, like the private-group read paths. No-op on open/public
+            // sees the pending request. awaitAuthSigned (not the requiresAuth-gated wait) also covers
+            // the fresh-connect race where the relay has not issued its challenge yet by tap time:
+            // it waits for the challenge to arrive, then for the signer. Returns fast on open/public
             // relays that never challenge.
-            if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
-                currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
-            }
+            currentClient.awaitAuthSigned(signBudgetMs = INITIAL_READ_AUTH_TIMEOUT_MS)
 
-            // Await the OK so an auth/policy rejection surfaces as a failed join (reverting the
-            // optimistic membership) instead of silently leaving the user stuck "pending".
+            // Await the OK so a relay rejection (e.g. a closed group that only admits via invite
+            // code) surfaces with its reason instead of failing silently, and so we only record the
+            // optimistic membership when the request was actually accepted.
             when (val publish = currentClient.sendAndAwaitOk(message, eventId)) {
                 is org.nostr.nostrord.network.PublishResult.Success -> Unit
                 is org.nostr.nostrord.network.PublishResult.Rejected ->
                     return Result.Error(AppError.Group.JoinFailed(groupId, Exception(publish.reason)))
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception("Join request timed out")))
+                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception("The relay did not confirm the join request.")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
                     return Result.Error(AppError.Group.JoinFailed(groupId, publish.exception))
             }
@@ -1198,7 +1203,7 @@ class GroupManager(
             publishJoinedGroups()
 
             clearGroupRestricted(groupId)
-            pendingApprovalSince[groupId] = epochMillis()
+            _pendingApprovalSince.update { it + (groupId to epochMillis()) }
             refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             kotlinx.coroutines.delay(500)
@@ -2073,7 +2078,6 @@ class GroupManager(
                         content = reason.orEmpty(),
                     )
                     val signedEvent = signEvent(event)
-                    val eventId = signedEvent.id
                     val message = buildJsonArray {
                         add("EVENT")
                         add(signedEvent.toJsonObject())
@@ -2081,16 +2085,13 @@ class GroupManager(
                     // Private/closed relays gate the leave-request behind NIP-42 AUTH. Firing the
                     // 9022 on an unauthenticated socket gets it dropped "auth-required", so the relay
                     // never removes the user and re-fetched members keep listing them (the group looks
-                    // joined again on reopen). Wait for AUTH like the join path, then await the OK.
-                    // Still best-effort: a dead relay / rejection falls through to the local cleanup.
+                    // joined again on reopen). Wait for AUTH first, like the join path. No-op on
+                    // open/public relays. Fire-and-forget after that so the local cleanup below is
+                    // never delayed by an OK that some relays don't send for a 9022.
                     if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
                         currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
                     }
-                    if (eventId != null) {
-                        currentClient.sendAndAwaitOk(message, eventId)
-                    } else {
-                        currentClient.send(message)
-                    }
+                    currentClient.send(message)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
@@ -2120,15 +2121,23 @@ class GroupManager(
             memberEventTimestamps.remove(groupId)
             adminEventTimestamps.remove(groupId)
             roleEventTimestamps.remove(groupId)
-            pendingApprovalSince.remove(groupId)
+            _pendingApprovalSince.update { it - groupId }
             messageIdIndex.remove(groupId)
             _latestMessageRelayByGroup.update { it - groupId }
             observedGroupsMutex.withLock { observedGroups.remove(groupId) }
             loadingRegistry.remove(groupId)
             _openedGroupIds.update { it - groupId }
+            // When the relay gates this group's reads behind NIP-42 AUTH, leaving makes us a
+            // non-member and the relay WILL re-CLOSE our reads "restricted" a round-trip later.
             // Leaving is an explicit reset of intent — a future rejoin should
             // get a fresh access attempt instead of being silently excluded.
             clearGroupRestricted(groupId)
+
+            // Overwrite the persisted membership cache (now that the in-memory maps no longer carry
+            // this group) so a restart does not re-hydrate self into the left group's member list —
+            // which would read back as MEMBER (no Join button, cached chat) on a private group whose
+            // 39002 the relay no longer serves us.
+            persistGroupMembershipSnapshot()
 
             // Drop the group from the live mux so the relay stops pushing
             // events for it the moment we send the leave.
@@ -3183,7 +3192,7 @@ class GroupManager(
 
         val self = currentPubkey
         if (self != null &&
-            pendingApprovalSince.containsKey(members.groupId) &&
+            members.groupId in _pendingApprovalSince.value &&
             self in members.members &&
             currentMembers?.contains(self) != true
         ) {
@@ -3205,11 +3214,14 @@ class GroupManager(
         return members.members
     }
 
-    // Pre-approval CLOSED("restricted") drove the loader to Exhausted; reset
-    // so the next poll's startInitialLoad is no longer a no-op. No _messages
-    // clear, no dedup eviction, no manual fetch — those break pagination.
+    // Pre-approval CLOSED("restricted") drove the loader to Exhausted. Reset it (so
+    // startInitialLoad is no longer a no-op) and re-run the initial history load through
+    // the controller now that we have read access: refreshMux only re-subscribes the live
+    // tail, so without this the group stays on "No messages yet" until someone posts. We go
+    // through requestGroupMessages (the state-machine path), NOT a raw _messages fetch /
+    // dedup eviction, which is what broke pagination before.
     private fun onApprovalDetected(groupId: String) {
-        pendingApprovalSince.remove(groupId)
+        _pendingApprovalSince.update { it - groupId }
         clearGroupRestricted(groupId)
         scope.launch {
             try {
@@ -3221,6 +3233,9 @@ class GroupManager(
                     refreshMuxSubscriptionsForRelay(relayUrl)
                 } catch (_: Exception) {}
             }
+            try {
+                requestGroupMessages(groupId)
+            } catch (_: Exception) {}
         }
     }
 
@@ -3972,7 +3987,7 @@ class GroupManager(
         memberEventTimestamps.clear()
         adminEventTimestamps.clear()
         roleEventTimestamps.clear()
-        pendingApprovalSince.clear()
+        _pendingApprovalSince.value = emptyMap()
         recentlyLeftAt.clear()
         // Pubkey-scoped: the next account reloads its own set from storage in loadJoinedGroupsFromStorage.
         deletedGroupIds.clear()

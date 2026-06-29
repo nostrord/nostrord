@@ -356,6 +356,7 @@ class NostrRepository(
     // NIP-57 zap totals per zapped event id.
     override val zaps: StateFlow<Map<String, ZapManager.ZapInfo>> = zapManager.zaps
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
+    override val pendingApprovalSince: StateFlow<Map<String, Long>> = groupManager.pendingApprovalSince
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers

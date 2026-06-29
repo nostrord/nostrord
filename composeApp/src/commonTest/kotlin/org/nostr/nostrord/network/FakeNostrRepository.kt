@@ -106,6 +106,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun resetGroupLoadingState(groupId: String) {}
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = _reactions
     override val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers
+    override val pendingApprovalSince: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
     override val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata
     override val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents

@@ -100,6 +100,9 @@ interface NostrRepositoryApi {
     /** NIP-57 zap totals keyed by zapped event id. */
     val zaps: StateFlow<Map<String, ZapManager.ZapInfo>>
     val groupMembers: StateFlow<Map<String, List<String>>>
+
+    /** groupId -> epochMillis of our outstanding kind:9021 join request awaiting approval. */
+    val pendingApprovalSince: StateFlow<Map<String, Long>>
     val groupAdmins: StateFlow<Map<String, List<String>>>
     val groupRoles: StateFlow<Map<String, List<RoleDefinition>>>
     val loadingMembers: StateFlow<Set<String>>

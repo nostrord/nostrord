@@ -18,6 +18,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
+import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
 
@@ -146,6 +147,7 @@ class GroupViewModel(
                 repo.messages,
                 repo.groups,
                 AppModule.accountStore.activeId,
+                repo.pendingApprovalSince,
             ),
         ) { arr ->
             val joinedByRelay = arr[0] as Map<String, Set<String>>
@@ -153,6 +155,7 @@ class GroupViewModel(
             val adminsByGroup = arr[2] as Map<String, List<String>>
             val messagesByGroup = arr[3] as Map<String, List<NostrGroupClient.NostrMessage>>
             val allGroups = arr[4] as List<GroupMetadata>
+            val pendingByGroup = arr[6] as Map<String, Long>
 
             val pubkey = repo.getPublicKey()
             val joined = joinedByRelay.values.any { groupId in it }
@@ -161,11 +164,19 @@ class GroupViewModel(
             // Absent metadata defaults to open (the permissive NIP-29 default), so we don't
             // wrongly hold a group as pending before its kind:39000 arrives.
             val isOpen = allGroups.find { it.id == groupId }?.isOpen ?: true
-            val requestedAt =
-                messagesByGroup[groupId].orEmpty()
-                    .asSequence()
-                    .filter { it.kind == 9021 && it.pubkey == pubkey }
-                    .maxOfOrNull { it.createdAt }
+            // Outstanding join request: prefer the LOCAL pendingApprovalSince (set on our 9021, cleared
+            // the instant we leave / are approved) — it is the reliable in-session truth. The kind:9021
+            // in the message feed is the fallback that survives a restart, but it is gated on `joined`:
+            // a left group is removed from our joined list, so a stale 9021 still echoed in a re-fetched
+            // feed no longer reads as pending. (`leaveGroup` clears the feed and a re-fetch races, which
+            // is why the feed alone left a left group stuck on "Request pending" until a reload.)
+            val localPendingAt = pendingByGroup[groupId]
+            val ownEvents = messagesByGroup[groupId].orEmpty().asSequence().filter { it.pubkey == pubkey }
+            val lastJoinReq = ownEvents.filter { it.kind == 9021 }.maxOfOrNull { it.createdAt }
+            val lastLeave = ownEvents.filter { it.kind == 9022 }.maxOfOrNull { it.createdAt }
+            val feedRequestedAt =
+                lastJoinReq?.takeIf { (lastLeave == null || it > lastLeave) && joined }
+            val requestedAt = localPendingAt ?: feedRequestedAt
 
             val status =
                 deriveMembershipStatus(
@@ -224,6 +235,11 @@ class GroupViewModel(
     private val _reactionError = MutableStateFlow<String?>(null)
     val reactionError: StateFlow<String?> = _reactionError
 
+    // Relay rejected the kind:9021 join request (e.g. a closed group that only admits via an invite
+    // code, or an auth failure). Surfaced so a tap on Join is never a silent no-op.
+    private val _joinError = MutableStateFlow<String?>(null)
+    val joinError: StateFlow<String?> = _joinError
+
     fun clearSendError() {
         _sendError.value = null
     }
@@ -234,6 +250,10 @@ class GroupViewModel(
 
     fun clearReactionError() {
         _reactionError.value = null
+    }
+
+    fun clearJoinError() {
+        _joinError.value = null
     }
 
     fun getPublicKey() = repo.getPublicKey()
@@ -276,7 +296,19 @@ class GroupViewModel(
     fun dismissFailed(eventId: String) = repo.dismissFailed(groupId, eventId)
 
     fun joinGroup(inviteCode: String? = null) {
-        viewModelScope.launch { repo.joinGroup(groupId, inviteCode) }
+        _joinError.value = null
+        viewModelScope.launch {
+            val result = repo.joinGroup(groupId, inviteCode)
+            if (result is Result.Error) {
+                val reason = (result.error as? AppError.Group.JoinFailed)?.cause?.message
+                _joinError.value =
+                    if (reason.isNullOrBlank()) {
+                        "Could not join the group. Please try again."
+                    } else {
+                        "Could not join: $reason"
+                    }
+            }
+        }
     }
 
     fun leaveGroup(onSuccess: () -> Unit) {
