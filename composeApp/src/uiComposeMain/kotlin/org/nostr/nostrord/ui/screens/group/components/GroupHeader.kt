@@ -496,17 +496,21 @@ internal fun GroupHeaderIcon(
     // Self-healing load (keyed on the URL): a transient failure no longer latches the icon to its
     // gradient placeholder for the rest of the session.
     val avatar = rememberAvatarImageState(pictureUrl)
-    val showImage = !pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error
+    val hasImage = !pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error
+    // Only treat the icon as "image-backed" once the photo has actually loaded. While loading,
+    // keep the gradient (not a bare dark/black tile) so a missing or slow picture still shows
+    // the seeded fallback, matching the web group avatar.
+    val loaded = avatar.state is AsyncImagePainter.State.Success
 
     Box(
         modifier =
         Modifier
             .size(size)
             .clip(iconShape)
-            .background(if (showImage) NostrordColors.BackgroundDark else Color.Transparent),
+            .background(if (loaded) NostrordColors.BackgroundDark else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
-        if (!showImage) {
+        if (!loaded) {
             // Seeded conic-swirl gradient + initial letter, matching the web group
             // avatar fallback (groupGradientCss). The outer Box clips it to iconShape.
             GroupGradientAvatar(
@@ -516,7 +520,7 @@ internal fun GroupHeaderIcon(
             )
         }
         // Gate out on Error so the retry's Error -> Empty reset re-composes a fresh load.
-        if (!pictureUrl.isNullOrBlank() && avatar.state !is AsyncImagePainter.State.Error) {
+        if (hasImage) {
             AsyncImage(
                 model =
                 ImageRequest

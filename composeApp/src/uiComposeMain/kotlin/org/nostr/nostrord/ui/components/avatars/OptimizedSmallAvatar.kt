@@ -128,6 +128,7 @@ fun OptimizedSmallAvatar(
         val showPlaceholder =
             avatar.state is AsyncImagePainter.State.Loading ||
                 avatar.state is AsyncImagePainter.State.Error
+        val loaded = avatar.state is AsyncImagePainter.State.Success
 
         // Always render placeholder behind (for loading state and as fallback)
         if (showPlaceholder) {
@@ -162,8 +163,10 @@ fun OptimizedSmallAvatar(
                     .fillMaxSize()
                     .clip(shape)
                     // White backdrop so a transparent avatar (PNG with alpha) shows on
-                    // white instead of the surface colour bleeding through.
-                    .background(Color.White)
+                    // white instead of the surface colour bleeding through. Only once the
+                    // picture has loaded; while loading it would cover the gradient
+                    // placeholder with a solid white tile (matches web's avatar-photo-white).
+                    .then(if (loaded) Modifier.background(Color.White) else Modifier)
                     .then(
                         // Add subtle edge definition for smaller sizes
                         if (edgeColor.alpha > 0f) {
