@@ -35,8 +35,8 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.AppTextField
-import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
+import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes

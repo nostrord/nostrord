@@ -3,6 +3,7 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.storage.SecureStorage
@@ -10,7 +11,6 @@ import org.nostr.nostrord.storage.addLeftGroupForRelay
 import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.utils.epochSeconds
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -26,8 +26,7 @@ class GroupLeftMarkerTest {
     private val groupA = "left-marker-group-a"
     private val groupB = "left-marker-group-b"
 
-    private fun makeManager(scope: TestScope): GroupManager =
-        GroupManager(connectionManager = ConnectionManager(scope), scope = scope)
+    private fun makeManager(scope: TestScope): GroupManager = GroupManager(connectionManager = ConnectionManager(scope), scope = scope)
 
     private fun reset() {
         SecureStorage.saveJoinedGroupsForRelay(pubkey, relay, emptySet())
