@@ -1105,6 +1105,10 @@ val ChatScreen =
         // outstanding kind:9021 on a closed group, so it shows immediately instead of sitting blank
         // until the member list arrives. Authoritative for BOTH composer and chat/members panels.
         val membership = useStateFlow(vm.membershipState)
+        // Access shape for the Private/Closed labels: trusts kind:39000 when present, else infers
+        // from the relay's restricted signal (metadata is withheld from non-members). Replaces the
+        // raw group.isPublic/isOpen so an outsider sees Private/Closed even before any placeholder.
+        val access = useStateFlow(vm.groupAccess)
         val canPost = membership.status == GroupMembership.MEMBER || membership.status == GroupMembership.ADMIN
         val isPendingApproval = membership.status == GroupMembership.PENDING
         val membersResolving = membership.status == GroupMembership.RESOLVING
@@ -1500,6 +1504,18 @@ val ChatScreen =
                 repo.requestPendingJoinRequests(group.id)
             }
         }
+        // Pending member in a closed group: the group is restricted, so it's excluded from the live
+        // mux and the approval kind:39002 is never pushed — the member would sit "Awaiting approval"
+        // until a restart re-fetched it. Poll the member list while pending so onApprovalDetected
+        // fires live. Mirrors native GroupScreen's pending poll (GroupScreen.kt:285-294). The suspend
+        // effect's delay propagates CancellationException, so approval / leaving tears down the loop.
+        useEffect(group.id, isPendingApproval, activeAccountId) {
+            if (!isPendingApproval) return@useEffect
+            while (true) {
+                delay(10_000)
+                vm.refreshGroupData()
+            }
+        }
         useEffect(group.id, members.size, messages.size, activeAccountId) {
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) vm.requestUserMetadata(pubkeys)
@@ -1705,7 +1721,7 @@ val ChatScreen =
                     // A private group exposes nothing to non-members (no messages, member list or
                     // shareable invite), so hide Search / Invite / Group Info / Members there; a
                     // public group, or a private one you're a member of, keeps them.
-                    if (group.isPublic || canPost) {
+                    if (!access.isPrivate || canPost) {
                         button {
                             className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
                             title = "Search"
@@ -1742,7 +1758,7 @@ val ChatScreen =
                             // Closed groups: surface an "Invite Code" button next to
                             // Join (matches native GroupHeader.kt:208-232). Opens the
                             // JoinWithCodeModal — the web port of native InviteCodeJoinModal.
-                            if (!group.isOpen) {
+                            if (!access.isOpen) {
                                 button {
                                     className = ClassName("chat-invite-btn")
                                     onClick = { setModal("joincode") }
@@ -1754,7 +1770,7 @@ val ChatScreen =
                                 className = ClassName("chat-join-btn")
                                 onClick = { join() }
                                 icon(Ic.PersonAdd)
-                                span { +(if (!group.isOpen) "Request to Join" else "Join") }
+                                span { +(if (!access.isOpen) "Request to Join" else "Join") }
                             }
                         }
                     }

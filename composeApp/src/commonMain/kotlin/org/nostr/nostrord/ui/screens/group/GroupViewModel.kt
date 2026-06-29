@@ -36,6 +36,17 @@ data class MentionableGroup(
  */
 enum class GroupMembership { NONE, RESOLVING, PENDING, MEMBER, ADMIN }
 
+/**
+ * The group's access shape for UI labels (Private/Closed badges, Join vs Request-to-Join). Separate
+ * from [GroupMembershipState] so it can fall back to the relay's restricted signal when the kind:39000
+ * metadata is withheld from a non-member, WITHOUT touching the membership derivation's permissive
+ * `isOpen` default.
+ */
+data class GroupAccess(
+    val isPrivate: Boolean = false,
+    val isOpen: Boolean = true,
+)
+
 data class GroupMembershipState(
     val status: GroupMembership = GroupMembership.RESOLVING,
     /** Latest own kind:9021 createdAt (seconds) - drives the pending bar's "Requested ..." line. */
@@ -198,6 +209,23 @@ class GroupViewModel(
                 )
             GroupMembershipState(status, requestedAt)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupMembershipState())
+
+    /**
+     * Access shape (Private/Closed) for UI labels. Trusts the kind:39000 metadata when present;
+     * otherwise (withheld from a non-member) infers from the relay's restricted signal so an outsider
+     * sees "Private"/"Request to Join" instead of the misleading public/open default. Both UIs read
+     * this for the badges and the Join-vs-Request-to-Join label.
+     */
+    val groupAccess: StateFlow<GroupAccess> =
+        combine(repo.groups, repo.restrictedGroups) { groups, restricted ->
+            val meta = groups.find { it.id == groupId }
+            if (meta != null) {
+                GroupAccess(isPrivate = !meta.isPublic, isOpen = meta.isOpen)
+            } else {
+                val restrictedHere = groupId in restricted
+                GroupAccess(isPrivate = restrictedHere, isOpen = !restrictedHere)
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupAccess())
 
     /**
      * True when this group is no longer available: the relay it lives on finished serving its group
