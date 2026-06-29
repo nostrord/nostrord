@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -51,6 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
@@ -135,6 +138,16 @@ fun GroupSidebar(
                     muted = true,
                 ) { onNavigateGroup(GroupRoute(route.relayUrl, parent.id)) }
             }
+            SidebarRow(
+                icon = Icons.AutoMirrored.Filled.Chat,
+                label = "Chat",
+                active = route.view == GroupView.Chat,
+            ) { onNavigateGroup(route.copy(view = GroupView.Chat, threadRootId = null)) }
+            SidebarRow(
+                icon = Icons.Default.Forum,
+                label = "Threads",
+                active = route.view == GroupView.Threads,
+            ) { onNavigateGroup(route.copy(view = GroupView.Threads, threadRootId = null)) }
             SidebarRow(
                 icon = Icons.Default.People,
                 label = if (memberCount > 0) "Members · $memberCount" else "Members",
@@ -355,16 +368,18 @@ private fun SidebarRow(
     icon: ImageVector,
     label: String,
     muted: Boolean = false,
+    active: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val highlighted = isHovered || active
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
             .clip(NostrordShapes.shapeMedium)
-            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .background(if (highlighted) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs + Spacing.xxs),
@@ -374,14 +389,20 @@ private fun SidebarRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (muted) NostrordColors.TextMuted else NostrordColors.TextSecondary,
+            tint = if (highlighted) {
+                NostrordColors.TextPrimary
+            } else if (muted) {
+                NostrordColors.TextMuted
+            } else {
+                NostrordColors.TextSecondary
+            },
             modifier = Modifier.size(17.dp),
         )
         Text(
             label,
             color =
             when {
-                isHovered -> NostrordColors.TextPrimary
+                highlighted -> NostrordColors.TextPrimary
                 muted -> NostrordColors.TextMuted
                 else -> NostrordColors.TextSecondary
             },

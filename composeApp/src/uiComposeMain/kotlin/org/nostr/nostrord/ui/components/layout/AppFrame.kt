@@ -116,6 +116,7 @@ import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.HashRoute
 import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
@@ -128,6 +129,7 @@ import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
+import org.nostr.nostrord.ui.screens.group.ThreadsScreen
 import org.nostr.nostrord.ui.screens.group.components.AddGroupModal
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
@@ -647,22 +649,31 @@ private fun FrameContent(
                     onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
                     onOpenDrawer = onOpenDrawer,
                 )
-            is GroupRoute -> {
-                val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
-                val name = groupsByRelay[route.relayUrl]?.firstOrNull { it.id == route.groupId }?.name
-                GroupScreen(
-                    groupId = route.groupId,
-                    groupName = name,
-                    onNavigateHome = onCloseGroup,
-                    onNavigateToGroup = { gid, _, relay -> onNavigate(GroupRoute(relay ?: route.relayUrl, gid)) },
-                    onOpenRelay = { onNavigate(RelayRoute(it)) },
-                    showServerRail = false,
-                    forceDesktop = forceDesktop,
-                    onOpenDrawer = onOpenDrawer ?: {},
-                    pendingInviteCode = route.inviteCode,
-                    onInviteCodeConsumed = onConsumeInvite,
-                )
-            }
+            is GroupRoute ->
+                if (route.view == GroupView.Threads) {
+                    // Forum threads pane. The group rail + sidebar stay mounted, so only this
+                    // centre pane swaps when leaving chat (mirrors the web AppFrame branch).
+                    ThreadsScreen(
+                        route = route,
+                        onNavigate = onNavigate,
+                        onOpenDrawer = onOpenDrawer ?: {},
+                    )
+                } else {
+                    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
+                    val name = groupsByRelay[route.relayUrl]?.firstOrNull { it.id == route.groupId }?.name
+                    GroupScreen(
+                        groupId = route.groupId,
+                        groupName = name,
+                        onNavigateHome = onCloseGroup,
+                        onNavigateToGroup = { gid, _, relay -> onNavigate(GroupRoute(relay ?: route.relayUrl, gid)) },
+                        onOpenRelay = { onNavigate(RelayRoute(it)) },
+                        showServerRail = false,
+                        forceDesktop = forceDesktop,
+                        onOpenDrawer = onOpenDrawer ?: {},
+                        pendingInviteCode = route.inviteCode,
+                        onInviteCodeConsumed = onConsumeInvite,
+                    )
+                }
         }
     }
 }
