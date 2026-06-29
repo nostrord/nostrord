@@ -1297,13 +1297,13 @@ val ChatScreen =
             Unit
         }
 
-        // "New messages" divider snapshot. Captured once on group entry, then cleared
-        // once the user reaches the bottom (the new messages are on screen, so they have
-        // been seen — issue #83). The group opens aligned to the divider, so that entry
-        // alignment is itself the "scrolled up" half: reaching the bottom afterwards
-        // clears it, no separate manual round-trip needed. wasNotAtBottom records that
-        // the user has been away from the bottom (set by the entry alignment and by real
-        // scroll-aways) so the very first at-bottom pin can't wipe the divider unseen.
+        // "New messages" divider snapshot. Captured once on group entry; the group opens
+        // at the bottom with the divider above. It is consumed (see consumeDivider) only
+        // when the user acknowledges it: scrolls it into view (onDividerVisible), sends a
+        // message, or taps the jump pill to the bottom. Reaching the bottom on the entry
+        // settle must NOT clear it (issue #83). wasNotAtBottom records that the user has
+        // genuinely scrolled away this entry, gating onDividerVisible so the open-at-bottom
+        // settle can never wipe the divider unseen.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
@@ -1321,6 +1321,16 @@ val ChatScreen =
             } else {
                 messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey && it.kind == 9 }
             }
+
+        // Consume the "New messages" divider: the user has acknowledged the boundary (sent a
+        // message, or scrolled it into view). Re-anchor the snapshot to the newest loaded message
+        // so the current divider disappears AND a later arrival re-arms a fresh divider + "N new"
+        // count. markAsRead persists it so the divider does not return on the next entry. Mirrors
+        // GroupScreen.consumeDivider on native.
+        val consumeDivider = {
+            setLastReadSnapshot(messages.maxOfOrNull { it.createdAt })
+            vm.markAsRead()
+        }
 
         // Load messages + author/member metadata when the group (or its rosters)
         // change. Re-firing covers three race windows during account swap:
@@ -2007,9 +2017,18 @@ val ChatScreen =
                                         messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
                                     }
                                 } else {
-                                    if (wasNotAtBottom.current == true && lastReadSnapshot != null) setLastReadSnapshot(null)
+                                    // Reaching the bottom persists read state but does NOT dismiss the
+                                    // divider (issue #83): the entry settle opens at the bottom, so a
+                                    // reach-bottom clear there would wipe it unseen. The divider is
+                                    // consumed only via onDividerVisible (scrolled to it), send, or the
+                                    // jump pill's second tap.
                                     vm.markAsRead()
                                 }
+                            }
+                            onDividerVisible = {
+                                // The divider scrolled into view; consume it only after a genuine
+                                // scroll-away this entry, so the open-at-bottom settle never clears it.
+                                if (wasNotAtBottom.current == true && lastReadSnapshot != null) consumeDivider()
                             }
                             onRangeChange = { end ->
                                 // Mark read up to the newest message in/above the
@@ -2150,13 +2169,14 @@ val ChatScreen =
                                     if (lastReadSnapshot != null) setLastReadSnapshot(null)
                                 }
                             }
+                            val unreadLabel = if (unreadCount > 99) "99+" else unreadCount.toString()
                             if (unreadCount > 0) {
                                 span {
                                     className = ClassName("chat-jump-badge")
-                                    +unreadCount.toString()
+                                    +unreadLabel
                                 }
                             }
-                            span { +(if (unreadCount > 0) "$unreadCount new" else "Jump to latest") }
+                            span { +(if (unreadCount > 0) "$unreadLabel new" else "Jump to latest") }
                             // Down chevron (matches native KeyboardArrowDown).
                             icon(Ic.ExpandMore)
                         }
@@ -2189,7 +2209,11 @@ val ChatScreen =
                             messagesById[id]?.let { p -> replyPreviewText(p.content, userMetadata, 80) }
                         }
                     this.onCancelReply = { setReplyingToId(null) }
-                    this.onSent = { setReplyingToId(null) }
+                    this.onSent = {
+                        setReplyingToId(null)
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
+                    }
                     this.onJoin = { join() }
                     this.pendingRequestedAtSeconds = pendingRequestedAt
                     this.membersResolving = membersResolving

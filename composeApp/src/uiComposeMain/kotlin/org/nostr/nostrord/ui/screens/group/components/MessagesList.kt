@@ -148,6 +148,11 @@ fun MessagesList(
     // actually reached, instead of the binary "all or nothing" of
     // onReachedBottom).
     onSeenUpTo: (Long) -> Unit = {},
+    // Fired once the "New messages" divider has entered the viewport as a result
+    // of a genuine user scroll (gated on sawNotBottom, so the entry settle at the
+    // bottom never triggers it). The caller consumes the divider: the user has now
+    // seen where new messages begin (issue #83).
+    onDividerSeen: () -> Unit = {},
     // Count of unread messages from other users — drives the FAB badge
     // (Telegram pattern: when there are unread messages and the user has
     // scrolled away, the jump-to-bottom button shows a count badge).
@@ -177,6 +182,7 @@ fun MessagesList(
     val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
     val currentOnLeftBottom by rememberUpdatedState(onLeftBottom)
     val currentOnSeenUpTo by rememberUpdatedState(onSeenUpTo)
+    val currentOnDividerSeen by rememberUpdatedState(onDividerSeen)
     val currentOnFetchTargetById by rememberUpdatedState(onFetchTargetById)
     val currentChatItems by rememberUpdatedState(chatItems)
 
@@ -509,6 +515,24 @@ fun MessagesList(
             .filter { it > 0L }
             .distinctUntilChanged()
             .collect { currentOnSeenUpTo(it) }
+    }
+
+    // Dismiss the "New messages" divider once the user has scrolled to look at it: fire
+    // when the divider row is in the viewport AND a genuine scroll-away has happened this
+    // entry (sawNotBottom). Gating on sawNotBottom is what stops the entry settle at the
+    // bottom (where a small unread batch leaves the divider already on screen) from
+    // consuming it instantly — the user must actually engage the scroll first (issue #83).
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val dividerIndex = currentChatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
+            dividerIndex >= 0 &&
+                scrollStateHolder.sawNotBottom &&
+                listState.layoutInfo.visibleItemsInfo.any { it.index == dividerIndex }
+        }.distinctUntilChanged()
+            .debounce(250)
+            .filter { it }
+            .collect { currentOnDividerSeen() }
     }
 
     // Compensate the LazyColumn's scroll as the IME animates so visible content rides
@@ -882,7 +906,11 @@ fun MessagesList(
                                     UnreadBadge(count = unreadFromOthersCount, size = 18.dp)
                                 }
                                 Text(
-                                    text = if (unreadFromOthersCount > 0) "$unreadFromOthersCount new" else "Jump to latest",
+                                    text = when {
+                                        unreadFromOthersCount > 99 -> "99+ new"
+                                        unreadFromOthersCount > 0 -> "$unreadFromOthersCount new"
+                                        else -> "Jump to latest"
+                                    },
                                     color = contentColor,
                                     fontSize = 13.sp,
                                 )

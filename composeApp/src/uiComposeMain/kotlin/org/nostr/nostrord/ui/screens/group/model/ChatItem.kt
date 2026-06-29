@@ -135,9 +135,12 @@ fun buildChatItems(
             lastMessageTime = null
         }
 
-        // Insert new messages divider before first unread message from another user
+        // Insert new messages divider before first unread chat message from another user.
+        // kind == 9 only (parity with web): a streamed join/leave/zap from another user must
+        // not anchor the divider, or "New messages" would point at a non-chat line.
         if (!newMessagesDividerInserted &&
             lastReadTimestamp != null &&
+            message.kind == 9 &&
             message.createdAt > lastReadTimestamp &&
             message.pubkey != currentUserPubkey
         ) {

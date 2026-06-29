@@ -336,12 +336,10 @@ fun GroupScreen(
     // anchors on this value and stays in place even after markAsRead updates storage,
     // so the user keeps visual context for the session.
     //
-    // Mutable so we can clear it once the user has actually seen the new messages:
-    // reaching the bottom (the divider's messages are on screen) clears it, no
-    // scroll round-trip required — see the onReachedBottom hooks at the call sites.
-    // The group opens aligned to the divider (not pinned to the bottom) when there
-    // are unread messages, so reaching the bottom is a genuine "saw them" signal.
-    // (issue #83)
+    // The group opens at the bottom (newest), with the divider above. It is consumed
+    // (see consumeDivider) only once the user acknowledges it: scrolls it into view
+    // (onDividerSeen), sends a message, or taps the jump pill to the bottom. Reaching
+    // the bottom on the entry settle must NOT clear it (issue #83).
     var lastReadSnapshot by remember(groupId) { mutableStateOf<Long?>(vm.getLastReadTimestamp()) }
 
     val chatItems =
@@ -370,6 +368,16 @@ fun GroupScreen(
             val snapshot = lastReadSnapshot ?: return@remember 0
             messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey && it.kind == 9 }
         }
+
+    // Consume the "New messages" divider: the user has acknowledged the boundary
+    // (sent a message, scrolled it into view, or tapped the jump pill to it). Re-anchor
+    // the snapshot to the newest loaded message so the current divider disappears AND a
+    // later arrival still re-arms a fresh divider + "N new" count without depending on a
+    // leave-bottom event. markAsRead persists it so the divider does not return next entry.
+    val consumeDivider: () -> Unit = {
+        lastReadSnapshot = messages.maxOfOrNull { it.createdAt }
+        vm.markAsRead()
+    }
 
     // `awaitingAuthReadSet` keeps the skeleton up while a private group's initial read waits on
     // NIP-42 AUTH (relay challenges in response to the read, e.g. opened from the homepage); the
@@ -819,6 +827,8 @@ fun GroupScreen(
                         groupMentions = emptyMap()
                         replyingToMessage = null
                         pendingUploads = emptyList()
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
                         vm.sendMessage(
                             content,
                             selectedChannel,
@@ -902,12 +912,11 @@ fun GroupScreen(
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
                     onReachedBottom = {
+                        // Persist read state when caught up; the divider itself is NOT
+                        // cleared here. Reaching the bottom on the entry settle must not
+                        // dismiss it (issue #83): the divider is consumed only once the
+                        // user has scrolled it into view (onDividerSeen) or sent a message.
                         vm.markAsRead()
-                        // Clear the "New messages" divider once the user reaches the
-                        // bottom: its messages are now on screen, so they have been
-                        // seen. No scroll round-trip required (the group opens at the
-                        // divider, not pinned to the bottom). (issue #83)
-                        lastReadSnapshot = null
                     },
                     onLeftBottom = {
                         // Re-arm the unread baseline when leaving the bottom already caught up
@@ -920,6 +929,7 @@ fun GroupScreen(
                         }
                     },
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
+                    onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
@@ -970,6 +980,8 @@ fun GroupScreen(
                         groupMentions = emptyMap()
                         replyingToMessage = null
                         pendingUploads = emptyList()
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
                         vm.sendMessage(
                             content,
                             selectedChannel,
@@ -1063,12 +1075,11 @@ fun GroupScreen(
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
                     onReachedBottom = {
+                        // Persist read state when caught up; the divider itself is NOT
+                        // cleared here. Reaching the bottom on the entry settle must not
+                        // dismiss it (issue #83): the divider is consumed only once the
+                        // user has scrolled it into view (onDividerSeen) or sent a message.
                         vm.markAsRead()
-                        // Clear the "New messages" divider once the user reaches the
-                        // bottom: its messages are now on screen, so they have been
-                        // seen. No scroll round-trip required (the group opens at the
-                        // divider, not pinned to the bottom). (issue #83)
-                        lastReadSnapshot = null
                     },
                     onLeftBottom = {
                         // Re-arm the unread baseline when leaving the bottom already caught up
@@ -1081,6 +1092,7 @@ fun GroupScreen(
                         }
                     },
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
+                    onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,

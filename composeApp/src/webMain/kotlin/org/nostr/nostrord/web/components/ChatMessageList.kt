@@ -46,6 +46,11 @@ external interface ChatMessageListProps : Props {
     /** Fired (debounced) with the index of the bottom-most fully-visible row — mark-as-read. */
     var onRangeChange: (Int) -> Unit
 
+    /** Fired (debounced) when the "New messages" divider row is within the viewport. The caller
+     *  gates on a genuine scroll-away before consuming it, so the entry settle never dismisses
+     *  the divider unseen (issue #83). Null when there is no divider dismissal wiring. */
+    var onDividerVisible: (() -> Unit)?
+
     /** A DOM id to scroll into view (deep-link / reply); cleared via [onScrolledToKey]. */
     var scrollToKey: String?
     var onScrolledToKey: () -> Unit
@@ -311,7 +316,9 @@ val ChatMessageList =
                 markDebounce.current =
                     window.setTimeout(
                         {
-                            val containerBottom = (node.getBoundingClientRect().bottom as Number).toDouble()
+                            val containerRect = node.getBoundingClientRect()
+                            val containerTop = (containerRect.top as Number).toDouble()
+                            val containerBottom = (containerRect.bottom as Number).toDouble()
                             val kids = (innerEl.current?.asDynamic()?.children) ?: node.asDynamic().children
                             val n = kids.length as Int
                             var lastVisible = -1
@@ -320,6 +327,15 @@ val ChatMessageList =
                                 if (kb <= containerBottom + 1.0) lastVisible = i
                             }
                             if (lastVisible >= 0) props.onRangeChange(lastVisible)
+                            // Report the "New messages" divider entering the viewport so the screen
+                            // can dismiss it once the user has scrolled to look at it (issue #83).
+                            val divider = document.getElementById("new-msg-divider")
+                            if (divider != null && props.onDividerVisible != null) {
+                                val dr = divider.getBoundingClientRect()
+                                val dTop = (dr.top as Number).toDouble()
+                                val dBottom = (dr.bottom as Number).toDouble()
+                                if (dBottom > containerTop && dTop < containerBottom) props.onDividerVisible?.invoke()
+                            }
                         },
                         400,
                     )

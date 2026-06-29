@@ -87,6 +87,13 @@ class ScrollStateHolder(
     /** Jump-to-bottom FAB visibility. */
     val isScrolledAway: Boolean get() = ChatScrollPolicy.isScrolledAway(scroll)
 
+    /**
+     * True once a genuine scroll-away from the bottom has happened this entry. Gates
+     * the "New messages" divider dismissal so the divider is consumed only after the
+     * user actually scrolled to look at it, never on the entry settle at the bottom.
+     */
+    val sawNotBottom: Boolean get() = scroll.sawNotBottom
+
     /** Apply the one-shot entry alignment decision; returns the target to scroll to. */
     fun applyEntryChange(
         hasDivider: Boolean,
