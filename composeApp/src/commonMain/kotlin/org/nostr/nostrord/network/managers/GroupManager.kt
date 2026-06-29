@@ -34,19 +34,19 @@ import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.addLeftGroupForRelay
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
-import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.cache.CacheStore
 import org.nostr.nostrord.storage.cache.CachedMsg
 import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
+import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
-import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
 import org.nostr.nostrord.storage.isMessageBlobMigratedFor
 import org.nostr.nostrord.storage.loadDroppedGroupIds
 import org.nostr.nostrord.storage.loadGroupMembershipFor
+import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
 import org.nostr.nostrord.storage.saveDroppedGroupIds
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
@@ -770,10 +770,12 @@ class GroupManager(
             val relay = getRelayForGroup(groupId)?.normalizeRelayUrl()
             relay == normalized || (relay == null && normalized == currentRelayUrl)
         }
-        // A group we durably left must not re-enter the shared mux via the loaded/opened terms
-        // (reopening it to see the locked panel would otherwise re-subscribe its live chat).
-        val left = _leftGroups.value.keys
-        return (joined + loaded + opened).distinct().filter { it !in left }
+        // A group we durably left, AND are no longer joined to, must not re-enter the shared mux via
+        // the loaded/opened terms (reopening it to see the locked panel would otherwise re-subscribe
+        // its live chat). A still-joined group is NEVER excluded — a stale left marker on a rejoined
+        // group must not cut off its live messages.
+        val excluded = _leftGroups.value.keys - joined
+        return (joined + loaded + opened).distinct().filter { it !in excluded }
     }
 
     /**
@@ -1073,11 +1075,7 @@ class GroupManager(
         // Restore the persisted dropped-group guard: a relay that missed our delete still serves the
         // old kind:10009, and the additive merge would resurrect the group on restart without this.
         deletedGroupIds.addAll(SecureStorage.loadDroppedGroupIds(pubKey))
-        // Skip durably-left groups: a lagging relay's stale kind:10009 (or the persisted slot before a
-        // leave's republish landed) must not resurrect a group the user explicitly left. Read straight
-        // from storage so this holds regardless of whether loadLeftGroupsFromStorage has run yet.
-        val left = SecureStorage.getLeftGroupsForRelay(pubKey, relayUrl, epochSeconds()).keys
-        val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl).filter { it !in left }
+        val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
         // Additive: a join that landed before this async restore must not be wiped
         // by the (older) persisted set.
         _joinedGroupsByRelay.update { current ->
@@ -1092,14 +1090,14 @@ class GroupManager(
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
         val now = epochSeconds()
-        // Restore the durable left markers into the flow here too (called at every restore path), so a
-        // left group reads NONE after a restart without a separate ordered call. Order-independent: the
-        // joined filter below reads storage directly, not this flow.
+        // Restore the durable left markers into the flow (called at every restore path) so a left group
+        // reads NONE after a restart. We do NOT filter the joined set against them: leaveGroup already
+        // removes the group from the joined slot, and filtering here risked excluding a rejoined group
+        // whose marker hadn't been cleared yet, breaking its live messages.
         val leftAll = mutableMapOf<String, Long>()
+        for (url in relayUrls) leftAll.putAll(SecureStorage.getLeftGroupsForRelay(pubKey, url, now))
         val updates = relayUrls.associate { url ->
-            val left = SecureStorage.getLeftGroupsForRelay(pubKey, url, now)
-            leftAll.putAll(left)
-            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url).filterTo(mutableSetOf()) { it !in left.keys }
+            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
         }.filter { (_, groups) -> groups.isNotEmpty() }
         if (leftAll.isNotEmpty()) _leftGroups.update { it + leftAll }
         if (updates.isNotEmpty()) {
@@ -3249,6 +3247,25 @@ class GroupManager(
             members.groupId in _restrictedGroups.value
         ) {
             clearGroupRestricted(members.groupId)
+        }
+
+        // Self-heal a stale durable left marker: the relay lists us as a member AND we are joined
+        // (our own kind:10009), so we genuinely rejoined — clear the marker so the group stops
+        // reading NONE and rejoins the mux. Gated on `joined`: the B2 case (we left, the relay still
+        // lists us) leaves us NOT joined, so the marker stays and the group keeps reading "left".
+        if (self != null &&
+            self in members.members &&
+            members.groupId in _leftGroups.value &&
+            _joinedGroupsByRelay.value.values.any { members.groupId in it }
+        ) {
+            _leftGroups.update { it - members.groupId }
+            getRelayForGroup(members.groupId)?.let { relay ->
+                currentPubkey?.let { pk ->
+                    try {
+                        SecureStorage.removeLeftGroupForRelay(pk, relay.normalizeRelayUrl(), members.groupId)
+                    } catch (_: Exception) {}
+                }
+            }
         }
 
         return members.members
