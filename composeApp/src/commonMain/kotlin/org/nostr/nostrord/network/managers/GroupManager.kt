@@ -2869,6 +2869,13 @@ class GroupManager(
     fun closeThreadSubscriptions(groupId: String) {
         openThreadGroups.remove(groupId)
         scope.launch {
+            // A responsive relayout (a desktop window crossing the 768dp mobile breakpoint, or any
+            // fast dispose/recreate) tears down then immediately rebuilds the threads pane. The new
+            // instance re-adds the group via requestGroupThreads; wait a beat and skip the close if
+            // it was re-opened, so we never CLOSE the subscription the new instance just opened
+            // (which left the list permanently empty / stuck loading on mobile).
+            delay(500)
+            if (groupId in openThreadGroups) return@launch
             val client = clientForGroup(groupId) ?: return@launch
             runCatching {
                 client.closeSubscription(threadRootsSubId(groupId))
