@@ -466,6 +466,15 @@ body {
     border-top-color: #fff;
 }
 
+/* Composer send spinners (chat, threads, DM) sit on a transparent button, not a
+   filled primary one, so the white .btn-spinner would vanish on light surfaces.
+   Tint the ring with the primary color, matching the native CircularProgressIndicator. */
+.composer-send .btn-spinner,
+.dm-composer-btn.send .btn-spinner {
+    border-color: rgba(122, 90, 248, 0.35);
+    border-top-color: var(--color-primary);
+}
+
 /* Follow / Following toggle: while following, hovering the button reveals the
    destructive "Unfollow" label in the error color (the resting state keeps
    "Following"). Mirrors the native FollowButton hover swap. */

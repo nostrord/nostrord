@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.Result
 
 /**
@@ -58,7 +59,8 @@ class DmViewModel(
         val text = content.trim()
         if (text.isEmpty()) return
         viewModelScope.launch {
-            when (repo.sendDm(recipientPubkey, text)) {
+            val result = withMinDuration { repo.sendDm(recipientPubkey, text) }
+            when (result) {
                 is Result.Error -> onFailure()
                 is Result.Success -> onSuccess()
             }

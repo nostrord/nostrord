@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.Result
 
 /** One row in the threads list: a kind:11 root plus stats derived from its kind:1111 replies. */
@@ -158,7 +159,8 @@ class ThreadsViewModel(
         if (content.isBlank()) return
         val root = openThread.value?.root ?: return
         viewModelScope.launch {
-            when (repo.sendThreadReply(groupId, root = root, parent = root, content = content.trim())) {
+            val result = withMinDuration { repo.sendThreadReply(groupId, root = root, parent = root, content = content.trim()) }
+            when (result) {
                 is Result.Error -> onFailure()
                 is Result.Success -> onSuccess()
             }

@@ -18,6 +18,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
+import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -317,7 +318,8 @@ class GroupViewModel(
             // drops no longer surface as a toast; they resolve via the on-message status
             // (clock -> delivered, or a Failed indicator with retry). Only a real
             // build/sign failure (no optimistic message exists) restores the draft.
-            when (repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags)) {
+            val result = withMinDuration { repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags) }
+            when (result) {
                 is Result.Error -> {
                     _sendError.value = "Could not send message. Please try again."
                     onFailure()
