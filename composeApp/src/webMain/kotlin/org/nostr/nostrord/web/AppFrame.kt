@@ -190,6 +190,12 @@ val AppFrame =
                     if (code != null) {
                         repo.joinGroup(r.groupId, code)
                     }
+                    // A forwarded / deep-linked group we are not a member of isn't in our joined
+                    // list, so its kind:39000 never loads and the rail shows the raw id. Fetch the
+                    // preview so the name resolves.
+                    if (groupsByRelay[r.relayUrl].orEmpty().none { it.id == r.groupId }) {
+                        repo.fetchGroupPreview(r.groupId, r.relayUrl)
+                    }
                 }
             }
         }

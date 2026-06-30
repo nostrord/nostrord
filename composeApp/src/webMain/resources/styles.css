@@ -5656,6 +5656,98 @@ body {
 .quoted-event-static:hover {
     background: var(--color-input);
 }
+/* Event-not-found card: shown when a quoted nevent never resolves (e.g. its relay isn't
+   connected), instead of an infinite "Loading…". Mirrors the native not-found card. */
+.quoted-event-notfound {
+    display: block;
+    max-width: 420px;
+    margin: 4px 0;
+    padding: 10px 12px;
+    background: var(--color-input);
+    border-radius: 6px;
+}
+.quoted-event-notfound-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.quoted-event-notfound-label {
+    flex: 1;
+}
+/* Kebab menu on the not-found card: a single "Copy Parsed JSON" action (the event JSON is
+   unavailable, so the parsed reference is what's copyable). Mirrors the native card's menu. */
+.quoted-event-menu {
+    position: relative;
+}
+.quoted-event-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+}
+.quoted-event-menu-btn:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-secondary);
+}
+.quoted-event-menu-btn svg {
+    width: 16px;
+    height: 16px;
+}
+/* Transparent full-screen catcher so a click anywhere dismisses the popup. */
+.quoted-event-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+.quoted-event-menu-pop {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 41;
+    min-width: 160px;
+    padding: 4px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.quoted-event-menu-item {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--color-text-content);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+}
+.quoted-event-menu-item:hover {
+    background: var(--color-surface-variant);
+}
+.quoted-event-notfound-title svg {
+    width: 15px;
+    height: 15px;
+    color: var(--color-text-muted);
+}
+.quoted-event-notfound-row {
+    color: var(--color-text-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    word-break: break-all;
+}
 /* Forwarded NIP-29 event: a "forwarded from <group>" header above the quoted body, opening the
    source group and scrolling to the message. Mirrors the native ForwardedEventCard. The parent
    padding is zeroed so the header divider spans full width; head + content re-pad themselves. */

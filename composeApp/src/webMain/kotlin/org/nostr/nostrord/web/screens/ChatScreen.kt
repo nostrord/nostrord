@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -3529,6 +3530,7 @@ private fun ChildrenBuilder.renderEntities(
                         eventId = entity.eventId
                         relays = entity.relays
                         author = entity.author
+                        kind = entity.kind
                         localById = messagesById
                         onScrollTo = onEventRef
                         this.onUser = onUser
@@ -3539,6 +3541,7 @@ private fun ChildrenBuilder.renderEntities(
                         eventId = entity.eventId
                         relays = emptyList()
                         author = null
+                        kind = null
                         localById = messagesById
                         onScrollTo = onEventRef
                         this.onUser = onUser
@@ -3630,6 +3633,9 @@ private external interface QuotedEventProps : Props {
     var eventId: String
     var relays: List<String>
     var author: String?
+
+    /** nevent kind hint (null for a bare note) — shown on the not-found card. */
+    var kind: Int?
     var localById: Map<String, NostrGroupClient.NostrMessage>
     var onScrollTo: (String) -> Unit
     var onUser: (String) -> Unit
@@ -3654,9 +3660,25 @@ private val QuotedEvent =
         val createdAt = local?.createdAt ?: cachedEv?.createdAt
         val quotedTags = local?.tags ?: cachedEv?.tags ?: emptyList()
 
-        useEffectOnce {
+        // Flips true when the event never resolves (e.g. its relay isn't connected), so the card
+        // shows "Event not found" instead of spinning forever — parity with native's 5s give-up.
+        val (notFound, setNotFound) = useState { false }
+        val (menuOpen, setMenuOpen) = useState { false }
+
+        useEffect(props.eventId) {
+            setNotFound(false)
             if (props.eventId !in cached && local == null) {
                 launchApp { repo.requestEventById(props.eventId, props.relays, props.author) }
+            }
+        }
+        // Give up after 5s of no resolution. Re-runs when content arrives (cancels the timer).
+        useEffect(content, props.eventId) {
+            if (content != null) return@useEffect
+            val timer = window.setTimeout({ setNotFound(true) }, 5000)
+            try {
+                awaitCancellation()
+            } finally {
+                window.clearTimeout(timer)
             }
         }
         useEffect(pubkey) {
@@ -3786,6 +3808,81 @@ private val QuotedEvent =
                         props.onScrollTo,
                         props.onGroupRef,
                     )
+                }
+            } else if (notFound) {
+                div {
+                    className = ClassName("quoted-event-notfound")
+                    div {
+                        className = ClassName("quoted-event-notfound-title")
+                        icon(Ic.Warning)
+                        span {
+                            className = ClassName("quoted-event-notfound-label")
+                            +"Event not found"
+                        }
+                        div {
+                            className = ClassName("quoted-event-menu")
+                            button {
+                                className = ClassName("quoted-event-menu-btn")
+                                title = "More options"
+                                onClick = { ev ->
+                                    ev.stopPropagation()
+                                    setMenuOpen(!menuOpen)
+                                }
+                                icon(Ic.MoreVert)
+                            }
+                            if (menuOpen) {
+                                div {
+                                    className = ClassName("quoted-event-menu-backdrop")
+                                    onClick = { ev ->
+                                        ev.stopPropagation()
+                                        setMenuOpen(false)
+                                    }
+                                }
+                                div {
+                                    className = ClassName("quoted-event-menu-pop")
+                                    button {
+                                        className = ClassName("quoted-event-menu-item")
+                                        onClick = { ev ->
+                                            ev.stopPropagation()
+                                            val parsed =
+                                                buildJsonObject {
+                                                    put("type", if (props.kind != null) "nevent" else "note")
+                                                    put("event_id", props.eventId)
+                                                    props.kind?.let { put("kind", it) }
+                                                    props.author?.let { put("author", it) }
+                                                    putJsonArray("relays") { props.relays.forEach { add(it) } }
+                                                }.toString()
+                                            copyToClipboard(parsed)
+                                            setMenuOpen(false)
+                                        }
+                                        +"Copy Parsed JSON"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    props.kind?.let {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"kind: $it"
+                        }
+                    }
+                    div {
+                        className = ClassName("quoted-event-notfound-row")
+                        +"id: ${props.eventId}"
+                    }
+                    props.author?.let {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"author: $it"
+                        }
+                    }
+                    if (props.relays.isNotEmpty()) {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"relays: ${props.relays.joinToString(", ")}"
+                        }
+                    }
                 }
             } else {
                 span {
