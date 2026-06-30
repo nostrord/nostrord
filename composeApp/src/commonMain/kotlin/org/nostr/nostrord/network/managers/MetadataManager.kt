@@ -416,49 +416,31 @@ class MetadataManager(
         if (!shouldFetch) return
 
         try {
-            // Use outbox model for relay selection
-            val relaysToTry =
-                outboxManager.selectConnectedOutboxRelays(
-                    authors = if (author != null) listOf(author) else emptyList(),
-                    explicitRelays = relayHints,
-                )
-
-            // All relays in relaysToTry are already connected (pre-filtered).
-            var sent =
-                relaysToTry.count { relayUrl ->
-                    try {
-                        connectionManager.getClientForRelay(relayUrl)!!.requestEventById(eventId)
-                        true
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-
-            // Always also try primary NIP-29 relay — it hosts the events being quoted.
-            val primary = connectionManager.getPrimaryClient()
-            if (primary != null && primary.isConnected()) {
+            // Broadcast to EVERY connected relay, not just the nevent's relay hint. A NIP-29 event
+            // lives only on its group's relay, and the hint is often wrong or absent (it points at
+            // the relay it was copied from, not the event's home), so querying only the hint misses
+            // it while another connected relay actually has it. This is how native effectively
+            // resolves these — it has those relays connected. (Includes the primary + author
+            // outbox relays already in the pool.)
+            connectionManager.getAllConnectedClients().forEach { client ->
                 try {
-                    primary.requestEventById(eventId)
-                    sent++
+                    client.requestEventById(eventId)
                 } catch (_: Exception) {
                 }
             }
 
-            // Connect to any relay hint we are NOT already on and REQ there. A quoted event from
-            // a group on another relay (its `h` group lives only on that relay) was otherwise
-            // dropped, since the selection above keeps only already-connected relays — so the
-            // quote resolved on native (which keeps those relays connected) but never on web.
-            // getOrConnectRelay is singleflight + pool-checked, so a hint we already have reuses
-            // the socket; messageHandler wires a freshly-connected client so its reply is cached.
-            val alreadyTried = relaysToTry.toSet()
+            // Plus any relay hint we are NOT connected to: connect on demand and REQ there, so a
+            // correct hint to a relay outside the pool (an event whose group relay we never joined)
+            // still resolves. getOrConnectRelay is singleflight + pool-checked; messageHandler wires
+            // the freshly-connected client so its reply is cached.
             relayHints
-                .filter { it.isNotBlank() && it !in alreadyTried }
+                .filter { it.isNotBlank() }
                 .distinct()
                 .forEach { hint ->
                     try {
-                        connectionManager.getOrConnectRelay(hint, messageHandler)?.let { client ->
-                            client.requestEventById(eventId)
-                            sent++
+                        val existing = connectionManager.getClientForRelay(hint)
+                        if (existing == null || !existing.isConnected()) {
+                            connectionManager.getOrConnectRelay(hint, messageHandler)?.requestEventById(eventId)
                         }
                     } catch (_: Exception) {
                     }

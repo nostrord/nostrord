@@ -243,6 +243,18 @@ class ConnectionManager(
     }
 
     /**
+     * Every currently-connected client (primary + pool), deduped. Used to broadcast a
+     * by-id REQ when a relay hint is wrong or missing: a NIP-29 event lives only on its
+     * group's relay, and the hint can point elsewhere, so querying just the hint misses it.
+     */
+    suspend fun getAllConnectedClients(): List<NostrGroupClient> {
+        val pooled = poolMutex.withLock { relayPool.values.toList() }
+        return (listOfNotNull(primaryClient) + pooled)
+            .distinct()
+            .filter { it.isConnected() }
+    }
+
+    /**
      * Connect to the primary NIP-29 relay.
      * Serialised by [connectMutex] — concurrent callers block until the in-flight
      * attempt finishes, then return false immediately if a client is already up.
