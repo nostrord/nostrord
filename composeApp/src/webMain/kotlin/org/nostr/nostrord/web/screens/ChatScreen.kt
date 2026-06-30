@@ -86,7 +86,6 @@ import react.dom.html.ReactHTML.s
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
-import react.useEffectOnce
 import react.useMemo
 import react.useRef
 import react.useState
@@ -1069,16 +1068,22 @@ val ChatScreen =
         // would otherwise re-sort the whole list 15+ times during a group switch).
         val messages = useMemo(rawMessages) { rawMessages.sortedBy { it.createdAt } }
         val messagesById = useMemo(messages) { messages.associateBy { it.id } }
+        // The relay that actually HOSTS this group (where its kind:39000 lives), which may differ
+        // from the relay we're viewing it through. The copied nevent embeds this so readers fetch
+        // the event from its real home, not from wherever we happened to be connected.
+        val allGroupsByRelay = useStateFlow(AppModule.nostrRepository.groupsByRelay)
+        val neventRelay =
+            allGroupsByRelay.entries.firstOrNull { it.value.any { g -> g.id == group.id } }?.key ?: relayUrl
         // Pure per-message values (bech32 nevent, the event JSON, the share link): expensive to
         // compute and constant for a message, so build them once per message-list change instead of
         // re-encoding/re-serializing all 200 rows on every re-render.
         val rowMeta =
-            useMemo(messages, group.id, relayUrl) {
+            useMemo(messages, group.id, relayUrl, neventRelay) {
                 val host = relayUrl.removePrefix("wss://").removePrefix("ws://")
                 messages.associate { m ->
                     m.id to
                         RowMeta(
-                            nevent = Nip19.encodeNevent(m.id, relays = listOf(relayUrl), authorHex = m.pubkey, kind = m.kind),
+                            nevent = Nip19.encodeNevent(m.id, relays = listOf(neventRelay), authorHex = m.pubkey, kind = m.kind),
                             eventJson = eventJsonOf(m),
                             link = "https://nostrord.com/open/?relay=$host&group=${group.id}&e=${m.id}",
                         )

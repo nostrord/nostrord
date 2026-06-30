@@ -105,6 +105,9 @@ fun MessageItem(
     onUsernameClick: (String) -> Unit = {},
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
+    // Relay that hosts this message's group (its kind:39000 home), embedded in the copied nevent
+    // so readers fetch the event from its real relay, not the one we happen to be viewing through.
+    neventRelayHint: String? = null,
     isHighlighted: Boolean = false,
     // A search hit (query matches this message) gets a light tint; the current hit a stronger one.
     isSearchHit: Boolean = false,
@@ -498,7 +501,7 @@ fun MessageItem(
                             copyToClipboard(
                                 Nip19.encodeNevent(
                                     message.id,
-                                    relays = listOfNotNull(currentRelayUrl),
+                                    relays = listOfNotNull(neventRelayHint ?: currentRelayUrl),
                                     authorHex = message.pubkey,
                                     kind = message.kind,
                                 ),

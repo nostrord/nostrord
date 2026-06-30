@@ -203,6 +203,11 @@ fun MessagesList(
     }
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
+    // Relay that HOSTS this group (its kind:39000 home), which may differ from the relay we're
+    // viewing it through. The copied nevent embeds this so readers fetch from the event's real home.
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
+    val neventRelay =
+        groupsByRelay.entries.firstOrNull { entry -> entry.value.any { it.id == groupId } }?.key ?: currentRelayUrl
     val copyToClipboard = rememberClipboardWriter()
     val shareText = rememberTextSharer()
 
@@ -726,6 +731,7 @@ fun MessagesList(
                                             currentUserPubkey = currentUserPubkey,
                                             currentGroupId = groupId,
                                             currentRelayUrl = currentRelayUrl,
+                                            neventRelayHint = neventRelay,
                                             swipeToReplyEnabled = swipeToReplyEnabled,
                                             onUsernameClick = currentOnUsernameClick,
                                             onReplyClick = { currentOnReplyClick(item.message) },
