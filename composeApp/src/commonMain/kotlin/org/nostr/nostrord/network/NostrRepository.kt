@@ -3361,7 +3361,6 @@ class NostrRepository(
 
     // Per-relay debug counters: relayUrl -> event count since last connect
     private val relayEventCounts = mutableMapOf<String, Int>()
-    private val relayEoseReceived = mutableSetOf<String>()
 
     /**
      * Unified message handler for all relay pool connections.

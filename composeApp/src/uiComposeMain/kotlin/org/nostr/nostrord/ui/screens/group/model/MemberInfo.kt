@@ -8,5 +8,4 @@ data class MemberInfo(
     val displayName: String,
     val picture: String?,
     val isAdmin: Boolean = false,
-    val roles: List<String> = emptyList(),
 )

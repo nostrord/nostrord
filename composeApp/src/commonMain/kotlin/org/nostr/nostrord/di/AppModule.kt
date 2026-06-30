@@ -235,7 +235,7 @@ object AppModule {
     val muxTracker: MuxSubscriptionTracker by lazy { MuxSubscriptionTracker() }
 
     val adaptiveConfig: AdaptiveConfig by lazy {
-        AdaptiveConfig(connStats = connStats, scope = appScope)
+        AdaptiveConfig(scope = appScope)
     }
 
     val groupManager: GroupManager by lazy {

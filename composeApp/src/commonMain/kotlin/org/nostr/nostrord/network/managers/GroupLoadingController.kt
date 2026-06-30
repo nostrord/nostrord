@@ -71,7 +71,6 @@ sealed class GroupLoadingState {
         PARTIAL_TIMEOUT,
         SEND_FAILED,
         DISCONNECTED,
-        RELAY_ERROR,
     }
 
     // Helper properties for UI consumption

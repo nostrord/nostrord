@@ -728,9 +728,6 @@ class GroupManager(
         return s
     }
 
-    // Mutex for message list updates (separate from loading state)
-    private val messageMutex = Mutex()
-
     // Track which groups have observation jobs to prevent memory leaks
     private val observedGroups = mutableSetOf<String>()
     private val observedGroupsMutex = Mutex()

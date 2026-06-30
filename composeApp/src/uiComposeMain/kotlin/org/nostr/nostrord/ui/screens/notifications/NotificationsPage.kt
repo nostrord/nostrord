@@ -157,7 +157,6 @@ private fun NotificationRow(
     groupName: String,
     onClick: () -> Unit,
 ) {
-    val emojiFontFamily = rememberEmojiFontFamily()
     Row(
         modifier =
         Modifier

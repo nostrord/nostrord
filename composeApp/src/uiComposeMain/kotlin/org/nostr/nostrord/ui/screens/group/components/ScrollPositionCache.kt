@@ -78,9 +78,6 @@ class ScrollStateHolder(
     /** True while the viewport is pinned to the bottom (single latch authority). */
     val atBottom: Boolean get() = scroll.atBottom
 
-    /** Latched once the entry alignment to the "New messages" divider has run. */
-    val openedAtDivider: Boolean get() = scroll.openedAtDivider
-
     /** Latched once the one-shot entry alignment has been decided (divider OR bottom). */
     val entryResolved: Boolean get() = scroll.entryResolved
 

@@ -110,9 +110,6 @@ external interface ChatScreenProps : Props {
     var onOpenDrawer: () -> Unit
 }
 
-// Window (seconds) for grouping consecutive messages from the same author.
-private const val GROUP_WINDOW = 5 * 60
-
 /**
  * Parent message id of a reply (kind 9 only). Nostrord tags replies with "q"; other clients
  * may use the NIP-10 reply marker ["e", id, relay?, "reply"], which native also honors
@@ -1026,7 +1023,6 @@ val ChatScreen =
         val messageStatus = useStateFlow(vm.messageStatus)
         val membersByGroup = useStateFlow(vm.groupMembers)
         val adminsByGroup = useStateFlow(vm.groupAdmins)
-        val joinedByRelay = useStateFlow(vm.joinedGroupsByRelay)
         val userMetadata = useStateFlow(vm.userMetadata)
         val reactionsByMsg = useStateFlow(vm.reactions)
         val zapsByMsg = useStateFlow(vm.zaps)
@@ -1087,8 +1083,6 @@ val ChatScreen =
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val isAdmin = myPubkey != null && myPubkey in admins
-        val adminMembers = members.filter { it in admins }
-        val plainMembers = members.filter { it !in admins }
         // Online = posted at least one event in the last 10 minutes. Same heuristic as the
         // native GroupScreen.kt:295 — no presence protocol, just "recently active". Drives the
         // green/grey dot on member avatars in the sidebar.

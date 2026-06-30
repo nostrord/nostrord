@@ -15,9 +15,7 @@ import org.nostr.nostrord.utils.epochMillis
  * All parameters start at safe defaults and converge toward optimal values
  * within the first 30 seconds of operation.
  *
- * Reads signals from:
- * - [ConnectionStats] (connect/failure counts, reconnect timing)
- * - Explicit signal recording (reconnects, event bursts, relay latency)
+ * Reads signals from explicit recording (reconnects, event bursts, relay latency).
  *
  * Controls:
  * - Request cooldown (how long to suppress duplicate REQs)
@@ -28,7 +26,6 @@ import org.nostr.nostrord.utils.epochMillis
  * Data stays in-memory — no persistence, no transmission, no user data.
  */
 class AdaptiveConfig(
-    private val connStats: ConnectionStats,
     private val scope: CoroutineScope,
 ) {
     // ── Adaptive parameters (read by consumers) ──────────────────────────
