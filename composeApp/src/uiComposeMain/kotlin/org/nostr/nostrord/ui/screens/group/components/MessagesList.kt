@@ -517,20 +517,30 @@ fun MessagesList(
             .collect { currentOnSeenUpTo(it) }
     }
 
-    // Dismiss the "New messages" divider once the user has scrolled to look at it: fire
-    // when the divider row is in the viewport AND a genuine scroll-away has happened this
-    // entry (sawNotBottom). Gating on sawNotBottom is what stops the entry settle at the
-    // bottom (where a small unread batch leaves the divider already on screen) from
-    // consuming it instantly — the user must actually engage the scroll first (issue #83).
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    // Latches once the divider row has been on screen this entry — sitting at the bottom
+    // on open (a small unread batch) or scrolled into view (a large one). The dismissal
+    // below reads this latch instead of live visibility: with a single unread message the
+    // divider sits one row above the newest, so it slides off the bottom edge in the same
+    // frame sawNotBottom flips, and a live check would miss the overlap and strand the
+    // line until the next reach-bottom or send.
+    var dividerEverVisible by remember(groupId) { mutableStateOf(false) }
     LaunchedEffect(listState) {
         snapshotFlow {
             val dividerIndex = currentChatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
-            dividerIndex >= 0 &&
+            dividerIndex >= 0 && listState.layoutInfo.visibleItemsInfo.any { it.index == dividerIndex }
+        }.distinctUntilChanged().filter { it }.collect { dividerEverVisible = true }
+    }
+
+    // Dismiss the "New messages" divider once the user has both seen it (dividerEverVisible)
+    // and engaged a genuine scroll-away this entry (sawNotBottom). Gating on sawNotBottom
+    // stops the entry settle at the bottom from consuming it unseen (issue #83); gating on
+    // the latch rather than live visibility clears it even after it has left the viewport.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            currentChatItems.any { it is ChatItem.NewMessagesDivider } &&
                 scrollStateHolder.sawNotBottom &&
-                listState.layoutInfo.visibleItemsInfo.any { it.index == dividerIndex }
+                dividerEverVisible
         }.distinctUntilChanged()
-            .debounce(250)
             .filter { it }
             .collect { currentOnDividerSeen() }
     }

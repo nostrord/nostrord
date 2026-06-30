@@ -1300,6 +1300,11 @@ val ChatScreen =
         // settle can never wipe the divider unseen.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
+        // Latches once the divider has been on screen this entry (reported by onDividerVisible,
+        // including at the bottom on open). Leaving the bottom then consumes the line even though
+        // a single-unread divider slides off the viewport before that fires — a live-visibility
+        // check would miss the overlap and strand it (issue #83).
+        val dividerWasOnScreen = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
         // hot-path source of truth for the scroll handler; setAtBottomState is
         // only invoked on the transition so we don't re-render every scroll tick.
@@ -1324,6 +1329,16 @@ val ChatScreen =
         val consumeDivider = {
             setLastReadSnapshot(messages.maxOfOrNull { it.createdAt })
             vm.markAsRead()
+        }
+
+        // While following at the bottom after the user engaged the scroll this entry, keep the
+        // read snapshot at the newest message. The divider is an entry artifact (consumed by
+        // scroll-up, send, or jump); messages watched as they land are already read, so they must
+        // not flash a fresh divider above the latest while sitting at the bottom (mirrors GroupScreen).
+        useEffect(messages, atBottomState) {
+            if (atBottomState && wasNotAtBottom.current == true) {
+                messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
+            }
         }
 
         // Load messages + author/member metadata when the group (or its rosters)
@@ -1381,6 +1396,7 @@ val ChatScreen =
             setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
             dividerSeen.current = false
+            dividerWasOnScreen.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -2009,6 +2025,10 @@ val ChatScreen =
                                     if (lastReadSnapshot == null) {
                                         messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
                                     }
+                                    // The divider was already on screen (seen at the bottom) and the user
+                                    // has now scrolled away: consume it even though it slid off the viewport
+                                    // before onDividerVisible could fire for this scroll (issue #83).
+                                    if (dividerWasOnScreen.current == true && lastReadSnapshot != null) consumeDivider()
                                 } else {
                                     // Reaching the bottom persists read state but does NOT dismiss the
                                     // divider (issue #83): the entry settle opens at the bottom, so a
@@ -2019,8 +2039,11 @@ val ChatScreen =
                                 }
                             }
                             onDividerVisible = {
-                                // The divider scrolled into view; consume it only after a genuine
-                                // scroll-away this entry, so the open-at-bottom settle never clears it.
+                                // The divider is within the viewport. Latch it as seen (covers the
+                                // bottom-on-open case so the scroll-away can consume it later), and
+                                // consume now if a genuine scroll-away already happened this entry, so
+                                // the open-at-bottom settle never clears it.
+                                dividerWasOnScreen.current = true
                                 if (wasNotAtBottom.current == true && lastReadSnapshot != null) consumeDivider()
                             }
                             onRangeChange = { end ->

@@ -379,6 +379,36 @@ fun GroupScreen(
         vm.markAsRead()
     }
 
+    // Bottom-follow tracking for the divider. atBottomNow mirrors the list's pin state;
+    // engagedThisEntry latches once the user has genuinely scrolled away this entry.
+    var atBottomNow by remember(groupId) { mutableStateOf(true) }
+    var engagedThisEntry by remember(groupId) { mutableStateOf(false) }
+    val handleReachedBottom: () -> Unit = {
+        atBottomNow = true
+        // Persist read state when caught up; the entry divider itself is NOT cleared here
+        // (issue #83) — only consumeDivider does that, via scroll-to-it / send / jump.
+        vm.markAsRead()
+    }
+    val handleLeftBottom: () -> Unit = {
+        atBottomNow = false
+        engagedThisEntry = true
+        // Re-arm the unread baseline when leaving the bottom already caught up, so a later
+        // arrival while scrolled up still shows "N new". Anchor to the current newest.
+        if (lastReadSnapshot == null) {
+            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+        }
+    }
+
+    // While following at the bottom after the user engaged the scroll this entry, keep the read
+    // snapshot at the newest message. The divider is an entry artifact (consumed by scroll-up,
+    // send, or jump); messages watched as they land are already read, so they must not flash a
+    // fresh divider above the latest while sitting at the bottom.
+    LaunchedEffect(messages, atBottomNow, engagedThisEntry) {
+        if (atBottomNow && engagedThisEntry) {
+            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+        }
+    }
+
     // `awaitingAuthReadSet` keeps the skeleton up while a private group's initial read waits on
     // NIP-42 AUTH (relay challenges in response to the read, e.g. opened from the homepage); the
     // controller briefly bounces through Idle during resubscribeAfterAuth, so without this the
@@ -911,23 +941,8 @@ fun GroupScreen(
                     isClosed = currentGroupMetadata?.isOpen == false,
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
-                    onReachedBottom = {
-                        // Persist read state when caught up; the divider itself is NOT
-                        // cleared here. Reaching the bottom on the entry settle must not
-                        // dismiss it (issue #83): the divider is consumed only once the
-                        // user has scrolled it into view (onDividerSeen) or sent a message.
-                        vm.markAsRead()
-                    },
-                    onLeftBottom = {
-                        // Re-arm the unread baseline when leaving the bottom already caught up
-                        // (snapshot cleared by a prior onReachedBottom). Without this the jump
-                        // FAB count stays 0 for the rest of the session, so a message arriving
-                        // while scrolled up never shows "N new". Anchor to the current newest so
-                        // only later arrivals count.
-                        if (lastReadSnapshot == null) {
-                            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
-                        }
-                    },
+                    onReachedBottom = handleReachedBottom,
+                    onLeftBottom = handleLeftBottom,
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,
@@ -1074,23 +1089,8 @@ fun GroupScreen(
                     isClosed = currentGroupMetadata?.isOpen == false,
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
-                    onReachedBottom = {
-                        // Persist read state when caught up; the divider itself is NOT
-                        // cleared here. Reaching the bottom on the entry settle must not
-                        // dismiss it (issue #83): the divider is consumed only once the
-                        // user has scrolled it into view (onDividerSeen) or sent a message.
-                        vm.markAsRead()
-                    },
-                    onLeftBottom = {
-                        // Re-arm the unread baseline when leaving the bottom already caught up
-                        // (snapshot cleared by a prior onReachedBottom). Without this the jump
-                        // FAB count stays 0 for the rest of the session, so a message arriving
-                        // while scrolled up never shows "N new". Anchor to the current newest so
-                        // only later arrivals count.
-                        if (lastReadSnapshot == null) {
-                            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
-                        }
-                    },
+                    onReachedBottom = handleReachedBottom,
+                    onLeftBottom = handleLeftBottom,
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,

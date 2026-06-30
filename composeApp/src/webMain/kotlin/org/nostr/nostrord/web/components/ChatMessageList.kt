@@ -82,6 +82,23 @@ val ChatMessageList =
         // pagination so the open lands at the true bottom and entry never auto-loads history.
         val settling = { window.performance.now() - (openedAt.current ?: 0.0) < SETTLE_MS }
 
+        // Report the "New messages" divider as seen whenever its row is within the viewport.
+        // Called from the scroll handler AND from an entry effect, so the small-unread case
+        // (divider already on screen at the bottom on open, no scroll) latches too.
+        val reportDividerIfVisible = {
+            val node = el.current
+            val divider = document.getElementById("new-msg-divider")
+            if (node != null && divider != null && props.onDividerVisible != null) {
+                val containerRect = node.getBoundingClientRect()
+                val containerTop = (containerRect.top as Number).toDouble()
+                val containerBottom = (containerRect.bottom as Number).toDouble()
+                val dr = divider.getBoundingClientRect()
+                val dTop = (dr.top as Number).toDouble()
+                val dBottom = (dr.bottom as Number).toDouble()
+                if (dBottom > containerTop && dTop < containerBottom) props.onDividerVisible?.invoke()
+            }
+        }
+
         // Following the feed: pin to bottom, scroll-anchoring OFF. Reading history:
         // anchoring ON and never touch scrollTop, so the browser holds position across
         // prepends and late image/avatar layout (a manual scrollTop delta could not).
@@ -132,6 +149,14 @@ val ChatMessageList =
                 }
             }
             prevScrollHeight.current = node.scrollHeight.toDouble()
+        }
+
+        // Latch the divider as seen when it sits within the viewport at the bottom on open
+        // (a small unread batch shows it without any scroll). The scroll handler only checks
+        // on scroll, so without this the entry-at-bottom case never reports the divider and the
+        // line survives the later scroll-away (issue #83).
+        useEffect(items.size) {
+            reportDividerIfVisible()
         }
 
         // Fallback latch release: the layout effect frees the latch as soon as the page
@@ -313,7 +338,6 @@ val ChatMessageList =
                     window.setTimeout(
                         {
                             val containerRect = node.getBoundingClientRect()
-                            val containerTop = (containerRect.top as Number).toDouble()
                             val containerBottom = (containerRect.bottom as Number).toDouble()
                             val kids = (innerEl.current?.asDynamic()?.children) ?: node.asDynamic().children
                             val n = kids.length as Int
@@ -325,13 +349,7 @@ val ChatMessageList =
                             if (lastVisible >= 0) props.onRangeChange(lastVisible)
                             // Report the "New messages" divider entering the viewport so the screen
                             // can dismiss it once the user has scrolled to look at it (issue #83).
-                            val divider = document.getElementById("new-msg-divider")
-                            if (divider != null && props.onDividerVisible != null) {
-                                val dr = divider.getBoundingClientRect()
-                                val dTop = (dr.top as Number).toDouble()
-                                val dBottom = (dr.bottom as Number).toDouble()
-                                if (dBottom > containerTop && dTop < containerBottom) props.onDividerVisible?.invoke()
-                            }
+                            reportDividerIfVisible()
                         },
                         400,
                     )
