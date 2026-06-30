@@ -42,13 +42,6 @@ object AppFonts {
     fun setDefaultFontFamily(fontFamily: FontFamily) {
         defaultFontFamily = fontFamily
     }
-
-    /**
-     * Set the monospace font family.
-     */
-    fun setMonospaceFontFamily(fontFamily: FontFamily) {
-        monospaceFontFamily = fontFamily
-    }
 }
 
 /**

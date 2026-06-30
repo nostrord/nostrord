@@ -279,71 +279,6 @@ expect object SecureStorage {
     suspend fun preloadMetadata()
 }
 
-// Per-relay last-viewed group. Stored as "groupId|groupName" with `|` and `%`
-// percent-escaped so the pipe stays unambiguous as the field separator.
-private fun lastGroupForRelayKey(
-    pubkey: String,
-    relayUrl: String,
-): String = "last_group_${pubkeyDigest(pubkey)}_${relayUrl.hashCode()}"
-
-// Legacy key — used only by the one-shot read-time migration in getLastGroupForRelay.
-// The pubkey portion used to be String.hashCode() (32-bit, collision-prone).
-private fun legacyLastGroupForRelayKey(
-    pubkey: String,
-    relayUrl: String,
-): String = "last_group_${pubkey.hashCode()}_${relayUrl.hashCode()}"
-
-private fun encodeLastGroupValue(
-    groupId: String,
-    groupName: String?,
-): String {
-    fun esc(s: String) = s.replace("%", "%25").replace("|", "%7C")
-    return if (groupName == null) esc(groupId) else "${esc(groupId)}|${esc(groupName)}"
-}
-
-private fun decodeLastGroupValue(raw: String): Pair<String, String?>? {
-    if (raw.isBlank()) return null
-
-    fun unesc(s: String) = s.replace("%7C", "|").replace("%25", "%")
-    val parts = raw.split("|", limit = 2)
-    val id = unesc(parts[0])
-    if (id.isBlank()) return null
-    val name = parts.getOrNull(1)?.let(::unesc)?.takeIf { it.isNotBlank() }
-    return id to name
-}
-
-fun SecureStorage.saveLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-    groupId: String,
-    groupName: String?,
-) {
-    if (pubkey.isBlank() || relayUrl.isBlank() || groupId.isBlank()) return
-    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), encodeLastGroupValue(groupId, groupName))
-}
-
-fun SecureStorage.getLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-): Pair<String, String?>? {
-    if (pubkey.isBlank() || relayUrl.isBlank()) return null
-    val raw =
-        migrateStringSlot(
-            lastGroupForRelayKey(pubkey, relayUrl),
-            legacyLastGroupForRelayKey(pubkey, relayUrl),
-        ) ?: return null
-    return decodeLastGroupValue(raw)
-}
-
-fun SecureStorage.clearLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-) {
-    if (pubkey.isBlank() || relayUrl.isBlank()) return
-    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), "")
-    saveStringPref(legacyLastGroupForRelayKey(pubkey, relayUrl), "")
-}
-
 // Per-relay group-list EOSE timestamp — lets the app skip requestGroups() when the
 // cached group list is fresh enough (< GROUP_CACHE_TTL_S seconds old).
 private const val GROUP_CACHE_TTL_S = 3600L // 1 hour
@@ -408,10 +343,6 @@ fun SecureStorage.loadKind10009Timestamp(pubkey: String): Long {
     val raw = migrateStringSlot(kind10009TimestampKey(pubkey), legacyKind10009TimestampKey(pubkey))
     return raw?.toLongOrNull() ?: 0L
 }
-
-// Legacy global key — kept for one-shot migration on first run after the upgrade.
-// Removed once a fresh kind:10009 arrives for any user.
-internal fun SecureStorage.loadLegacyKind10009Timestamp(): Long = getStringPref("kind10009_latest_ts", "0").toLongOrNull() ?: 0L
 
 // ── Per-account NIP-29 relay list ───────────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveRelayList`/`loadRelayList`
@@ -504,12 +435,6 @@ fun SecureStorage.loadRelayListFor(pubkey: String): List<String> {
         saveBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, true)
     }
     return emptyList()
-}
-
-fun SecureStorage.clearRelayListFor(pubkey: String) {
-    if (pubkey.isBlank()) return
-    saveStringPref(relayListForAccountKey(pubkey), "")
-    saveStringPref(legacyHashRelayListForAccountKey(pubkey), "")
 }
 
 // ── Per-account friends cache ───────────────────────────────────────────────
@@ -906,17 +831,6 @@ fun SecureStorage.loadDmMessages(pubkey: String): List<org.nostr.nostrord.networ
     }
 }
 
-fun SecureStorage.saveDmMessages(
-    pubkey: String,
-    messages: List<org.nostr.nostrord.network.managers.DmMessage>,
-) {
-    if (pubkey.isBlank()) return
-    try {
-        saveStringPref(dmMessagesKey(pubkey), Json.encodeToString(messages))
-    } catch (_: Exception) {
-    }
-}
-
 private fun dmCacheMigratedKey(pubkey: String) = "dm_cache_migrated_${pubkeyDigest(pubkey)}"
 
 /**
@@ -1203,20 +1117,6 @@ fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
     clearEncryptedPrivateKeyFor(pubkey)
     clearBunkerUrlFor(pubkey)
     clearBunkerClientPrivateKeyFor(pubkey)
-}
-
-// Legacy support functions (deprecated - use account-scoped versions)
-@Deprecated("Use account-scoped saveJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.saveJoinedGroups(groups: Set<String>) {
-    saveJoinedGroupsForRelay("legacy", "legacy", groups)
-}
-
-@Deprecated("Use account-scoped getJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.getJoinedGroups(): Set<String> = getJoinedGroupsForRelay("legacy", "legacy")
-
-@Deprecated("Use account-scoped clearJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.clearJoinedGroups() {
-    clearJoinedGroupsForRelay("legacy", "legacy")
 }
 
 private fun droppedGroupsForAccountKey(pubkey: String) = "dropped_groups_${pubkeyDigest(pubkey)}"

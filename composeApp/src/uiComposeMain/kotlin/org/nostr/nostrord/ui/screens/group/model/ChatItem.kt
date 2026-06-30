@@ -51,7 +51,6 @@ sealed class ChatItem {
         val additionalUsers: List<String> = emptyList(), // Additional pubkeys for grouped events
     ) : ChatItem() {
         val totalUsers: Int get() = 1 + additionalUsers.size
-        val isGrouped: Boolean get() = additionalUsers.isNotEmpty()
     }
 
     /**

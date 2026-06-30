@@ -124,12 +124,6 @@ class ScrollStateHolder(
         scroll = ChatScrollPolicy.onItemsReady(scroll)
     }
 
-    fun markRestorationFailed() {
-        isRestorationPending = false
-        isRestored = true
-        scroll = ChatScrollPolicy.onItemsReady(scroll)
-    }
-
     companion object {
         fun saver(): Saver<ScrollStateHolder, List<Any?>> = Saver(
             save = { holder ->

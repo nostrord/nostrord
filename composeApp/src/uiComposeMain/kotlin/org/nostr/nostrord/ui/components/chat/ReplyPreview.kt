@@ -132,11 +132,6 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
 }
 
 /**
- * Check if a message is a reply to another message.
- */
-fun isReply(message: NostrGroupClient.NostrMessage): Boolean = getReplyParentId(message) != null
-
-/**
  * Compact reply preview shown above a message that is replying to another message.
  * Shows the parent message author and a truncated preview of the content.
  */

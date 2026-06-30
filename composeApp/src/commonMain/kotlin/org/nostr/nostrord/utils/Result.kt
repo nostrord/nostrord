@@ -158,12 +158,3 @@ inline fun <T> runCatching(block: () -> T): Result<T> = try {
 } catch (e: Throwable) {
     Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
 }
-
-/**
- * Execute a suspending block and wrap the result in Result.Success or Result.Error
- */
-suspend inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
-    Result.Success(block())
-} catch (e: Throwable) {
-    Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
-}

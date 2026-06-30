@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,23 +54,4 @@ fun UnreadBadge(
             style = NostrordTypography.Badge,
         )
     }
-}
-
-/**
- * Simple unread indicator dot.
- * Used when we don't need to show count, just presence of unread messages.
- */
-@Composable
-fun UnreadDot(
-    modifier: Modifier = Modifier,
-    size: Dp = 10.dp,
-    color: Color = NostrordColors.Error,
-) {
-    Box(
-        modifier =
-        modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(color),
-    )
 }

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -247,30 +246,6 @@ private fun Modifier.subtleVignette(): Modifier = this.drawWithContent {
             center = center,
             radius = size.minDimension / 1.5f,
         ),
-    )
-}
-
-/**
- * Convenience composable for server/group icons in the groups rail.
- * Uses RoundedCornerShape with animated corners.
- */
-@Composable
-fun OptimizedServerIcon(
-    imageUrl: String?,
-    groupId: String,
-    groupName: String,
-    size: Dp,
-    cornerRadius: Dp,
-    modifier: Modifier = Modifier,
-) {
-    OptimizedSmallAvatar(
-        imageUrl = imageUrl,
-        identifier = groupId,
-        displayName = groupName,
-        size = size,
-        shape = RoundedCornerShape(cornerRadius),
-        isGroup = true,
-        modifier = modifier,
     )
 }
 

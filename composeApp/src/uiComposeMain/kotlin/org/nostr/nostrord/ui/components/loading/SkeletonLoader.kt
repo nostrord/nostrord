@@ -70,103 +70,6 @@ fun GroupCardSkeleton(modifier: Modifier = Modifier) {
 }
 
 /**
- * Skeleton loader for chat messages.
- * Matches the layout of MessageItem component.
- */
-@Composable
-fun MessageSkeleton(
-    showAvatar: Boolean = true,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        // Avatar skeleton
-        Box(
-            modifier = Modifier.width(48.dp),
-            contentAlignment = Alignment.TopStart,
-        ) {
-            if (showAvatar) {
-                Box(
-                    modifier =
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .shimmerEffect(),
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            if (showAvatar) {
-                // Name and time skeleton
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier =
-                        Modifier
-                            .width(100.dp)
-                            .height(14.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .shimmerEffect(),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier =
-                        Modifier
-                            .width(40.dp)
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .shimmerEffect(),
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-            }
-
-            // Message content skeleton (random-ish widths)
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxWidth(0.85f)
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect(),
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect(),
-            )
-        }
-    }
-}
-
-/**
- * Skeleton loader for a group of messages (simulates a conversation).
- */
-@Composable
-fun MessagesListSkeleton(
-    count: Int = 5,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        repeat(count) { index ->
-            // Vary the layout - some with avatars, some without (grouped)
-            val showAvatar = index == 0 || index == 3
-            MessageSkeleton(showAvatar = showAvatar)
-        }
-    }
-}
-
-/**
  * Skeleton loader for member list items.
  */
 @Composable
@@ -233,26 +136,6 @@ fun SkeletonCircle(
         modifier
             .size(size)
             .clip(CircleShape)
-            .shimmerEffect(),
-    )
-}
-
-/**
- * Generic skeleton box for image/content placeholders.
- */
-@Composable
-fun SkeletonBox(
-    width: Dp = 100.dp,
-    height: Dp = 100.dp,
-    cornerRadius: Dp = 8.dp,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-        modifier
-            .width(width)
-            .height(height)
-            .clip(RoundedCornerShape(cornerRadius))
             .shimmerEffect(),
     )
 }
