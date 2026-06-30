@@ -68,7 +68,6 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
 import org.nostr.nostrord.ui.components.media.AudioPlayerContent
 import org.nostr.nostrord.ui.components.media.PlatformVideoPlayer
 import org.nostr.nostrord.ui.components.media.YouTubeLinkCard
-import org.nostr.nostrord.ui.components.media.rememberAudioPlayer
 import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -373,11 +372,7 @@ fun MessageContent(
                                 autoLoad = autoLoadMedia,
                                 label = "audio",
                             ) {
-                                val audioPlayer = rememberAudioPlayer()
-                                AudioPlayerContent(
-                                    url = firstPart.url,
-                                    player = audioPlayer,
-                                )
+                                AudioPlayerContent(url = firstPart.url)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
@@ -2074,8 +2069,7 @@ private fun QuotedEventContent(
                     }
                     is AudioPart -> {
                         Spacer(modifier = Modifier.height(6.dp))
-                        val audioPlayer = rememberAudioPlayer()
-                        AudioPlayerContent(url = firstPart.url, player = audioPlayer)
+                        AudioPlayerContent(url = firstPart.url)
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     is CodeBlockPart -> {

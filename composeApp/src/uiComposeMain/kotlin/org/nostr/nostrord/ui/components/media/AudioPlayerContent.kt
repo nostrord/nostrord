@@ -7,8 +7,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,20 +19,28 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 
 /**
  * Inline audio player with play/pause, progress bar, and duration.
- * Uses platform-specific [AudioPlayer] for actual playback.
+ *
+ * The playback engine differs per platform (Android: MediaPlayer; Desktop: the same
+ * kdroidfilter player the video uses, so it shares the system codec set; iOS: stub), so
+ * this is the expect/actual boundary. All actuals render the shared [AudioPlayerChrome].
  */
 @Composable
-fun AudioPlayerContent(
+expect fun AudioPlayerContent(
     url: String,
-    player: AudioPlayer,
+    modifier: Modifier = Modifier,
+)
+
+/** Shared visual: play/pause button, filename, progress bar and the position/duration row. */
+@Composable
+internal fun AudioPlayerChrome(
+    isPlaying: Boolean,
+    currentMs: Long,
+    durationMs: Long,
+    fileName: String,
+    onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isPlaying by player.isPlaying.collectAsState()
-    val currentMs by player.currentPositionMs.collectAsState()
-    val durationMs by player.durationMs.collectAsState()
-
     val progress = if (durationMs > 0) currentMs.toFloat() / durationMs.toFloat() else 0f
-    val fileName = url.substringAfterLast("/").substringBefore("?").take(40)
 
     Row(
         modifier =
@@ -51,9 +57,8 @@ fun AudioPlayerContent(
                 .size(40.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(NostrordColors.Primary.copy(alpha = 0.2f))
-                .clickable {
-                    if (isPlaying) player.pause() else player.play(url)
-                }.pointerHoverIcon(PointerIcon.Hand),
+                .clickable { onToggle() }
+                .pointerHoverIcon(PointerIcon.Hand),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -110,7 +115,10 @@ fun AudioPlayerContent(
     }
 }
 
-private fun formatDuration(ms: Long): String {
+/** A short display name for an audio URL: last path segment, query stripped, capped. */
+internal fun audioFileName(url: String): String = url.substringAfterLast("/").substringBefore("?").take(40)
+
+internal fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60

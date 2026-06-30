@@ -3,7 +3,10 @@ package org.nostr.nostrord.ui.components.media
 import android.media.MediaPlayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -13,22 +16,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-actual class AudioPlayer actual constructor() {
+/** Android playback engine backing [AudioPlayerContent], built on android.media.MediaPlayer. */
+private class AndroidAudioPlayer {
     private var mediaPlayer: MediaPlayer? = null
     private var currentUrl: String? = null
     private var positionJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
     private val _isPlaying = MutableStateFlow(false)
-    actual val isPlaying: StateFlow<Boolean> = _isPlaying
+    val isPlaying: StateFlow<Boolean> = _isPlaying
 
     private val _currentPositionMs = MutableStateFlow(0L)
-    actual val currentPositionMs: StateFlow<Long> = _currentPositionMs
+    val currentPositionMs: StateFlow<Long> = _currentPositionMs
 
     private val _durationMs = MutableStateFlow(0L)
-    actual val durationMs: StateFlow<Long> = _durationMs
+    val durationMs: StateFlow<Long> = _durationMs
 
-    actual fun play(url: String) {
+    fun play(url: String) {
         if (url != currentUrl) {
             mediaPlayer?.release()
             currentUrl = url
@@ -56,6 +60,12 @@ actual class AudioPlayer actual constructor() {
         } else {
             mediaPlayer?.let { mp ->
                 if (!mp.isPlaying) {
+                    // After completion the player sits at the end; rewind first so the play button
+                    // replays from the start instead of resuming at the finished position.
+                    if (_durationMs.value > 0 && _currentPositionMs.value >= _durationMs.value) {
+                        mp.seekTo(0)
+                        _currentPositionMs.value = 0L
+                    }
                     mp.start()
                     _isPlaying.value = true
                     startPositionTracking()
@@ -64,7 +74,7 @@ actual class AudioPlayer actual constructor() {
         }
     }
 
-    actual fun pause() {
+    fun pause() {
         mediaPlayer?.let { mp ->
             if (mp.isPlaying) {
                 mp.pause()
@@ -74,23 +84,7 @@ actual class AudioPlayer actual constructor() {
         }
     }
 
-    actual fun stop() {
-        positionJob?.cancel()
-        mediaPlayer?.let { mp ->
-            mp.stop()
-            mp.reset()
-        }
-        _isPlaying.value = false
-        _currentPositionMs.value = 0L
-        currentUrl = null
-    }
-
-    actual fun seekTo(positionMs: Long) {
-        mediaPlayer?.seekTo(positionMs.toInt())
-        _currentPositionMs.value = positionMs
-    }
-
-    actual fun release() {
+    fun release() {
         positionJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
@@ -120,10 +114,24 @@ actual class AudioPlayer actual constructor() {
 }
 
 @Composable
-actual fun rememberAudioPlayer(): AudioPlayer {
-    val player = remember { AudioPlayer() }
+actual fun AudioPlayerContent(
+    url: String,
+    modifier: Modifier,
+) {
+    val player = remember { AndroidAudioPlayer() }
     DisposableEffect(Unit) {
         onDispose { player.release() }
     }
-    return player
+    val isPlaying by player.isPlaying.collectAsState()
+    val currentMs by player.currentPositionMs.collectAsState()
+    val durationMs by player.durationMs.collectAsState()
+
+    AudioPlayerChrome(
+        isPlaying = isPlaying,
+        currentMs = currentMs,
+        durationMs = durationMs,
+        fileName = audioFileName(url),
+        onToggle = { if (isPlaying) player.pause() else player.play(url) },
+        modifier = modifier,
+    )
 }
