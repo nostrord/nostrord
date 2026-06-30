@@ -81,7 +81,7 @@ kotlin {
             implementation("androidx.security:security-crypto:1.1.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
             // Animated GIF support: provides AnimatedImageDecoder (API 28+) and GifDecoder (API < 28)
-            implementation("io.coil-kt.coil3:coil-gif:3.0.4")
+            implementation("io.coil-kt.coil3:coil-gif:3.3.0")
             // Media3 ExoPlayer for video playback (same stack as Amethyst)
             implementation("androidx.media3:media3-exoplayer:1.6.0")
             implementation("androidx.media3:media3-ui:1.6.0")
@@ -129,8 +129,11 @@ kotlin {
                 implementation(compose.materialIconsExtended)
                 implementation(libs.androidx.lifecycle.viewmodelCompose)
                 implementation(libs.androidx.lifecycle.runtimeCompose)
-                implementation("io.coil-kt.coil3:coil-compose:3.0.4")
-                implementation("io.coil-kt.coil3:coil-network-ktor3:3.0.4")
+                implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+                implementation("io.coil-kt.coil3:coil-network-ktor3:3.3.0")
+                // SVG decoder so inline data:image/svg+xml avatars (some profile/relay
+                // icons) render instead of failing the fetcher on native targets.
+                implementation("io.coil-kt.coil3:coil-svg:3.3.0")
                 implementation("io.github.alexzhirkevich:qrose:1.0.1")
             }
         }

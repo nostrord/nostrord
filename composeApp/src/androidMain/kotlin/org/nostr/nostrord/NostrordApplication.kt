@@ -9,6 +9,7 @@ import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
+import coil3.svg.SvgDecoder
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
 import org.nostr.nostrord.notifications.AndroidNotificationSoundInit
@@ -58,6 +59,8 @@ class NostrordApplication :
             } else {
                 add(GifDecoder.Factory())
             }
+            // Decodes data:image/svg+xml avatars (the data: fetcher is built in since 3.1).
+            add(SvgDecoder.Factory())
         }
         // Memory cache: 20% of available app heap. Adapts to device capability
         // without a fixed floor that could starve low-RAM devices (128 MB heap

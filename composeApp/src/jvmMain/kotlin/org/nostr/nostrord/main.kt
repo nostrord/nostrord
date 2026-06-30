@@ -21,6 +21,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
+import coil3.svg.SvgDecoder
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpRedirect
@@ -129,6 +130,8 @@ fun main(args: Array<String> = emptyArray()) {
             .eventListener(ImageLoadEventListener)
             .components {
                 add(KtorNetworkFetcherFactory(httpClient))
+                // Decodes data:image/svg+xml avatars (the data: fetcher is built in since 3.1).
+                add(SvgDecoder.Factory())
             }.memoryCache {
                 MemoryCache
                     .Builder()

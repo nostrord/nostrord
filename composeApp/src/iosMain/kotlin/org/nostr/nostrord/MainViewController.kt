@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.svg.SvgDecoder
 import okio.Path.Companion.toPath
 import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import platform.Foundation.NSCachesDirectory
@@ -20,6 +21,10 @@ fun MainViewController(): UIViewController {
         ImageLoader.Builder(context)
             // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
             .eventListener(ImageLoadEventListener)
+            .components {
+                // Decodes data:image/svg+xml avatars (the data: fetcher is built in since 3.1).
+                add(SvgDecoder.Factory())
+            }
             .memoryCache {
                 // 20% of available memory (matches Android): keeps frequently-shown avatars
                 // resident so they aren't refetched over a long session, where each refetch is
