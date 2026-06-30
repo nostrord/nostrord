@@ -372,6 +372,10 @@ when you next touch its screen is in-scope, not a separate task.
 - Stage files by name; never `git add -A` (the working tree often has untracked screenshots and planning docs that must not be versioned).
 - When asked to plan, show the plan inline in the chat. Do not write plans to files unless asked.
 - All user-facing strings must be in English. No Portuguese in UI text.
+- **Comments: terse, present-tense, current behavior + the why.** Never narrate the diff (no
+  "previously" / "no longer" / "used to" / "we now"); keep a past state only when it is
+  load-bearing rationale that prevents a regression. Don't restate what the next line obviously
+  does. Guardrails read as invariants.
 - **Search online early for toolchain errors.** For anything about the external toolchain —
   kotlin-wrappers / React, Gradle, Compose Multiplatform, Ktor, Kotlin/JS — use WebSearch /
   WebFetch BEFORE guessing, and always before a *second* attempt at the same error. The web is
