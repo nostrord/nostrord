@@ -1371,26 +1371,15 @@ fun ForwardedEventCard(
                 color = NostrordColors.TextMuted,
                 style = NostrordTypography.Caption,
             )
-            // Group avatar (small)
-            if (sourceGroupPicture != null) {
-                AsyncImage(
-                    model =
-                    ImageRequest
-                        .Builder(LocalPlatformContext.current)
-                        .data(sourceGroupPicture)
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .size(Size(32, 32))
-                        .build(),
-                    contentDescription = "Group avatar",
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                    Modifier
-                        .size(16.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                )
-            }
+            // Group avatar (small). Seeded-gradient fallback when there's no picture, so the
+            // group always shows an avatar (parity with the web card / GroupLinkCard).
+            GroupHeaderIcon(
+                pictureUrl = sourceGroupPicture,
+                groupId = sourceGroupId,
+                displayName = sourceGroupName ?: sourceGroupId,
+                size = 16.dp,
+                cornerRadius = 4.dp,
+            )
             // Group name (with underline on hover style)
             Text(
                 text = sourceGroupName ?: sourceGroupId.take(12) + "...",
@@ -1715,7 +1704,10 @@ private fun QuotedEvent(
                     sourceGroupId = sourceGroupId,
                     sourceGroupName = sourceGroup?.name,
                     sourceGroupPicture = sourceGroup?.picture,
-                    sourceRelayUrl = sourceRelayUrl,
+                    // The `h` tag rarely carries a relay; fall back to the nevent's relay hint so
+                    // the click opens the group on the relay the event actually lives on (the nav
+                    // effect connects it on demand), matching web.
+                    sourceRelayUrl = sourceRelayUrl ?: relayHints.firstOrNull(),
                     onClick = onClick,
                     onNavigateToGroup = onNavigateToGroup,
                     modifier = modifier,
