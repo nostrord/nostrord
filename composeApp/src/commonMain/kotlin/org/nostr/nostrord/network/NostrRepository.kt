@@ -2642,7 +2642,7 @@ class NostrRepository(
         )
     }
 
-    override fun retrySend(eventId: String) = groupManager.retrySend(eventId)
+    override fun retrySend(eventId: String) = groupManager.retrySend(eventId) { sessionManager.signEvent(it) }
 
     override fun dismissFailed(groupId: String, eventId: String) = groupManager.dismissFailed(groupId, eventId)
 

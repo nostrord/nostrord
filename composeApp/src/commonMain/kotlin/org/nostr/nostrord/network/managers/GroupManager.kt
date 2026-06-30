@@ -379,10 +379,9 @@ class GroupManager(
     /**
      * Delivery status of the local user's own messages (optimistic send).
      * Sending = the message is on screen and awaiting relay confirmation (or
-     * queued for auto-retry); Failed = the relay rejected it or retries were
-     * exhausted. A delivered message has NO entry here and renders without an
-     * indicator. Keyed by event id. [Failed] carries the signed JSON so the
-     * message can be re-sent without re-signing.
+     * queued for auto-retry); Failed = the relay rejected it, retries were
+     * exhausted, or signing failed. A delivered message has NO entry here and
+     * renders without an indicator. Keyed by event id.
      */
     sealed interface MessageStatus {
         data object Sending : MessageStatus
@@ -390,7 +389,11 @@ class GroupManager(
         data class Failed(
             val reason: String,
             val groupId: String,
-            val eventJson: String,
+            // The signed JSON when a relay rejected an already-signed event; null when
+            // signing itself failed, in which case [unsignedEvent] is set so retry
+            // re-signs before delivering. Exactly one of the two is non-null.
+            val eventJson: String?,
+            val unsignedEvent: Event? = null,
         ) : MessageStatus
     }
 
@@ -2646,89 +2649,77 @@ class GroupManager(
         replyToMessageId: String? = null,
         extraTags: List<List<String>> = emptyList(),
         signEvent: suspend (Event) -> Event,
-    ): Result<Unit> {
-        return try {
-            val tags = mutableListOf(listOf("h", groupId))
-            if (channel != null && channel != "general") {
-                tags.add(listOf("channel", channel))
-            }
-
-            // Add reply tag if replying to a message (NIP-29: use "q" tag)
-            if (replyToMessageId != null) {
-                tags.add(listOf("q", replyToMessageId))
-            }
-
-            // Replace @displayName with nostr:npub... in content
-            var processedContent = content
-            mentions.forEach { (displayName, pubkeyHex) ->
-                val npub = org.nostr.nostrord.nostr.Nip19.encodeNpub(pubkeyHex)
-                processedContent = processedContent.replace("@$displayName", "nostr:$npub")
-                tags.add(listOf("p", pubkeyHex))
-            }
-
-            // p-tag the author of the message being replied to (NIP-10/22). Without
-            // it the recipient is only classified as "replied to" when they happen
-            // to have the parent message cached locally, so replies silently miss
-            // the per-group "mentions & replies only" notification filter (#70).
-            if (replyToMessageId != null) {
-                val parentAuthor = findMessageByIdAcrossGroups(replyToMessageId)?.second?.pubkey
-                if (parentAuthor != null &&
-                    parentAuthor != pubKey &&
-                    tags.none { it.size >= 2 && it[0] == "p" && it[1] == parentAuthor }
-                ) {
-                    tags.add(listOf("p", parentAuthor))
-                }
-            }
-
-            // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
-            extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
-
-            val event = Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9,
-                tags = tags,
-                content = processedContent,
-            )
-
-            val signedEvent = signEvent(event)
-
-            val eventJson = signedEvent.toJsonObject()
-            val message = buildJsonArray {
-                add("EVENT")
-                add(eventJson)
-            }.toString()
-
-            // Get event ID for OK tracking
-            val eventId = signedEvent.id
-                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
-
-            // Optimistic insert: show the message immediately with a Sending status,
-            // before the relay round-trip. The relay echo for this id is deduped by
-            // messageIdIndex so it never double-inserts; delivery is confirmed by the
-            // OK in deliverMessage(), not the echo.
-            insertOwnMessage(
-                groupId,
-                NostrGroupClient.NostrMessage(
-                    id = eventId,
-                    pubkey = signedEvent.pubkey,
-                    content = signedEvent.content,
-                    createdAt = signedEvent.createdAt,
-                    kind = signedEvent.kind,
-                    tags = signedEvent.tags,
-                ),
-            )
-            _messageStatus.update { it + (eventId to MessageStatus.Sending) }
-
-            // Deliver on the manager scope so a group switch or screen exit does not
-            // cancel the in-flight send (viewModelScope would). Status resolves async.
-            scope.launch { deliverMessage(groupId, message, eventId) }
-            Result.Success(Unit)
-        } catch (e: Throwable) {
-            // Signing/build failure: no optimistic message was inserted yet, so
-            // surface this as a real error (the composer restores the draft).
-            Result.Error(AppError.Group.SendFailed(groupId, e))
+    ): Result<Unit> = try {
+        val tags = mutableListOf(listOf("h", groupId))
+        if (channel != null && channel != "general") {
+            tags.add(listOf("channel", channel))
         }
+
+        // Add reply tag if replying to a message (NIP-29: use "q" tag)
+        if (replyToMessageId != null) {
+            tags.add(listOf("q", replyToMessageId))
+        }
+
+        // Replace @displayName with nostr:npub... in content
+        var processedContent = content
+        mentions.forEach { (displayName, pubkeyHex) ->
+            val npub = org.nostr.nostrord.nostr.Nip19.encodeNpub(pubkeyHex)
+            processedContent = processedContent.replace("@$displayName", "nostr:$npub")
+            tags.add(listOf("p", pubkeyHex))
+        }
+
+        // p-tag the author of the message being replied to (NIP-10/22). Without
+        // it the recipient is only classified as "replied to" when they happen
+        // to have the parent message cached locally, so replies silently miss
+        // the per-group "mentions & replies only" notification filter (#70).
+        if (replyToMessageId != null) {
+            val parentAuthor = findMessageByIdAcrossGroups(replyToMessageId)?.second?.pubkey
+            if (parentAuthor != null &&
+                parentAuthor != pubKey &&
+                tags.none { it.size >= 2 && it[0] == "p" && it[1] == parentAuthor }
+            ) {
+                tags.add(listOf("p", parentAuthor))
+            }
+        }
+
+        // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
+        extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
+
+        val event = Event(
+            pubkey = pubKey,
+            createdAt = epochMillis() / 1000,
+            kind = 9,
+            tags = tags,
+            content = processedContent,
+        )
+
+        // Stable NIP-01 id, computable before signing, so the optimistic bubble
+        // carries the final id and the relay echo dedups against it.
+        val eventId = event.calculateId()
+
+        // Optimistic insert before signing: the message shows immediately with a
+        // Sending status. Signing and delivery run on the manager scope so a group
+        // switch or screen exit does not cancel them, and a signing failure (e.g. a
+        // bunker timeout) resolves to a Failed status with retry, never a modal.
+        insertOwnMessage(
+            groupId,
+            NostrGroupClient.NostrMessage(
+                id = eventId,
+                pubkey = event.pubkey,
+                content = event.content,
+                createdAt = event.createdAt,
+                kind = event.kind,
+                tags = event.tags,
+            ),
+        )
+        _messageStatus.update { it + (eventId to MessageStatus.Sending) }
+
+        scope.launch { signAndDeliver(groupId, event, eventId, signEvent) }
+        Result.Success(Unit)
+    } catch (e: Throwable) {
+        // Pre-build failure before the optimistic insert: nothing is on screen, so
+        // surface a real error (the composer keeps the draft).
+        Result.Error(AppError.Group.SendFailed(groupId, e))
     }
 
     /**
@@ -2744,6 +2735,32 @@ class GroupManager(
         }
         touchGroupRecency(groupId)
         cacheMessages(groupId, listOf(message))
+    }
+
+    /**
+     * Sign an optimistic message off the UI scope, then deliver it. A signing failure
+     * (e.g. a bunker timeout or refusal) marks the message Failed carrying the unsigned
+     * event so retry can re-sign; success hands the signed JSON to deliverMessage().
+     */
+    private suspend fun signAndDeliver(
+        groupId: String,
+        event: Event,
+        eventId: String,
+        signEvent: suspend (Event) -> Event,
+    ) {
+        val message = try {
+            val signed = signEvent(event)
+            buildJsonArray {
+                add("EVENT")
+                add(signed.toJsonObject())
+            }.toString()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            markFailed(eventId, groupId, eventJson = null, reason = e.message ?: "Could not sign message", unsignedEvent = event)
+            return
+        }
+        deliverMessage(groupId, message, eventId)
     }
 
     /**
@@ -2773,15 +2790,24 @@ class GroupManager(
         _messageStatus.update { it - eventId }
     }
 
-    private fun markFailed(eventId: String, groupId: String, eventJson: String, reason: String) {
-        _messageStatus.update { it + (eventId to MessageStatus.Failed(reason, groupId, eventJson)) }
+    private fun markFailed(eventId: String, groupId: String, eventJson: String?, reason: String, unsignedEvent: Event? = null) {
+        _messageStatus.update { it + (eventId to MessageStatus.Failed(reason, groupId, eventJson, unsignedEvent)) }
     }
 
-    /** Re-send a previously failed own message using its stored signed JSON. */
-    fun retrySend(eventId: String) {
+    /**
+     * Re-send a previously failed own message: re-delivers the stored signed JSON, or
+     * re-signs the unsigned event first when the original failure happened while signing.
+     */
+    fun retrySend(eventId: String, signEvent: suspend (Event) -> Event) {
         val failed = _messageStatus.value[eventId] as? MessageStatus.Failed ?: return
         _messageStatus.update { it + (eventId to MessageStatus.Sending) }
-        scope.launch { deliverMessage(failed.groupId, failed.eventJson, eventId) }
+        scope.launch {
+            val json = failed.eventJson
+            when {
+                json != null -> deliverMessage(failed.groupId, json, eventId)
+                failed.unsignedEvent != null -> signAndDeliver(failed.groupId, failed.unsignedEvent, eventId, signEvent)
+            }
+        }
     }
 
     /** Drop a failed own message from the chat (user dismissed it). */
