@@ -776,8 +776,8 @@ private fun RailGroupButton(
         label = "railGroupCorner",
     )
     val shape = RoundedCornerShape(cornerRadius)
-    // Span the full rail width so the active pill can sit on the left edge, Discord-style,
-    // while the icon stays centered.
+    // Span the full rail width so the active pill can sit on the left edge while
+    // the icon stays centered.
     Box(modifier = Modifier.width(72.dp), contentAlignment = Alignment.Center) {
         // Left pill marker: grows from 0 to 20dp on hover and 36dp when active (web .rail-item::before).
         val pillHeight by animateDpAsState(
