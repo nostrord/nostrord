@@ -11,18 +11,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,8 +48,8 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
+import org.nostr.nostrord.ui.components.chat.MessageComposer
 import org.nostr.nostrord.ui.components.chat.MessageStatusIndicator
-import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
 import org.nostr.nostrord.ui.screens.group.components.CreateThreadDialog
@@ -91,7 +89,7 @@ fun ThreadsScreen(
 
     var showCompose by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var reply by remember { mutableStateOf("") }
+    var reply by remember { mutableStateOf(TextFieldValue("")) }
     var sending by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
@@ -162,48 +160,26 @@ fun ThreadsScreen(
                         )
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(Spacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    AppField(
-                        value = reply,
-                        onValueChange = { reply = it },
-                        placeholder = "Write a reply...",
-                        modifier = Modifier.weight(1f),
-                        singleLine = false,
-                        maxLines = 4,
-                    )
-                    IconButton(
-                        enabled = reply.isNotBlank() && !sending,
-                        onClick = {
+                MessageComposer(
+                    value = reply,
+                    onValueChange = { reply = it },
+                    onSend = {
+                        if (reply.text.isNotBlank() && !sending) {
                             sending = true
                             vm.sendReply(
-                                reply,
+                                reply.text.trim(),
                                 onSuccess = {
-                                    reply = ""
+                                    reply = TextFieldValue("")
                                     sending = false
                                 },
                                 onFailure = { sending = false },
                             )
-                        },
-                    ) {
-                        if (sending) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = NostrordColors.Primary,
-                            )
-                        } else {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send reply",
-                                tint = if (reply.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
-                            )
                         }
-                    }
-                }
+                    },
+                    placeholder = "Write a reply...",
+                    isSending = sending,
+                    modifier = Modifier.padding(Spacing.md),
+                )
             }
         } else {
             // ---- Threads list ----
