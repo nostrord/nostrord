@@ -216,6 +216,4 @@ actual object Nip44 {
     }
 
     private fun String.hexToByteArray(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-
-    private fun ByteArray.toHexString(): String = joinToString("") { byte -> "%02x".format(byte) }
 }

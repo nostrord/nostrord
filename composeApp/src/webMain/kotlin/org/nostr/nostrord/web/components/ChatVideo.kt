@@ -98,6 +98,8 @@ val ChatVideo =
         useEffect(props.videoUrl, showPlayer, attempt) {
             val node = videoRef.current ?: return@useEffect
             if (!showPlayer || inView) return@useEffect
+            // Referenced by name inside the js() IntersectionObserver call below.
+            @Suppress("UnusedPrivateProperty")
             val callback: (dynamic, dynamic) -> Unit = { entries, obs ->
                 if (entries[0].isIntersecting == true) {
                     obs.disconnect()

@@ -16,6 +16,7 @@ kotlin = "2.2.20"
 kotlinx-coroutines = "1.10.2"
 spotless = "7.0.4"
 ktlint = "1.5.0"
+detekt = "1.23.8"
 sqldelight = "2.3.2"
 
 [libraries]
@@ -45,4 +46,5 @@ composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "k
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

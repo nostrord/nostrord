@@ -912,7 +912,6 @@ class GroupManager(
      * Use this from callers that may fire in quick succession (auth, EOSE, CLOSED handlers).
      */
     fun refreshMuxDebounced(relayUrl: String) {
-        val wasCoalesced = muxRefreshJobs[relayUrl]?.isActive == true
         muxRefreshJobs[relayUrl]?.cancel()
         muxRefreshJobs[relayUrl] = scope.launch {
             delay(300)

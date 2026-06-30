@@ -133,7 +133,6 @@ fun GroupScreenMobile(
     onFetchTargetById: (String) -> Unit = {},
     onInputOverlayVisibilityChange: (Boolean) -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
 
     val search = rememberChatSearchState(
@@ -253,7 +252,6 @@ fun GroupScreenMobile(
                                 .fillMaxWidth()
                                 .weight(1f),
                         ) {
-                            val scope = rememberCoroutineScope()
                             MessagesList(
                                 groupId = groupId,
                                 chatItems = chatItems,

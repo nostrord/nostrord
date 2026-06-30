@@ -17,7 +17,6 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class SessionManager(
     private val authManager: AuthManager,
-    private val scope: CoroutineScope,
 ) {
     // Clients whose AUTH challenge is already being signed, to prevent double-signing
     // when the relay sends a second challenge before the first completed.

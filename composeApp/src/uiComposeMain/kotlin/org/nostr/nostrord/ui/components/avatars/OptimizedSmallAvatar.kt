@@ -81,7 +81,6 @@ fun OptimizedSmallAvatar(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
-    val density = LocalDensity.current
     val sizeCategory = size.toSizeCategory()
 
     // Use a single canonical request size (128px) for all avatar sizes so Coil

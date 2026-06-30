@@ -1874,7 +1874,6 @@ class NostrRepository(
             }
 
             if (gapDetected) {
-                val gapSec = lastKnown - (latestInMemory ?: 0)
                 scope.launch {
                     try {
                         groupManager.requestGroupMessages(groupId)

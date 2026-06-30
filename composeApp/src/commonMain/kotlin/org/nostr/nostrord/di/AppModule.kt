@@ -204,7 +204,6 @@ object AppModule {
     val sessionManager: SessionManager by lazy {
         SessionManager(
             authManager = authManager,
-            scope = appScope,
         )
     }
 

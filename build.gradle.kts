@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.sqldelight) apply false
     alias(libs.plugins.spotless)
+    alias(libs.plugins.detekt)
 }
 
 // Pin ktlint engine to avoid transitive upgrades changing the rule set unexpectedly.
@@ -40,4 +41,16 @@ spotless {
         target("*.gradle.kts", "composeApp/*.gradle.kts")
         ktlint(ktlintVersion).editorConfigOverride(ktlintDisabledRules)
     }
+}
+
+// Static analysis focused on dead code (unused members) and a few correctness smells.
+// Formatting/style is spotless+ktlint's job, so most detekt style rules are off (see
+// config/detekt/detekt.yml). Runs without type resolution: `./gradlew detekt` scans all
+// composeApp source sets at once and is fast. Not wired into the pre-commit hook (would
+// slow every commit); run it on demand or in CI.
+detekt {
+    buildUponDefaultConfig = true
+    parallel = true
+    config.setFrom(files("config/detekt/detekt.yml"))
+    source.setFrom(files("composeApp/src"))
 }
