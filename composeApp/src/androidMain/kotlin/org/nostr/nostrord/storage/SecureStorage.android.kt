@@ -18,6 +18,7 @@ actual object SecureStorage {
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val LAST_OPEN_GROUP_PREFIX = "last_open_group_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
@@ -280,6 +281,31 @@ actual object SecureStorage {
     actual fun clearLastViewedGroup(pubkey: String) {
         ensureInitialized()
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    actual fun saveLastOpenGroup(
+        pubkey: String,
+        relayUrl: String,
+        groupId: String,
+    ) {
+        ensureInitialized()
+        val key = LAST_OPEN_GROUP_PREFIX + pubkey.hashCode()
+        prefs.edit().putString(key, "$relayUrl|$groupId").apply()
+    }
+
+    actual fun getLastOpenGroup(pubkey: String): Pair<String, String>? {
+        ensureInitialized()
+        val key = LAST_OPEN_GROUP_PREFIX + pubkey.hashCode()
+        val value = prefs.getString(key, null) ?: return null
+        val parts = value.split("|", limit = 2)
+        if (parts.size != 2 || parts[0].isBlank() || parts[1].isBlank()) return null
+        return Pair(parts[0], parts[1])
+    }
+
+    actual fun clearLastOpenGroup(pubkey: String) {
+        ensureInitialized()
+        val key = LAST_OPEN_GROUP_PREFIX + pubkey.hashCode()
         prefs.edit().remove(key).apply()
     }
 

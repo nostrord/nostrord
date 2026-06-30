@@ -100,6 +100,7 @@ import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
@@ -127,6 +128,7 @@ import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
+import org.nostr.nostrord.ui.navigation.lastOpenGroupRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.group.ThreadsScreen
@@ -180,20 +182,32 @@ fun AppFrame() {
     // Notifications page open over the content, with the filter sidebar; one shared VM
     // keeps the sidebar filters and the list in sync.
     val notifVm = viewModel { NotificationsViewModel(AppModule.nostrRepository) }
-    val history = remember { NavigationHistory() }
+
+    // Discord-style restore: reopen straight into the last group this account had open.
+    // Read synchronously when the history is first built so there is no Home -> group flash;
+    // it is a single per-account pref read. seedDeepLink keeps Home under the group so back
+    // returns Home instead of leaving the app, and no-ops when no group was ever opened.
+    fun restoredGroupRoute(): GroupRoute? = lastOpenGroupRoute(AppModule.nostrRepository.getPublicKey()?.let { SecureStorage.getLastOpenGroup(it) })
+    val history = remember { NavigationHistory().apply { seedDeepLink(restoredGroupRoute()) } }
     val nav by history.state.collectAsState()
     val route = nav.current
     val groupRoute = route as? GroupRoute
     // Notifications is a real route now; the rail and sidebar gate their layout on it.
     val showNotifications = route is NotificationsRoute
 
-    // A genuine account switch resets navigation to Home so the previous account's open
-    // group or profile never leaks into the new session. The first activeId emission (the
-    // initial composition) is a no-op so a route seeded at startup survives.
+    // A genuine account switch drops the previous account's history (its open group or
+    // profile must never leak into the new session) and re-seeds into the new account's own
+    // last open group, mirroring the cold-start restore. The first activeId emission (the
+    // initial composition) is a no-op so the route seeded at startup survives.
     val activeId by AppModule.accountStore.activeId.collectAsState()
     var seenActiveId by remember { mutableStateOf(false) }
     LaunchedEffect(activeId) {
-        if (seenActiveId) history.reset() else seenActiveId = true
+        if (seenActiveId) {
+            val restored = withContext(Dispatchers.Default) { restoredGroupRoute() }
+            if (restored != null) history.seedDeepLink(restored) else history.reset()
+        } else {
+            seenActiveId = true
+        }
     }
 
     // Desktop draws the NavigationToolbar (back/forward arrows + window controls) at the top
@@ -213,11 +227,31 @@ fun AppFrame() {
         // Main context froze the UI (and could ANR) on every group / rail switch.
         withContext(Dispatchers.Default) {
             val r = groupRoute
-            if (r != null && r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
-                AppModule.nostrRepository.switchRelay(r.relayUrl)
+            if (r != null) {
+                if (r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
+                    AppModule.nostrRepository.switchRelay(r.relayUrl)
+                }
+                // Persist as the last open group so the next launch reopens straight into it.
+                AppModule.nostrRepository.getPublicKey()?.let { pk ->
+                    SecureStorage.saveLastOpenGroup(pk, r.relayUrl, r.groupId)
+                }
             }
             AppModule.nostrRepository.setActiveGroup(r?.groupId)
             if (r != null) AppModule.nostrRepository.markGroupAsRead(r.groupId)
+        }
+    }
+
+    // If the restored group was left on another device/session it is no longer in the rail;
+    // once the group list loads, drop a now-missing restored route back to Home. Scoped to
+    // the first non-empty groups emission so it never fights normal in-session navigation.
+    var validatedRestore by remember { mutableStateOf(false) }
+    LaunchedEffect(groups) {
+        if (!validatedRestore && groups.isNotEmpty()) {
+            val r = history.current as? GroupRoute
+            if (r != null && groups.none { it.relayUrl == r.relayUrl && it.meta.id == r.groupId }) {
+                history.reset()
+            }
+            validatedRestore = true
         }
     }
 

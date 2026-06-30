@@ -140,6 +140,19 @@ expect object SecureStorage {
 
     fun clearLastViewedGroup(pubkey: String)
 
+    // Last open group, for reopening straight into it on the next launch (native).
+    // Stores the (relayUrl, groupId) pair because groups are keyed by relay in this
+    // multi-relay app; GroupRoute needs both to restore.
+    fun saveLastOpenGroup(
+        pubkey: String,
+        relayUrl: String,
+        groupId: String,
+    )
+
+    fun getLastOpenGroup(pubkey: String): Pair<String, String>?
+
+    fun clearLastOpenGroup(pubkey: String)
+
     // Message persistence (for offline-first behavior)
     // Stores recent messages per group to survive app restarts
     fun saveMessagesForGroup(

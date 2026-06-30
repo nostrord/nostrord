@@ -46,6 +46,14 @@ data class GroupRoute(
 enum class GroupView { Chat, Threads }
 
 /**
+ * Decode a persisted last-open-group slot ([SecureStorage.getLastOpenGroup], a
+ * `(relayUrl, groupId)` pair) into the base [GroupRoute] used to reopen the app straight
+ * into that group. Null in, null out (no group was ever opened) so callers can feed it
+ * directly to [NavigationHistory.seedDeepLink], which no-ops on null.
+ */
+fun lastOpenGroupRoute(saved: Pair<String, String>?): GroupRoute? = saved?.let { (relayUrl, groupId) -> GroupRoute(relayUrl, groupId) }
+
+/**
  * Route for a relay page (#/r/<relay>): the relay's NIP-11 header plus the groups on it
  * that you or people you follow are in. [relayUrl] is the full ws(s):// URL; the hash
  * carries it scheme-stripped as a single segment, same encoding as [GroupRoute].
