@@ -140,18 +140,17 @@ expect object SecureStorage {
 
     fun clearLastViewedGroup(pubkey: String)
 
-    // Last open group, for reopening straight into it on the next launch (native).
-    // Stores the (relayUrl, groupId) pair because groups are keyed by relay in this
-    // multi-relay app; GroupRoute needs both to restore.
-    fun saveLastOpenGroup(
+    // Last open route, for reopening straight into it on the next launch (native).
+    // Stores the route's URL hash; it already encodes relay + groupId (or the home tab),
+    // so a single string round-trips via parseHashRoute. Only groups and home are tracked.
+    fun saveLastRoute(
         pubkey: String,
-        relayUrl: String,
-        groupId: String,
+        routeHash: String,
     )
 
-    fun getLastOpenGroup(pubkey: String): Pair<String, String>?
+    fun getLastRoute(pubkey: String): String?
 
-    fun clearLastOpenGroup(pubkey: String)
+    fun clearLastRoute(pubkey: String)
 
     // Message persistence (for offline-first behavior)
     // Stores recent messages per group to survive app restarts

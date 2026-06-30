@@ -128,7 +128,8 @@ import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
-import org.nostr.nostrord.ui.navigation.lastOpenGroupRoute
+import org.nostr.nostrord.ui.navigation.persistedRouteHash
+import org.nostr.nostrord.ui.navigation.restoredRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.group.ThreadsScreen
@@ -183,12 +184,12 @@ fun AppFrame() {
     // keeps the sidebar filters and the list in sync.
     val notifVm = viewModel { NotificationsViewModel(AppModule.nostrRepository) }
 
-    // Discord-style restore: reopen straight into the last group this account had open.
-    // Read synchronously when the history is first built so there is no Home -> group flash;
-    // it is a single per-account pref read. seedDeepLink keeps Home under the group so back
-    // returns Home instead of leaving the app, and no-ops when no group was ever opened.
-    fun restoredGroupRoute(): GroupRoute? = lastOpenGroupRoute(AppModule.nostrRepository.getPublicKey()?.let { SecureStorage.getLastOpenGroup(it) })
-    val history = remember { NavigationHistory().apply { seedDeepLink(restoredGroupRoute()) } }
+    // Discord-style restore: reopen straight into the last page this account had open (a
+    // group or a home tab). Read synchronously when the history is first built so there is no
+    // Home -> group flash; it is a single per-account pref read. seedDeepLink keeps Home under
+    // a group so back returns Home instead of leaving the app, and no-ops for plain Home.
+    fun restoredStartRoute(): HashRoute? = restoredRoute(AppModule.nostrRepository.getPublicKey()?.let { SecureStorage.getLastRoute(it) })
+    val history = remember { NavigationHistory().apply { seedDeepLink(restoredStartRoute()) } }
     val nav by history.state.collectAsState()
     val route = nav.current
     val groupRoute = route as? GroupRoute
@@ -197,13 +198,13 @@ fun AppFrame() {
 
     // A genuine account switch drops the previous account's history (its open group or
     // profile must never leak into the new session) and re-seeds into the new account's own
-    // last open group, mirroring the cold-start restore. The first activeId emission (the
+    // last open page, mirroring the cold-start restore. The first activeId emission (the
     // initial composition) is a no-op so the route seeded at startup survives.
     val activeId by AppModule.accountStore.activeId.collectAsState()
     var seenActiveId by remember { mutableStateOf(false) }
     LaunchedEffect(activeId) {
         if (seenActiveId) {
-            val restored = withContext(Dispatchers.Default) { restoredGroupRoute() }
+            val restored = withContext(Dispatchers.Default) { restoredStartRoute() }
             if (restored != null) history.seedDeepLink(restored) else history.reset()
         } else {
             seenActiveId = true
@@ -227,17 +228,22 @@ fun AppFrame() {
         // Main context froze the UI (and could ANR) on every group / rail switch.
         withContext(Dispatchers.Default) {
             val r = groupRoute
-            if (r != null) {
-                if (r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
-                    AppModule.nostrRepository.switchRelay(r.relayUrl)
-                }
-                // Persist as the last open group so the next launch reopens straight into it.
-                AppModule.nostrRepository.getPublicKey()?.let { pk ->
-                    SecureStorage.saveLastOpenGroup(pk, r.relayUrl, r.groupId)
-                }
+            if (r != null && r.relayUrl != AppModule.nostrRepository.currentRelayUrl.value) {
+                AppModule.nostrRepository.switchRelay(r.relayUrl)
             }
             AppModule.nostrRepository.setActiveGroup(r?.groupId)
             if (r != null) AppModule.nostrRepository.markGroupAsRead(r.groupId)
+        }
+    }
+
+    // Persist the current page (groups and home only) so the next launch reopens it.
+    // Other pages return null from persistedRouteHash and leave the slot unchanged.
+    LaunchedEffect(route) {
+        val hash = persistedRouteHash(route) ?: return@LaunchedEffect
+        withContext(Dispatchers.Default) {
+            AppModule.nostrRepository.getPublicKey()?.let { pk ->
+                SecureStorage.saveLastRoute(pk, hash)
+            }
         }
     }
 

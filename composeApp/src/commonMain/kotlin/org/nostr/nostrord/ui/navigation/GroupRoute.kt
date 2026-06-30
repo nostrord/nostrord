@@ -46,12 +46,31 @@ data class GroupRoute(
 enum class GroupView { Chat, Threads }
 
 /**
- * Decode a persisted last-open-group slot ([SecureStorage.getLastOpenGroup], a
- * `(relayUrl, groupId)` pair) into the base [GroupRoute] used to reopen the app straight
- * into that group. Null in, null out (no group was ever opened) so callers can feed it
- * directly to [NavigationHistory.seedDeepLink], which no-ops on null.
+ * The value to persist in the last-route slot ([SecureStorage.saveLastRoute]) for [route].
+ * Only groups and the home tabs are tracked for restore: a group persists its base hash
+ * (no deep-link target / invite / thread pane), and the home tabs persist their hash (empty
+ * for the default Groups home). Any other page returns null so the slot is left unchanged.
  */
-fun lastOpenGroupRoute(saved: Pair<String, String>?): GroupRoute? = saved?.let { (relayUrl, groupId) -> GroupRoute(relayUrl, groupId) }
+fun persistedRouteHash(route: HashRoute?): String? = when (route) {
+    null -> "" // default Groups home is the empty hash
+    is HomeRoute -> route.toHash()
+    is GroupRoute -> GroupRoute(route.relayUrl, route.groupId).toHash()
+    else -> null
+}
+
+/**
+ * Decode a persisted last-route slot ([SecureStorage.getLastRoute], a URL hash) back into the
+ * [HashRoute] to reopen on launch. Only groups and the home tabs are restored; an empty/blank
+ * slot (default Groups home) or any other route yields null, which
+ * [NavigationHistory.seedDeepLink] treats as plain Home.
+ */
+fun restoredRoute(saved: String?): HashRoute? {
+    val hash = saved?.takeIf { it.isNotBlank() } ?: return null
+    return when (val route = parseHashRoute(hash)) {
+        is GroupRoute, is HomeRoute -> route
+        else -> null
+    }
+}
 
 /**
  * Route for a relay page (#/r/<relay>): the relay's NIP-11 header plus the groups on it
