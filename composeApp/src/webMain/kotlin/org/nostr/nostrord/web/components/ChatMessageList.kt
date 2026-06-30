@@ -75,6 +75,14 @@ val ChatMessageList =
         val atBottom = useRef(true)
         val openedFor = useRef<String>(null)
         val wasLoading = useRef(false)
+        // Set once the user deliberately scrolls up (a real upward gesture, detected as a
+        // scrollTop decrease — NOT a content-growth-induced latch flicker); cleared when they
+        // return to the bottom or re-open the group. Gates the ResizeObserver's near-bottom
+        // catch-up pin so growth above the fold (history prepend, a live message, late media)
+        // can never yank a reader back to the tail. The at-bottom follow and open settle still
+        // pin as normal — native gates its single pin purely on the at-bottom latch.
+        val userScrolledUp = useRef(false)
+        val lastScrollTop = useRef(0.0)
         val markDebounce = useRef<Int>(null)
         val prevScrollHeight = useRef(0.0)
         val openedAt = useRef(0.0)
@@ -113,6 +121,8 @@ val ChatMessageList =
                 openedFor.current = props.resetKey
                 openedAt.current = window.performance.now()
                 loadingOlder.current = false
+                userScrolledUp.current = false
+                lastScrollTop.current = node.scrollTop.toDouble()
                 if (atBottom.current != true) {
                     atBottom.current = true
                     props.onAtBottomChange(true)
@@ -121,10 +131,10 @@ val ChatMessageList =
                 return@useLayoutEffect
             }
 
-            if (atBottom.current == true || settling()) {
-                // Following (or inside the open settle window): stay pinned to the bottom as
-                // content streams in / media decodes. Anchor OFF so it doesn't re-anchor to a
-                // row above and drift us up.
+            if ((atBottom.current == true || settling()) && userScrolledUp.current != true) {
+                // Following (or inside the open settle window) AND the user has not scrolled up:
+                // stay pinned to the bottom as content streams in / media decodes. Anchor OFF so it
+                // doesn't re-anchor to a row above and drift us up.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
             } else {
@@ -198,7 +208,12 @@ val ChatMessageList =
                     // scroll-up past this band clears the intent and stops the pin.
                     val distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight)
                     val nearBottom = distanceFromBottom < node.clientHeight * 1.5
-                    if (atBottom.current == true || settling() || nearBottom) {
+                    // A deliberate scroll-up disables every auto-pin: growth above the fold (history
+                    // prepend, a live message, late media) must not yank the reader back to the tail.
+                    // While following / settling / near the bottom and NOT scrolled up, re-pin.
+                    if (userScrolledUp.current != true &&
+                        (atBottom.current == true || settling() || nearBottom)
+                    ) {
                         node.scrollTop = node.scrollHeight.toDouble()
                     }
                 }
@@ -263,10 +278,12 @@ val ChatMessageList =
             props.onScrolledToKey()
         }
 
-        // Jump-to-bottom (FAB).
+        // Jump-to-bottom (FAB). Clear the scroll-up intent so the smooth scroll lands at the true
+        // bottom even if content grows mid-animation, and following resumes once it arrives.
         useEffect(props.jumpNonce) {
             if ((props.jumpNonce ?: 0) <= 0) return@useEffect
             val node = el.current ?: return@useEffect
+            userScrolledUp.current = false
             node.asDynamic().scrollTo(js("({ top: node.scrollHeight, behavior: 'smooth' })"))
         }
 
@@ -279,6 +296,10 @@ val ChatMessageList =
             // one page per load cycle, and stopping the wheel stops loading (no burst).
             onWheel = { ev ->
                 if ((ev.deltaY as Double) < 0.0) {
+                    // A wheel-up at the very top fires no scroll event (scrollTop is already 0), so
+                    // record the scroll-up intent here too — otherwise the near-bottom pin could
+                    // re-grab a reader parked at the top when the next page lands.
+                    userScrolledUp.current = true
                     val node = ev.currentTarget
                     val sh = node.scrollHeight.toDouble()
                     val st = node.scrollTop.toDouble()
@@ -302,15 +323,23 @@ val ChatMessageList =
                 val sh = node.scrollHeight.toDouble()
                 val st = node.scrollTop.toDouble()
                 val ch = node.clientHeight.toDouble()
+                // A scrollTop decrease is a real upward gesture (works for wheel AND touch); a pin
+                // or an overflow-anchor restore only ever increases it, so this never trips on
+                // content growth. Marks the reader as scrolled-up so every auto-pin lets go.
+                val scrolledUpNow = st < (lastScrollTop.current ?: 0.0) - 1.0
+                if (scrolledUpNow) userScrolledUp.current = true
+                lastScrollTop.current = st
                 // 80px threshold matches the prototype: the jump pill appears once the
                 // user is more than ~80px up from the bottom.
                 val isAtBottom = (sh - st - ch) < 80.0
-                // During the open settle window, ignore a transient "not at bottom" reading
-                // caused by content still growing/reflowing — flipping the latch there would
-                // desarm the pin and strand the open above the true bottom. A genuine user
-                // scroll after the window flips it as normal.
-                if (!(settling() && !isAtBottom) && atBottom.current != isAtBottom) {
+                // During the open settle window, ignore a transient "not at bottom" reading caused
+                // by content still growing/reflowing — flipping the latch there would disarm the pin
+                // and strand the open above the true bottom. But a genuine scroll-up (scrollTop
+                // decreased) is NOT reflow: honor it even during settle, otherwise the latch sticks
+                // `true` and the next growth snaps the reader back to the bottom.
+                if (!(settling() && !isAtBottom && !scrolledUpNow) && atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
+                    if (isAtBottom) userScrolledUp.current = false
                     props.onAtBottomChange(isAtBottom)
                     // Anchoring ON while reading history (holds position across prepends and
                     // late image layout), OFF at the bottom where it would fight the pin.
