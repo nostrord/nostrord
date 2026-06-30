@@ -1484,9 +1484,11 @@ body {
     border-radius: 12px;
 }
 
-/* Left pill marker (Discord-style): white, grows from 0 to 20px on hover and 36px
-   when active. Drawn on the .rail-group wrapper because .rail-group-btn clips its
-   own overflow; left: -12px reaches the rail edge past .rail-scroll's 12px padding. */
+/* Left pill marker: grows from 0 to 20px on hover and 36px when
+   active. Uses text-primary so it stays visible in both themes (matches native's
+   NostrordColors.TextPrimary). Drawn on the .rail-group wrapper because
+   .rail-group-btn clips its own overflow; left: -12px reaches the rail edge past
+   .rail-scroll's 12px padding. */
 .rail-group::before {
     content: "";
     position: absolute;
@@ -1496,7 +1498,7 @@ body {
     width: 4px;
     height: 0;
     border-radius: 0 4px 4px 0;
-    background: #fff;
+    background: var(--color-text-primary);
     transition: height 0.15s ease;
 }
 .rail-group:hover::before {
@@ -5790,7 +5792,7 @@ body {
     text-decoration: line-through;
 }
 
-/* ||spoiler||: Discord-style, blurred until clicked (matches the prototype Spoiler). */
+/* ||spoiler||: blurred until clicked (matches the prototype Spoiler). */
 .msg-spoiler {
     padding: 0 2px;
     border: none;
