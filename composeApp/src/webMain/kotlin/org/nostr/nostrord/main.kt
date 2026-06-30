@@ -53,12 +53,16 @@ private fun parseDeepLinkFromUrl() {
 
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
+    // `&e=<eventId>` from a "copy message link" deep link: carried into the hash route so
+    // AppFrame seeks + highlights that message once it loads. Dropping it here was why the
+    // link opened the group but never scrolled to the message.
+    val messageId = params["e"]?.takeIf { it.isNotBlank() }
 
     // Legacy ?relay=&group= group links redirect to the canonical #/g/<relay>/<id>
-    // hash route (AppFrame owns it: relay switch, open, ?invite= auto-join). The
+    // hash route (AppFrame owns it: relay switch, open, ?invite= auto-join, &e= seek). The
     // query is stripped so the URL shown/copied is the new form.
     if (groupId != null) {
-        val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = inviteCode)
+        val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = inviteCode, messageId = messageId)
         window.history.replaceState(null, "", window.location.pathname + route.toHash())
         return
     }
