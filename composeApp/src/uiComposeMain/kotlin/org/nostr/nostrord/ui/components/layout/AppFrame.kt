@@ -405,6 +405,7 @@ fun AppFrame() {
             forceDesktop = forceDesktop,
             notifVm = notifVm,
             onNavigate = { history.navigate(it) },
+            onNavigateBackOr = { history.navigateBackOr(it) },
             onSelectHomeTab = { tab -> history.navigate(if (tab == HomeTab.Groups) null else HomeRoute(tab)) },
             onCloseGroup = { history.navigate(null) },
             onConsumeInvite = { (route as? GroupRoute)?.let { history.replace(it.copy(inviteCode = null)) } },
@@ -596,6 +597,7 @@ private fun FrameContent(
     forceDesktop: Boolean,
     notifVm: NotificationsViewModel,
     onNavigate: (HashRoute) -> Unit,
+    onNavigateBackOr: (HashRoute) -> Unit,
     onSelectHomeTab: (HomeTab) -> Unit,
     onCloseGroup: () -> Unit,
     onConsumeInvite: () -> Unit,
@@ -656,6 +658,9 @@ private fun FrameContent(
                     ThreadsScreen(
                         route = route,
                         onNavigate = onNavigate,
+                        // Smart "up": pop to the threads list when it's the entry we came from,
+                        // else push it (a deep link straight to a thread has no list behind it).
+                        onBack = { onNavigateBackOr(route.copy(threadRootId = null)) },
                         onOpenDrawer = onOpenDrawer ?: {},
                     )
                 } else {

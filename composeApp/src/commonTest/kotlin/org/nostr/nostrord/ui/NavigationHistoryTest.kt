@@ -87,6 +87,31 @@ class NavigationHistoryTest {
     }
 
     @Test
+    fun `navigateBackOr pops when the previous entry matches`() {
+        val h = NavigationHistory()
+        val threads = GroupRoute("wss://r", "g", view = GroupView.Threads)
+        val thread = threads.copy(threadRootId = "root1")
+        h.navigate(threads)
+        h.navigate(thread)
+        // Back-arrow from the thread to the list: the list is the previous entry, so pop (no dup).
+        h.navigateBackOr(threads)
+        assertEquals(threads, h.current)
+        assertTrue(h.canGoForward) // the thread stays forward, not duplicated behind us
+        assertEquals(thread, h.forward())
+    }
+
+    @Test
+    fun `navigateBackOr pushes when there is no matching previous entry`() {
+        val h = NavigationHistory()
+        val threads = GroupRoute("wss://r", "g", view = GroupView.Threads)
+        val thread = threads.copy(threadRootId = "root1")
+        h.seedDeepLink(thread) // deep link straight to a thread; no list behind it
+        h.navigateBackOr(threads)
+        assertEquals(threads, h.current)
+        assertEquals(thread, h.back()) // pushed, so back returns the thread (not Home)
+    }
+
+    @Test
     fun `back and forward move the cursor`() {
         val h = NavigationHistory()
         h.navigate(UserRoute("a"))

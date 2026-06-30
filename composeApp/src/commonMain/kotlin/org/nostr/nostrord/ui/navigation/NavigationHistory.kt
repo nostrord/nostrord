@@ -79,6 +79,16 @@ class NavigationHistory(initial: HashRoute? = null) {
         if (routeKey(route) == routeKey(entries[index])) replace(route) else push(route)
     }
 
+    /**
+     * Pop when the previous entry is [route] (by [routeKey]), else push [route]. Lets an in-screen
+     * "up"/back button (e.g. a thread detail returning to the threads list) return to where the
+     * user came from without stacking a duplicate, while still working when the screen was reached
+     * directly (a deep link with no matching entry behind it).
+     */
+    fun navigateBackOr(route: HashRoute?) {
+        if (index > 0 && routeKey(entries[index - 1]) == routeKey(route)) back() else navigate(route)
+    }
+
     /** Always add a new entry above the cursor, dropping any forward history. */
     fun push(route: HashRoute?) {
         while (entries.lastIndex > index) entries.removeLast()

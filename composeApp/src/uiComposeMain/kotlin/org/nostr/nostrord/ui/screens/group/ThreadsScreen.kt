@@ -71,6 +71,7 @@ import org.nostr.nostrord.utils.shortNpub
 fun ThreadsScreen(
     route: GroupRoute,
     onNavigate: (HashRoute) -> Unit,
+    onBack: () -> Unit = { onNavigate(route.copy(threadRootId = null)) },
     onOpenDrawer: () -> Unit = {},
 ) {
     // Distinct key prefix: GroupSidebar/GroupScreen use viewModel(key = groupId) for GroupViewModel
@@ -101,7 +102,7 @@ fun ThreadsScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                IconButton(onClick = { onNavigate(route.copy(threadRootId = null)) }) {
+                IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back to threads",
@@ -258,7 +259,7 @@ fun ThreadsScreen(
                     showDeleteConfirm = false
                     if (ownRoot != null) {
                         vm.deleteThread(ownRoot.id)
-                        onNavigate(route.copy(threadRootId = null))
+                        onBack()
                     }
                 }) { Text("Delete", color = NostrordColors.Error) }
             },
