@@ -3729,6 +3729,27 @@ private val QuotedEvent =
             }
         }
 
+        // Reply preview: if the quoted event is itself a reply (q tag), resolve the parent so the
+        // card shows "↳ <author>: <snippet>" like native, or "Loading reply…" until it arrives.
+        val replyParentId =
+            quotedTags.firstOrNull {
+                it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() }
+            }?.getOrNull(1)
+        val replyLocal = replyParentId?.let { props.localById[it] }
+        val replyCached = replyParentId?.let { cached[it] }
+        val replyPubkey = replyLocal?.pubkey ?: replyCached?.pubkey
+        val replyContent = replyLocal?.content ?: replyCached?.content
+        useEffect(replyParentId) {
+            val pid = replyParentId ?: return@useEffect
+            if (pid !in cached && replyLocal == null) {
+                launchApp { repo.requestEventById(pid, props.relays, null) }
+            }
+        }
+        useEffect(replyPubkey) {
+            val pk = replyPubkey
+            if (pk != null && userMetadata[pk] == null) launchApp { repo.requestUserMetadata(setOf(pk)) }
+        }
+
         // Clickable only when the referenced event is a local message we can scroll to; an
         // external nevent reference has nowhere to scroll, so it stays static (no pointer).
         val scrollable = local != null
@@ -3761,6 +3782,13 @@ private val QuotedEvent =
                     span {
                         className = ClassName("forwarded-event-from")
                         +"forwarded from"
+                    }
+                    WebAvatar {
+                        url = fwdGroupMeta?.picture
+                        seed = refGroupId
+                        kind = AvatarKind.GROUP
+                        this.name = fwdGroupName
+                        cls = "forwarded-event-group-avatar"
                     }
                     span {
                         className = ClassName("forwarded-event-group")
@@ -3800,6 +3828,40 @@ private val QuotedEvent =
                         title = "Open in another client"
                         onClick = { it.stopPropagation() }
                         icon(Ic.OpenInNew)
+                    }
+                }
+                if (replyParentId != null) {
+                    if (replyContent != null && replyPubkey != null) {
+                        div {
+                            className = ClassName("quoted-event-reply")
+                            span {
+                                className = ClassName("quoted-event-reply-arrow")
+                                +"↳"
+                            }
+                            WebAvatar {
+                                url = userMetadata[replyPubkey]?.picture
+                                seed = replyPubkey
+                                this.name = displayName(replyPubkey, userMetadata[replyPubkey])
+                                cls = "quoted-event-reply-avatar"
+                            }
+                            span {
+                                className = ClassName("quoted-event-reply-author")
+                                +displayName(replyPubkey, userMetadata[replyPubkey])
+                            }
+                            span {
+                                className = ClassName("quoted-event-reply-text")
+                                +replyPreviewText(replyContent, userMetadata, 100)
+                            }
+                        }
+                    } else {
+                        div {
+                            className = ClassName("quoted-event-reply quoted-event-reply-loading")
+                            span {
+                                className = ClassName("quoted-event-reply-arrow")
+                                +"↳"
+                            }
+                            +"Loading reply…"
+                        }
                     }
                 }
                 div {

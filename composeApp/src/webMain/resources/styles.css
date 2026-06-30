@@ -5779,12 +5779,55 @@ body {
 .forwarded-event-from {
     color: var(--color-text-muted);
 }
+.forwarded-event-group-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
 .forwarded-event-group {
     color: var(--color-primary);
     font-weight: 600;
 }
 .forwarded-event-group:hover {
     text-decoration: underline;
+}
+/* Reply preview inside a quoted/forwarded card: the parent message the quote replies to
+   (q tag), mirroring native's ReplyPreview. */
+.quoted-event-reply {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 4px 0 2px;
+    padding: 5px 8px;
+    background: var(--color-bg);
+    border-radius: 6px;
+    font-size: 12px;
+    min-width: 0;
+}
+.quoted-event-reply-arrow {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+.quoted-event-reply-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.quoted-event-reply-author {
+    color: var(--color-text-secondary);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.quoted-event-reply-text {
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.quoted-event-reply-loading {
+    color: var(--color-text-muted);
 }
 .quoted-event-head {
     display: flex;
