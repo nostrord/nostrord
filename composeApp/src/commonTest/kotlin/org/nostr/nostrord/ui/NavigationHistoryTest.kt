@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui
 
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.NavigationHistory
@@ -50,6 +51,39 @@ class NavigationHistoryTest {
         // Same routeKey (messageId is a one-shot), so it replaced rather than pushed.
         assertEquals(GroupRoute("wss://r", "g", messageId = "m1"), h.current)
         assertNull(h.back()) // back reaches Home, proving only one group entry exists
+    }
+
+    @Test
+    fun `chat, threads list, and a thread are distinct history entries`() {
+        val h = NavigationHistory()
+        val chat = GroupRoute("wss://r", "g")
+        val threads = chat.copy(view = GroupView.Threads)
+        val thread = threads.copy(threadRootId = "root1")
+        h.navigate(chat)
+        h.navigate(threads)
+        h.navigate(thread)
+        assertEquals(thread, h.current)
+        // Back walks the panes in reverse, then out to Home.
+        assertEquals(threads, h.back())
+        assertEquals(chat, h.back())
+        assertNull(h.back())
+        assertFalse(h.canGoBack)
+        // Forward replays them.
+        assertEquals(chat, h.forward())
+        assertEquals(threads, h.forward())
+        assertEquals(thread, h.forward())
+        assertFalse(h.canGoForward)
+    }
+
+    @Test
+    fun `re-opening the same thread replaces in place`() {
+        val h = NavigationHistory()
+        val thread = GroupRoute("wss://r", "g", view = GroupView.Threads, threadRootId = "root1")
+        h.navigate(thread)
+        // Same view + threadRootId, only the one-shot messageId differs, so it replaces.
+        h.navigate(thread.copy(messageId = "ignored"))
+        assertNull(h.back()) // back reaches Home: only one thread entry exists
+        assertFalse(h.canGoBack)
     }
 
     @Test

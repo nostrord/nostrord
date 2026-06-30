@@ -11,11 +11,16 @@ import kotlinx.coroutines.flow.asStateFlow
  * entry instead of pushing a new one, so an invite or an `?e=` target never becomes a
  * place back lands on. The default Home tab ([HomeTab.Groups]) shares the null (root)
  * key so the two spellings of Home occupy one history slot.
+ *
+ * The group [GroupRoute.view] (chat vs threads) and the open [GroupRoute.threadRootId] ARE
+ * part of the key: chat, the threads list, and a single thread are distinct destinations, so
+ * back/forward (swipe, system back, the toolbar arrows) walk between them instead of collapsing
+ * the whole group session into one slot and skipping straight out of the group.
  */
 fun routeKey(route: HashRoute?): String = when (route) {
     null -> "home"
     is HomeRoute -> if (route.tab == HomeTab.Groups) "home" else "home:${route.tab}"
-    is GroupRoute -> "g:${route.relayUrl}/${route.groupId}"
+    is GroupRoute -> "g:${route.relayUrl}/${route.groupId}:${route.view}:${route.threadRootId ?: ""}"
     is RelayRoute -> "r:${route.relayUrl}"
     is UserRoute -> "u:${route.pubkey}"
     is DmRoute -> "dm:${route.pubkey ?: ""}"
