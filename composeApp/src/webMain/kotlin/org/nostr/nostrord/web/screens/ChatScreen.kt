@@ -37,6 +37,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.ChatAudio
 import org.nostr.nostrord.web.components.ChatImage
 import org.nostr.nostrord.web.components.ChatMessageList
 import org.nostr.nostrord.web.components.ChatVideo
@@ -3289,6 +3290,7 @@ private val URL_REGEX =
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
+private val AUDIO_EXT = Regex("\\.(mp3|wav|ogg|flac|m4a|aac|opus)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
 // Detect YouTube links (watch / shorts / live / embed / youtu.be) and capture
 // the 11-char video id, mirroring the native MessageContentParser regex.
@@ -3465,6 +3467,10 @@ private fun ChildrenBuilder.renderEntities(
                     videoUrl = url
                     posterUrl = posters[url]
                     dimensions = dims[url]
+                }
+            } else if (AUDIO_EXT.containsMatchIn(url)) {
+                ChatAudio {
+                    audioUrl = url
                 }
             } else {
                 a {
