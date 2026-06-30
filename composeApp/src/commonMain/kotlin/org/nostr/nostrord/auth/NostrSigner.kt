@@ -45,9 +45,9 @@ interface NostrSigner {
 
     /**
      * NIP-44 encrypt [plaintext] for [peerPubkeyHex] using this account's identity key — used to
-     * seal NIP-17 direct messages. Default: unsupported; [Local] implements it locally, and remote
-     * signers (bunker / NIP-07) will delegate later. Throws [SigningException] when unsupported or
-     * disposed. The private key never leaves the signer.
+     * seal NIP-17 direct messages. [Local] encrypts locally; [Bunker] and [Nip07Extension] delegate
+     * to the remote signer. The interface default throws [SigningException] (unsupported), as it
+     * does after [dispose]. The private key never leaves the signer.
      */
     suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = throw SigningException("This signer does not support NIP-44 encryption")
 

@@ -1240,8 +1240,8 @@ class NostrRepository(
 
     /**
      * Send a NIP-17 direct message: build the rumor, seal + gift-wrap it for the recipient and a
-     * self-copy for us, and publish each to its side's DM relays. Requires a local key for now
-     * (bunker / NIP-07 NIP-44 delegation lands in a later phase).
+     * self-copy for us, and publish each to its side's DM relays. The seal's NIP-44 encrypt and
+     * signature run through the active signer, so local, bunker, and NIP-07 accounts all work.
      */
     override suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> {
         val signer =
