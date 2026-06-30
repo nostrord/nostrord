@@ -2986,26 +2986,23 @@ class GroupManager(
             tags = tags,
             content = content,
         )
-        val signed = signEvent(event)
-        val eventId = signed.id
-            ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
-        val eventJson = buildJsonArray {
-            add("EVENT")
-            add(signed.toJsonObject())
-        }.toString()
+        // Insert the optimistic thread item before signing (stable NIP-01 id), then
+        // sign + deliver on the manager scope, so a bunker sign timeout resolves to a
+        // Failed status with retry instead of a modal, matching the chat send path.
+        val eventId = event.calculateId()
         applyThreadEvent(
             groupId,
             NostrGroupClient.NostrMessage(
                 id = eventId,
-                pubkey = signed.pubkey,
-                content = signed.content,
-                createdAt = signed.createdAt,
-                kind = signed.kind,
-                tags = signed.tags,
+                pubkey = event.pubkey,
+                content = event.content,
+                createdAt = event.createdAt,
+                kind = event.kind,
+                tags = event.tags,
             ),
         )
         _messageStatus.update { it + (eventId to MessageStatus.Sending) }
-        scope.launch { deliverMessage(groupId, eventJson, eventId) }
+        scope.launch { signAndDeliver(groupId, event, eventId, signEvent) }
         return Result.Success(Unit)
     }
 

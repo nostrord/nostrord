@@ -79,6 +79,29 @@ class GroupSendSignFailureTest {
     }
 
     @Test
+    fun `a thread send signing failure also keeps the bubble and offers retry`() = runTest {
+        val scope = TestScope(testScheduler)
+        val manager = manager(scope)
+
+        manager.createThread(
+            groupId = SF_GROUP,
+            title = "topic",
+            content = "hello",
+            pubKey = SF_PUBKEY,
+            signEvent = { throw RuntimeException("bunker timeout") },
+        )
+        advanceUntilIdle()
+
+        val root = manager.threadRoots.value[SF_GROUP]?.single()
+        assertNotNull(root, "the optimistic thread root stays on screen")
+        val failed = manager.messageStatus.value[root.id]
+        assertTrue(failed is GroupManager.MessageStatus.Failed, "thread sign failure should mark it Failed")
+        assertNotNull(failed.unsignedEvent, "thread retry needs the unsigned event to re-sign")
+
+        scope.cancel()
+    }
+
+    @Test
     fun `dismiss drops a failed message`() = runTest {
         val scope = TestScope(testScheduler)
         val manager = manager(scope)
