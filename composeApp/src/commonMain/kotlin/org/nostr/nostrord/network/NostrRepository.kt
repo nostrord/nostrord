@@ -3428,7 +3428,6 @@ class NostrRepository(
                     maybeLatchDmFullSync(myPub)
                 }
             }
-            outboxManager.handleEose(subId)
             // Fall through — handleMessage also needs EOSE for group pagination
         }
 
@@ -3963,7 +3962,6 @@ class NostrRepository(
             // Handle EOSE
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
-                outboxManager.handleEose(subId)
                 // Relays connected via the metadata/outbox path route here and
                 // would otherwise never close their one-shot fetches (observed:
                 // zap-receipt subs leaking on nos.lol/damus).

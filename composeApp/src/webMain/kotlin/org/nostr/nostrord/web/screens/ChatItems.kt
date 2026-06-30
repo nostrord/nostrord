@@ -36,14 +36,6 @@ sealed class WebChatItem {
     ) : WebChatItem()
 }
 
-/** Stable React key per chat row so prepends/reorders never remount the wrong node. */
-fun chatItemKey(item: WebChatItem): String = when (item) {
-    is WebChatItem.DateSeparator -> "date-${item.date}"
-    WebChatItem.NewMessagesDivider -> "new-messages-divider"
-    is WebChatItem.SystemEvent -> "sys-${item.id}"
-    is WebChatItem.Message -> item.message.id
-}
-
 /**
  * Build the ordered chat-item list from raw messages — a faithful port of the native
  * `buildChatItems`: date separators per calendar day, kind-9 messages grouped by author within

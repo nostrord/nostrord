@@ -27,10 +27,6 @@ external interface ChatMessageListProps : Props {
     /** Render one row directly into the list (the row element carries its own key). */
     var renderRow: (ChildrenBuilder, dynamic) -> Unit
 
-    /** Stable identity per row — used to detect prepend (first row changed) vs a new
-     *  message (last row changed), so pagination never gets mistaken for a new arrival. */
-    var keyOf: (dynamic) -> String
-
     /** Changing this (the group id) re-opens the list at the bottom. */
     var resetKey: String
 

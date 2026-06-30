@@ -44,7 +44,6 @@ class OutboxManager(
 
     private var kind10009SubId: String? = null
     private var kind10009Received = false
-    private var eoseReceived = false
 
     private val groupsMutex = Mutex()
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
@@ -151,7 +150,6 @@ class OutboxManager(
         val relaysToQuery = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
 
         kind10009Received = false
-        eoseReceived = false
 
         val subId = "joined-groups-${epochMillis()}"
         kind10009SubId = subId
@@ -517,12 +515,6 @@ class OutboxManager(
         }
     }
 
-    fun handleEose(subId: String) {
-        if (subId == kind10009SubId) {
-            eoseReceived = true
-        }
-    }
-
     suspend fun getRelayList(pubkey: String): List<Nip65Relay> = relayListManager.getRelayList(pubkey)
 
     fun getCachedRelayList(pubkey: String): List<Nip65Relay> = relayListManager.getCachedRelayList(pubkey)
@@ -646,7 +638,6 @@ class OutboxManager(
 
     fun resetKind10009State() {
         kind10009Received = false
-        eoseReceived = false
     }
 
     suspend fun clear() {
@@ -659,6 +650,5 @@ class OutboxManager(
         _groupTagRelays.value = emptySet()
         kind10009SubId = null
         kind10009Received = false
-        eoseReceived = false
     }
 }

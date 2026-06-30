@@ -1986,7 +1986,6 @@ val ChatScreen =
                             // (the loading pill) toggles — a remount snaps to the bottom.
                             key = "chat-message-list"
                             items = chatItems.toTypedArray().unsafeCast<Array<dynamic>>()
-                            keyOf = { chatItemKey(it.unsafeCast<WebChatItem>()) }
                             resetKey = group.id
                             this.hasMore = moreAvail
                             this.isLoadingMore = loadingMore
