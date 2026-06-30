@@ -14,7 +14,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.AvatarGradients
@@ -80,6 +83,18 @@ fun GroupGradientAvatar(
                 // web's .avatar-letter (50cqh).
                 fontSize = (size.value * 0.5f).sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                // Trim the font's built-in leading and center the glyph in its line box, so the
+                // letter sits dead-centre at small sizes (16dp) instead of riding high.
+                lineHeight = (size.value * 0.5f).sp,
+                style =
+                TextStyle(
+                    lineHeightStyle =
+                    LineHeightStyle(
+                        alignment = LineHeightStyle.Alignment.Center,
+                        trim = LineHeightStyle.Trim.Both,
+                    ),
+                ),
             )
         }
     }
