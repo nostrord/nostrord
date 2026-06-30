@@ -443,6 +443,26 @@ class MetadataManager(
                 } catch (_: Exception) {
                 }
             }
+
+            // Connect to any relay hint we are NOT already on and REQ there. A quoted event from
+            // a group on another relay (its `h` group lives only on that relay) was otherwise
+            // dropped, since the selection above keeps only already-connected relays — so the
+            // quote resolved on native (which keeps those relays connected) but never on web.
+            // getOrConnectRelay is singleflight + pool-checked, so a hint we already have reuses
+            // the socket; messageHandler wires a freshly-connected client so its reply is cached.
+            val alreadyTried = relaysToTry.toSet()
+            relayHints
+                .filter { it.isNotBlank() && it !in alreadyTried }
+                .distinct()
+                .forEach { hint ->
+                    try {
+                        connectionManager.getOrConnectRelay(hint, messageHandler)?.let { client ->
+                            client.requestEventById(eventId)
+                            sent++
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
         } finally {
             // Remove after a delay to allow the response to arrive and be cached.
             // If not cached after 10s, subsequent requests can try again.
