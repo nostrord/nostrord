@@ -56,7 +56,7 @@ fun GroupScreen(
     groupName: String?,
     onNavigateHome: () -> Unit = {},
     onNavigateHomeManageRelay: () -> Unit = onNavigateHome,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onOpenRelay: (relayUrl: String) -> Unit = {},
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onOpenDrawer: () -> Unit = {},
@@ -491,7 +491,7 @@ fun GroupScreen(
             onDismiss = { showCreateSubgroupModal = false },
             onGroupCreated = { _, newId, newName ->
                 showCreateSubgroupModal = false
-                onNavigateToGroup(newId, newName, null)
+                onNavigateToGroup(newId, newName, null, null)
             },
         )
     }
@@ -889,7 +889,7 @@ fun GroupScreen(
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent
                         if (!parentId.isNullOrBlank()) {
-                            onNavigateToGroup(parentId, parentGroupName, null)
+                            onNavigateToGroup(parentId, parentGroupName, null, null)
                         }
                     },
                     subgroupCount = childrenByParent[groupId]?.size ?: 0,
@@ -1027,7 +1027,7 @@ fun GroupScreen(
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent
                         if (!parentId.isNullOrBlank()) {
-                            onNavigateToGroup(parentId, parentGroupName, null)
+                            onNavigateToGroup(parentId, parentGroupName, null, null)
                         }
                     },
                     subgroupCount = childrenByParent[groupId]?.size ?: 0,

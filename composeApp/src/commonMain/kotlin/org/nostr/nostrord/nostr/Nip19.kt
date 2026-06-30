@@ -86,13 +86,16 @@ object Nip19 {
     }
 
     /**
-     * Encode an event id (+ optional relay hints / author) to nevent
-     * (TLV 0 = event id, 1 = relay, 2 = author).
+     * Encode an event id (+ optional relay hints / author / kind) to nevent
+     * (TLV 0 = event id, 1 = relay, 2 = author, 3 = kind). Relay hints matter for
+     * NIP-29 events: they live only on the group relay, so a hint-less nevent is
+     * unfetchable by clients that don't already know where to look.
      */
     fun encodeNevent(
         eventIdHex: String,
         relays: List<String> = emptyList(),
         authorHex: String? = null,
+        kind: Int? = null,
     ): String {
         val tlv = mutableListOf<Byte>()
 
@@ -108,6 +111,17 @@ object Nip19 {
         relays.forEach { addTLV(TLV_RELAY, it.encodeToByteArray()) }
         authorHex?.runCatching { hexToByteArray() }?.getOrNull()?.takeIf { it.size == 32 }?.let {
             addTLV(TLV_AUTHOR, it)
+        }
+        kind?.let {
+            addTLV(
+                TLV_KIND,
+                byteArrayOf(
+                    (it shr 24).toByte(),
+                    (it shr 16).toByte(),
+                    (it shr 8).toByte(),
+                    it.toByte(),
+                ),
+            )
         }
         return Bech32.encode("nevent", tlv.toByteArray())
     }

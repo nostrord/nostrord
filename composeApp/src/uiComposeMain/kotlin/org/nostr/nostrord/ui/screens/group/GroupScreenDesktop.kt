@@ -102,7 +102,7 @@ fun GroupScreenDesktop(
     onLoadMore: () -> Unit = {},
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
     onManageRelay: () -> Unit = {},

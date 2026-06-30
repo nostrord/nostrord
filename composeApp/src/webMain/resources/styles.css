@@ -5656,6 +5656,44 @@ body {
 .quoted-event-static:hover {
     background: var(--color-input);
 }
+/* Forwarded NIP-29 event: a "forwarded from <group>" header above the quoted body, opening the
+   source group and scrolling to the message. Mirrors the native ForwardedEventCard. The parent
+   padding is zeroed so the header divider spans full width; head + content re-pad themselves. */
+.forwarded-event {
+    padding: 0;
+}
+.forwarded-event > .quoted-event-head {
+    padding: 8px 10px 0;
+}
+.forwarded-event > .quoted-event-content {
+    padding: 0 10px 8px;
+}
+.forwarded-event-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-bg);
+    cursor: pointer;
+    font-size: 12px;
+}
+.forwarded-event-head svg {
+    width: 13px;
+    height: 13px;
+    color: var(--color-text-muted);
+    /* Reply glyph mirrored to read as "forward", matching the native ↪. */
+    transform: scaleX(-1);
+}
+.forwarded-event-from {
+    color: var(--color-text-muted);
+}
+.forwarded-event-group {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+.forwarded-event-group:hover {
+    text-decoration: underline;
+}
 .quoted-event-head {
     display: flex;
     align-items: center;

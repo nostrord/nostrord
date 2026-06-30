@@ -223,7 +223,7 @@ fun MessageContent(
     onHashtagClick: (String) -> Unit = {},
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -1222,7 +1222,7 @@ private fun QuotedEventBlock(
     modifier: Modifier = Modifier,
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onMentionClick: (String) -> Unit = {},
 ) {
     val entity = mention.reference.entity
@@ -1307,7 +1307,7 @@ fun ForwardedEventCard(
     sourceGroupPicture: String?,
     sourceRelayUrl: String?,
     onClick: () -> Unit,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
 ) {
@@ -1354,7 +1354,7 @@ fun ForwardedEventCard(
             Modifier
                 .fillMaxWidth()
                 .clickable {
-                    onNavigateToGroup(sourceGroupId, sourceGroupName, sourceRelayUrl)
+                    onNavigateToGroup(sourceGroupId, sourceGroupName, sourceRelayUrl, event.id)
                 }.pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -1623,7 +1623,7 @@ private fun QuotedEvent(
     modifier: Modifier = Modifier,
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onMentionClick: (String) -> Unit = {},
 ) {
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
@@ -2542,7 +2542,7 @@ private fun CashuContent(
 private fun GroupLinkCard(
     groupId: String,
     relayUrl: String?,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val repo = AppModule.nostrRepository
@@ -2571,7 +2571,7 @@ private fun GroupLinkCard(
                 .widthIn(max = 380.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(NostrordColors.Surface)
-                .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl) }
+                .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl, null) }
                 .pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
             verticalAlignment = Alignment.Top,

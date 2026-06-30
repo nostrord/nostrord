@@ -21,6 +21,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.nostr.Nip68
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
+import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.MentionableGroup
@@ -67,6 +68,7 @@ import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.ManageGroupModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -1075,7 +1077,7 @@ val ChatScreen =
                 messages.associate { m ->
                     m.id to
                         RowMeta(
-                            nevent = Nip19.encodeNevent(m.id, authorHex = m.pubkey),
+                            nevent = Nip19.encodeNevent(m.id, relays = listOf(relayUrl), authorHex = m.pubkey, kind = m.kind),
                             eventJson = eventJsonOf(m),
                             link = "https://nostrord.com/open/?relay=$host&group=${group.id}&e=${m.id}",
                         )
@@ -3682,13 +3684,63 @@ private val QuotedEvent =
             if (missing.isNotEmpty()) launchApp { repo.requestUserMetadata(missing) }
         }
 
+        // A resolved NIP-29 group event (carries an `h` tag) that is NOT a message in the current
+        // group is a forwarded reference: it renders with a "forwarded from <group>" header that
+        // opens the source group (mirroring native's ForwardedEventCard). A plain quote would be
+        // unscrollable here and the event is only fetchable on its own group relay. The relay rides
+        // on the nevent hint (embedded by the "copy nevent" action).
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val refGroupId =
+            cachedEv?.tags?.firstOrNull { it.size >= 2 && it.getOrNull(0) == "h" }?.getOrNull(1)
+        val isForwarded = local == null && refGroupId != null
+        val fwdRelay = props.relays.firstOrNull()
+        val fwdGroupMeta = refGroupId?.let { gid -> groupsByRelay.values.flatten().firstOrNull { it.id == gid } }
+        val fwdGroupName = fwdGroupMeta?.name?.takeIf { it.isNotBlank() } ?: refGroupId.orEmpty()
+        useEffect(refGroupId, fwdRelay, fwdGroupMeta?.name) {
+            if (isForwarded && refGroupId != null && fwdRelay != null && fwdGroupMeta?.name == null) {
+                launchApp { repo.fetchGroupPreview(refGroupId, fwdRelay) }
+            }
+        }
+
         // Clickable only when the referenced event is a local message we can scroll to; an
         // external nevent reference has nowhere to scroll, so it stays static (no pointer).
         val scrollable = local != null
 
         div {
-            className = ClassName(if (scrollable) "quoted-event" else "quoted-event quoted-event-static")
+            className =
+                ClassName(
+                    when {
+                        isForwarded -> "quoted-event quoted-event-static forwarded-event"
+                        scrollable -> "quoted-event"
+                        else -> "quoted-event quoted-event-static"
+                    },
+                )
             if (scrollable) onClick = { props.onScrollTo(props.eventId) }
+            if (isForwarded && refGroupId != null) {
+                div {
+                    className = ClassName("forwarded-event-head")
+                    // Open the source group AND scroll to + highlight this message (same path as a
+                    // ?...&e= deep link): pushRoute fires hashchange, AppFrame feeds messageId to
+                    // ChatScreen.scrollToMessageId. Falls back to a plain group open if no relay.
+                    onClick = { ev ->
+                        ev.stopPropagation()
+                        if (fwdRelay != null) {
+                            pushRoute(GroupRoute(relayUrl = fwdRelay, groupId = refGroupId, messageId = props.eventId))
+                        } else {
+                            props.onGroupRef(refGroupId, null)
+                        }
+                    }
+                    icon(Ic.Reply)
+                    span {
+                        className = ClassName("forwarded-event-from")
+                        +"forwarded from"
+                    }
+                    span {
+                        className = ClassName("forwarded-event-group")
+                        +fwdGroupName
+                    }
+                }
+            }
             if (content != null && pubkey != null) {
                 div {
                     className = ClassName("quoted-event-head")

@@ -449,6 +449,7 @@ fun AppFrame() {
             onSelectHomeTab = { tab -> history.navigate(if (tab == HomeTab.Groups) null else HomeRoute(tab)) },
             onCloseGroup = { history.navigate(null) },
             onConsumeInvite = { (route as? GroupRoute)?.let { history.replace(it.copy(inviteCode = null)) } },
+            onConsumeMessageTarget = { (route as? GroupRoute)?.let { history.replace(it.copy(messageId = null)) } },
             onEditProfile = { history.navigate(SettingsRoute) },
             onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
             onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
@@ -641,6 +642,7 @@ private fun FrameContent(
     onSelectHomeTab: (HomeTab) -> Unit,
     onCloseGroup: () -> Unit,
     onConsumeInvite: () -> Unit,
+    onConsumeMessageTarget: () -> Unit,
     onEditProfile: () -> Unit,
     onCreateGroup: () -> Unit,
     onJoinGroup: () -> Unit,
@@ -681,7 +683,7 @@ private fun FrameContent(
             is NotificationsRoute ->
                 NotificationsPage(
                     vm = notifVm,
-                    onOpenGroupAtRelay = { gid, _, relay, _ -> onNavigate(GroupRoute(relay, gid)) },
+                    onOpenGroupAtRelay = { gid, _, relay, mid -> onNavigate(GroupRoute(relay, gid, messageId = mid)) },
                     onOpenDrawer = onOpenDrawer,
                 )
             is SettingsRoute -> {}
@@ -710,7 +712,11 @@ private fun FrameContent(
                         groupId = route.groupId,
                         groupName = name,
                         onNavigateHome = onCloseGroup,
-                        onNavigateToGroup = { gid, _, relay -> onNavigate(GroupRoute(relay ?: route.relayUrl, gid)) },
+                        onNavigateToGroup = { gid, _, relay, mid ->
+                            onNavigate(GroupRoute(relay ?: route.relayUrl, gid, messageId = mid))
+                        },
+                        targetMessageId = route.messageId,
+                        onTargetMessageConsumed = onConsumeMessageTarget,
                         onOpenRelay = { onNavigate(RelayRoute(it)) },
                         showServerRail = false,
                         forceDesktop = forceDesktop,

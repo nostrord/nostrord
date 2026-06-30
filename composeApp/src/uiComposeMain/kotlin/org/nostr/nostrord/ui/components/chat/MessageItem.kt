@@ -104,7 +104,7 @@ fun MessageItem(
     onDeleteMessage: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     isHighlighted: Boolean = false,
     // A search hit (query matches this message) gets a light tint; the current hit a stronger one.
     isSearchHit: Boolean = false,
@@ -492,9 +492,17 @@ fun MessageItem(
                         MessageContextAction.CopyText -> currentOnCopyText()
                         MessageContextAction.CopyMessageLink -> currentOnCopyLink()
                         MessageContextAction.ShareMessageLink -> currentOnShareLink()
-                        // Self-contained: the message in scope carries id + author.
+                        // The message carries id + author + kind; the group relay rides as the
+                        // relay hint so the nevent is fetchable.
                         MessageContextAction.CopyNevent ->
-                            copyToClipboard(Nip19.encodeNevent(message.id, authorHex = message.pubkey))
+                            copyToClipboard(
+                                Nip19.encodeNevent(
+                                    message.id,
+                                    relays = listOfNotNull(currentRelayUrl),
+                                    authorHex = message.pubkey,
+                                    kind = message.kind,
+                                ),
+                            )
                         MessageContextAction.CopyEventJson -> currentOnCopyJson()
                         MessageContextAction.PinMessage -> currentOnPinMessage()
                         MessageContextAction.DeleteMessage -> currentOnDeleteMessage()

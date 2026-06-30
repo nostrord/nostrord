@@ -138,7 +138,7 @@ fun MessagesList(
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onReachedBottom: () -> Unit = {},
     // Fired when the user scrolls up away from the bottom. Used by the
     // "New messages" divider dismissal (issue #83).
