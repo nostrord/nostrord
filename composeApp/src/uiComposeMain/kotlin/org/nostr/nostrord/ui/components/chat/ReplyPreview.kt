@@ -186,7 +186,6 @@ fun ReplyPreview(
         onClick = onReplyClick,
         modifier = modifier,
     ) {
-        // Author name
         Text(
             text = authorName,
             color = NostrordColors.Primary,
@@ -198,7 +197,6 @@ fun ReplyPreview(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // Content preview (truncated)
         Text(
             text = processedContent.take(100),
             color = NostrordColors.TextSecondary,
@@ -237,7 +235,6 @@ private fun ReplyPreviewContainer(
             .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Left accent bar
         Box(
             modifier =
             Modifier
@@ -251,7 +248,6 @@ private fun ReplyPreviewContainer(
 
         Spacer(modifier = Modifier.width(Spacing.sm))
 
-        // Content
         Column(
             modifier =
             Modifier

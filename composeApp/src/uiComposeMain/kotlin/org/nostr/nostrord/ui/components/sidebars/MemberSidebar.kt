@@ -156,8 +156,7 @@ fun MemberSidebar(
                     )
                 }
                 if (onManage != null) {
-                    // Prototype MembersPanel gear: opens member management (the
-                    // header 3-dots menu that used to host it is gone).
+                    // Prototype MembersPanel gear: opens member management.
                     IconButton(
                         onClick = onManage,
                         modifier = Modifier.size(32.dp),

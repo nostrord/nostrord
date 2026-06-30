@@ -45,7 +45,6 @@ fun AudioPlayerContent(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Play / Pause button
         Box(
             modifier =
             Modifier
@@ -66,9 +65,7 @@ fun AudioPlayerContent(
 
         Spacer(Modifier.width(12.dp))
 
-        // Info + progress
         Column(modifier = Modifier.weight(1f)) {
-            // File name
             Text(
                 text = fileName,
                 style = NostrordTypography.MessageBody,
@@ -79,7 +76,6 @@ fun AudioPlayerContent(
 
             Spacer(Modifier.height(4.dp))
 
-            // Progress bar
             LinearProgressIndicator(
                 progress = { progress },
                 modifier =
@@ -93,7 +89,6 @@ fun AudioPlayerContent(
 
             Spacer(Modifier.height(2.dp))
 
-            // Duration text
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

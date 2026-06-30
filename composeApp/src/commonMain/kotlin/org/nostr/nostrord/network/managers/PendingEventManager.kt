@@ -215,7 +215,6 @@ class PendingEventManager(
                         removeEvent(event.id)
                     }
                     is PublishResult.Timeout, is PublishResult.Error -> {
-                        // Increment retry count
                         val errorMsg =
                             when (result) {
                                 is PublishResult.Timeout -> "Timeout"
@@ -330,7 +329,6 @@ class PendingEventManager(
 
             _pendingEvents.value = current.map { if (it.id == pendingId) updated else it }
 
-            // Update status
             if (updated.canRetry) {
                 _eventStatuses.value = _eventStatuses.value +
                     (pendingId to PendingEventStatus.Failed(reason = errorMsg, canRetry = true))

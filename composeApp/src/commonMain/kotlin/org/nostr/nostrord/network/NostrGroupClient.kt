@@ -517,7 +517,6 @@ class NostrGroupClient(
      * Completes any pending deferred for this event ID.
      */
     suspend fun handleOkResponse(eventId: String, success: Boolean, message: String?) {
-        // Notify callback
         onOkResponse?.invoke(eventId, success, message)
 
         // Complete pending deferred

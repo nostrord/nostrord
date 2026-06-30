@@ -466,7 +466,6 @@ fun MessageItem(
                         )
                     }
 
-                    // Zap total badge
                     if (zapInfo != null && zapInfo.totalMsats > 0) {
                         ZapBadge(
                             totalMsats = zapInfo.totalMsats,

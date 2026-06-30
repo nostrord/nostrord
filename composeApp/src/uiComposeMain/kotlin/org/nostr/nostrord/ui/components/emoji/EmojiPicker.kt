@@ -127,7 +127,6 @@ fun EmojiPicker(
         modifier = modifier.width(PICKER_WIDTH).height(PICKER_HEIGHT),
     ) {
         Column {
-            // Search bar
             TextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -164,7 +163,6 @@ fun EmojiPicker(
                     .padding(Spacing.sm),
             )
 
-            // Category tabs
             if (searchQuery.isBlank()) {
                 EmojiCategoryBar(
                     activeCategory = activeCategory,
@@ -177,7 +175,6 @@ fun EmojiPicker(
                 HorizontalDivider(color = NostrordColors.BackgroundDark)
             }
 
-            // Emoji grid
             EmojiPickerGrid(
                 items = gridItems,
                 onEmojiSelect = onEmojiSelect,

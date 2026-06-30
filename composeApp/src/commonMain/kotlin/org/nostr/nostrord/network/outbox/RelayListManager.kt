@@ -109,7 +109,6 @@ class RelayListManager(
             }
         }
 
-        // Check if already fetching
         val shouldFetch =
             pendingMutex.withLock {
                 if (pendingRequests.contains(pubkey)) {

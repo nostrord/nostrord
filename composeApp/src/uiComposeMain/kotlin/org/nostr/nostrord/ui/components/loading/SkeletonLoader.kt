@@ -28,7 +28,6 @@ fun GroupCardSkeleton(modifier: Modifier = Modifier) {
             .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar skeleton
         Box(
             modifier =
             Modifier
@@ -39,12 +38,10 @@ fun GroupCardSkeleton(modifier: Modifier = Modifier) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Text content
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center,
         ) {
-            // Group name skeleton
             Box(
                 modifier =
                 Modifier
@@ -56,7 +53,6 @@ fun GroupCardSkeleton(modifier: Modifier = Modifier) {
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Description skeleton
             Box(
                 modifier =
                 Modifier
@@ -81,7 +77,6 @@ fun MemberSkeleton(modifier: Modifier = Modifier) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar
         Box(
             modifier =
             Modifier
@@ -92,7 +87,6 @@ fun MemberSkeleton(modifier: Modifier = Modifier) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Name
         Box(
             modifier =
             Modifier

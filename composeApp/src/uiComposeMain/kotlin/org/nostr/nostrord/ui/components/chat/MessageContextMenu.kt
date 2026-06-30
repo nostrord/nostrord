@@ -271,7 +271,6 @@ private fun ContextMenuContent(
 
         ContextMenuDivider()
 
-        // Reply
         ContextMenuItem(
             icon = Icons.AutoMirrored.Outlined.Reply,
             label = "Reply",
@@ -321,7 +320,6 @@ private fun ContextMenuContent(
 
         ContextMenuDivider()
 
-        // Copy text
         ContextMenuItem(
             icon = Icons.Outlined.ContentCopy,
             label = "Copy text",
@@ -363,7 +361,6 @@ private fun ContextMenuContent(
             },
         )
 
-        // Copy event JSON
         ContextMenuItem(
             icon = Icons.Outlined.Code,
             label = "Copy event JSON",

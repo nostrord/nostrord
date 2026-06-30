@@ -188,7 +188,6 @@ class AuthManager(
     suspend fun loginWithBunker(bunkerUrl: String): String {
         val bunkerInfo = parseBunkerUrl(bunkerUrl)
 
-        // Check if we have an existing client key (from previous session)
         val existingClientKey = SecureStorage.getBunkerClientPrivateKey()
         val newNip46Client =
             if (existingClientKey != null) {

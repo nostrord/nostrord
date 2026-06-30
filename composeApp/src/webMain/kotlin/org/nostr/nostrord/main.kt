@@ -76,8 +76,8 @@ private fun parseDeepLinkFromUrl() {
  *
  * The web UI was migrated off Compose Canvas (Skia/WASM) to real DOM via React
  * (kotlin-wrappers). Business logic is unchanged and consumed from commonMain
- * (AppModule); only the rendering layer is React. Fonts are now loaded by the
- * browser via CSS, so the old tiered Compose font-preloading is gone.
+ * (AppModule); only the rendering layer is React. Fonts are loaded by the
+ * browser via CSS.
  */
 fun main() {
     // Dev affordance: `?cachetest` runs the IndexedDB cache store self-test in this real

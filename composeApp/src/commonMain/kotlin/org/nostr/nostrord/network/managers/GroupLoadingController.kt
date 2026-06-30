@@ -281,7 +281,6 @@ class GroupLoadingController(
             val tracker = currentTracker ?: return@withLock false
             if (tracker.subscriptionId != subscriptionId) return@withLock false
 
-            // Cancel timeout
             timeoutJob?.cancel()
             timeoutJob = null
 

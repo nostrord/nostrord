@@ -10,11 +10,7 @@ import org.w3c.dom.HTMLTextAreaElement
  * The async Clipboard API (`navigator.clipboard.writeText`) only works in
  * secure contexts (HTTPS / `localhost`) and from a user-gesture handler. On
  * plain HTTP, in some iframes, or when the user has denied the permission
- * the API is either missing or its promise rejects. The previous helpers
- * (one per file: `HomeScreen`, `ChatScreen`, `Zap`, `Settings`, `AppShell`,
- * `GeneratedKeyCard`, `BunkerQr`, `InviteCodesModal`, `ShareGroupModal`)
- * stopped at "promise fired, hope for the best", which is why some copy
- * buttons silently did nothing.
+ * the API is either missing or its promise rejects.
  *
  * This helper tries the async path first and, on rejection or absence,
  * falls back to a transient hidden `<textarea>` + `document.execCommand`,

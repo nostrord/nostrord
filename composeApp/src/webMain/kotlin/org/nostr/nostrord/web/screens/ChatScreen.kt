@@ -2243,8 +2243,7 @@ val ChatScreen =
                                 onClick = { setModal("addmember") }
                                 icon(Ic.PersonAdd)
                             }
-                            // Prototype MembersPanel gear: opens member management (the
-                            // header 3-dots menu that used to host it is gone).
+                            // Prototype MembersPanel gear: opens member management.
                             button {
                                 className = ClassName("member-add-btn")
                                 title = "Manage members"

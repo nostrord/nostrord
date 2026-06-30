@@ -104,8 +104,7 @@ val BunkerQr =
                 uri == null ->
                     div {
                         className = ClassName("qr-placeholder")
-                        // Circular spinner instead of the previous "…" — reads as
-                        // "we're working on it" rather than a buffering hint.
+                        // Circular spinner reads as "working on it" rather than a buffering hint.
                         div { className = ClassName("qr-spinner") }
                     }
                 else ->

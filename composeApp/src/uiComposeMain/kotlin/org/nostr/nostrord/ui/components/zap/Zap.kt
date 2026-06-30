@@ -184,7 +184,6 @@ private fun ZapModal(
                         .verticalScroll(rememberScrollState())
                         .padding(Spacing.xxl),
                 ) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

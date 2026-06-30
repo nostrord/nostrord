@@ -2285,7 +2285,6 @@ class GroupManager(
      * Only creates one observation job per group to prevent memory leaks.
      */
     private suspend fun observeStateChanges(groupId: String, controller: GroupLoadingController) {
-        // Check if already observing this group
         val shouldObserve = observedGroupsMutex.withLock {
             if (groupId in observedGroups) {
                 false
