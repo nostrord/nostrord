@@ -3720,7 +3720,12 @@ private val QuotedEvent =
         val refGroupId =
             cachedEv?.tags?.firstOrNull { it.size >= 2 && it.getOrNull(0) == "h" }?.getOrNull(1)
         val isForwarded = local == null && refGroupId != null
-        val fwdRelay = props.relays.firstOrNull()
+        // The group's real home relay (where it's actually loaded), preferred over the nevent's
+        // relay hint, which is often wrong. Navigation opens the group where it resolves — matching
+        // native, which goes to the relay it knows the group on, not the hint.
+        val fwdHomeRelay =
+            refGroupId?.let { gid -> groupsByRelay.entries.firstOrNull { it.value.any { g -> g.id == gid } }?.key }
+        val fwdRelay = fwdHomeRelay ?: props.relays.firstOrNull()
         val fwdGroupMeta = refGroupId?.let { gid -> groupsByRelay.values.flatten().firstOrNull { it.id == gid } }
         val fwdGroupName = fwdGroupMeta?.name?.takeIf { it.isNotBlank() } ?: refGroupId.orEmpty()
         useEffect(refGroupId, fwdRelay, fwdGroupMeta?.name) {
