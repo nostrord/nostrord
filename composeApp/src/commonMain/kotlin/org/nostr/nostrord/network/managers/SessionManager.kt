@@ -1,6 +1,5 @@
 package org.nostr.nostrord.network.managers
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
