@@ -1629,6 +1629,7 @@ private fun QuotedEvent(
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val groups by AppModule.nostrRepository.groups.collectAsState()
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val event = cachedEvents[eventId]
 
     // Track if event was not found after timeout
@@ -1696,8 +1697,18 @@ private fun QuotedEvent(
                 }
 
             if (isFromDifferentGroup) {
-                // Look up group metadata for source group
-                val sourceGroup = groups.find { it.id == sourceGroupId }
+                // Look up the source group across ALL relays (not just the current one) so a
+                // cross-relay forwarded group still shows its name + avatar; fetch a preview from
+                // the relay hint when we don't know it yet (parity with web / GroupLinkCard).
+                val sourceGroup =
+                    groupsByRelay.values.flatten().find { it.id == sourceGroupId }
+                        ?: groups.find { it.id == sourceGroupId }
+                val previewRelay = sourceRelayUrl ?: relayHints.firstOrNull()
+                LaunchedEffect(sourceGroupId, previewRelay, sourceGroup?.name) {
+                    if (sourceGroup?.name == null && previewRelay != null) {
+                        AppModule.nostrRepository.fetchGroupPreview(sourceGroupId, previewRelay)
+                    }
+                }
 
                 ForwardedEventCard(
                     event = event,
