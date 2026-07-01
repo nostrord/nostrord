@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -86,7 +88,21 @@ class MetadataManager(
 
         /** Debounce before snapshotting the metadata cache to disk after a change. */
         const val DISK_PERSIST_DELAY_MS = 5_000L
+
+        /**
+         * Caps how many [batchFetch] runs (send + EOSE wait) may be in flight at once.
+         * requestUserMetadata fires one batchFetch per COALESCE_WINDOW_MS coalescing
+         * window; a busy cold boot spreads many small pubkey sets across many windows
+         * a few hundred ms apart, and each batch dispatches to the same handful of
+         * bootstrap relays. Without a cap, dozens of these can be genuinely concurrent
+         * (a Playwright capture observed 68 separate metadata_batch_ REQs open on one
+         * relay at once), tripping its "too many concurrent REQs" limit. Extra callers
+         * queue on the semaphore instead of firing immediately.
+         */
+        const val MAX_CONCURRENT_BATCH_FETCHES = 3
     }
+
+    private val batchFetchSemaphore = Semaphore(MAX_CONCURRENT_BATCH_FETCHES)
 
     /** On-disk form of a [CachedMetadata] entry (see the global user-metadata store). */
     @Serializable
@@ -211,7 +227,7 @@ class MetadataManager(
 
         val fetchStartedAt = epochMillis()
         try {
-            batchFetch(toFetch)
+            batchFetchSemaphore.withPermit { batchFetch(toFetch) }
         } finally {
             val finishedAt = epochMillis()
             inFlightMutex.withLock {
