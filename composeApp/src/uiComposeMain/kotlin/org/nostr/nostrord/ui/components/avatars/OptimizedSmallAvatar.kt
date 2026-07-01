@@ -1,11 +1,11 @@
 package org.nostr.nostrord.ui.components.avatars
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -67,6 +66,7 @@ private fun Dp.toSizeCategory(): AvatarSizeCategory = when {
  * @param displayName Display name for generating initial letter
  * @param size Target display size
  * @param shape Shape of the avatar (CircleShape or RoundedCornerShape)
+ * @param isGroup Group avatars fall back to the conic swirl gradient, users to the duotone
  * @param modifier Modifier for the container
  */
 @Composable
@@ -76,10 +76,10 @@ fun OptimizedSmallAvatar(
     displayName: String,
     size: Dp,
     shape: Shape = CircleShape,
+    isGroup: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
-    val density = LocalDensity.current
     val sizeCategory = size.toSizeCategory()
 
     // Use a single canonical request size (128px) for all avatar sizes so Coil
@@ -99,10 +99,13 @@ fun OptimizedSmallAvatar(
             },
         )
 
-    // For tiny sizes or no image, use Jdenticon
-    if (sizeCategory == AvatarSizeCategory.TINY || imageUrl.isNullOrBlank()) {
+    // No picture → gradient fallback. Tiny sizes still load the real picture (web does
+    // too, and the people/member avatar stacks would otherwise be all gradients).
+    if (imageUrl.isNullOrBlank()) {
         SmallAvatarPlaceholder(
             identifier = identifier,
+            displayName = displayName,
+            isGroup = isGroup,
             edgeColor = edgeColor,
             size = size,
             shape = shape,
@@ -115,24 +118,29 @@ fun OptimizedSmallAvatar(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
-        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        // Keyed on imageUrl (list slot reuse resets state) with a self-healing retry, so a transient
+        // load failure doesn't latch this avatar to its placeholder for the rest of the session.
+        val avatar = rememberAvatarImageState(imageUrl)
 
         val showPlaceholder =
-            imageState is AsyncImagePainter.State.Loading ||
-                imageState is AsyncImagePainter.State.Error
+            avatar.state is AsyncImagePainter.State.Loading ||
+                avatar.state is AsyncImagePainter.State.Error
+        val loaded = avatar.state is AsyncImagePainter.State.Success
 
         // Always render placeholder behind (for loading state and as fallback)
         if (showPlaceholder) {
             SmallAvatarPlaceholder(
                 identifier = identifier,
+                displayName = displayName,
+                isGroup = isGroup,
                 edgeColor = edgeColor,
                 size = size,
                 shape = shape,
             )
         }
 
-        // Attempt to load image unless in error state
-        if (imageState !is AsyncImagePainter.State.Error) {
+        // Attempt to load image unless in error state (the retry resets Error -> Empty to re-load)
+        if (avatar.state !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model =
                 ImageRequest
@@ -151,6 +159,11 @@ fun OptimizedSmallAvatar(
                 Modifier
                     .fillMaxSize()
                     .clip(shape)
+                    // White backdrop so a transparent avatar (PNG with alpha) shows on
+                    // white instead of the surface colour bleeding through. Only once the
+                    // picture has loaded; while loading it would cover the gradient
+                    // placeholder with a solid white tile (matches web's avatar-photo-white).
+                    .then(if (loaded) Modifier.background(Color.White) else Modifier)
                     .then(
                         // Add subtle edge definition for smaller sizes
                         if (edgeColor.alpha > 0f) {
@@ -172,18 +185,20 @@ fun OptimizedSmallAvatar(
                             Modifier
                         },
                     ),
-                onState = { imageState = it },
+                onState = avatar.onState,
             )
         }
     }
 }
 
 /**
- * Placeholder for small avatars using Jdenticon.
+ * Placeholder for small avatars using the seeded gradient fallback.
  */
 @Composable
 private fun SmallAvatarPlaceholder(
     identifier: String,
+    displayName: String,
+    isGroup: Boolean,
     edgeColor: Color,
     size: Dp,
     shape: Shape,
@@ -203,10 +218,11 @@ private fun SmallAvatarPlaceholder(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Jdenticon(
-            value = identifier,
-            size = size,
-        )
+        if (isGroup) {
+            GroupGradientAvatar(seed = identifier, name = displayName, size = size)
+        } else {
+            UserGradientAvatar(seed = identifier, size = size)
+        }
     }
 }
 
@@ -228,29 +244,6 @@ private fun Modifier.subtleVignette(): Modifier = this.drawWithContent {
             center = center,
             radius = size.minDimension / 1.5f,
         ),
-    )
-}
-
-/**
- * Convenience composable for server/group icons in the ServerRail.
- * Uses RoundedCornerShape with animated corners.
- */
-@Composable
-fun OptimizedServerIcon(
-    imageUrl: String?,
-    groupId: String,
-    groupName: String,
-    size: Dp,
-    cornerRadius: Dp,
-    modifier: Modifier = Modifier,
-) {
-    OptimizedSmallAvatar(
-        imageUrl = imageUrl,
-        identifier = groupId,
-        displayName = groupName,
-        size = size,
-        shape = RoundedCornerShape(cornerRadius),
-        modifier = modifier,
     )
 }
 

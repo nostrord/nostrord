@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -54,33 +56,37 @@ import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
-import org.nostr.nostrord.ui.components.cards.KeyCard
-import org.nostr.nostrord.ui.components.cards.WarningCard
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
-import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
+import org.nostr.nostrord.ui.screens.backup.BackupKeysSections
+import org.nostr.nostrord.ui.screens.backup.BackupViewModel
+import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
+import org.nostr.nostrord.ui.theme.DarkColorPalette
+import org.nostr.nostrord.ui.theme.LightColorPalette
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
-import org.nostr.nostrord.utils.rememberClipboardWriter
 
 enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
+    DirectMessages("Direct Messages"),
+    Appearance("Appearance"),
     Media("Media"),
     Notifications("Notifications"),
     Security("Security"),
-    Experimental("Experimental"),
 }
 
 /**
@@ -100,11 +106,6 @@ fun SettingsScreen(
     onClose: () -> Unit,
     onNavigate: (Screen) -> Unit,
     onLogout: () -> Unit,
-    showToolbar: Boolean = false,
-    canGoBack: Boolean = false,
-    canGoForward: Boolean = false,
-    onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {},
     forceDesktop: Boolean = false,
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
@@ -199,35 +200,12 @@ fun SettingsScreen(
         )
     }
 
-    // Backup state
-    val copyToClipboard = rememberClipboardWriter()
-    val privateKey = remember { AppModule.nostrRepository.getPrivateKey() }
-    var showKeyCopied by remember { mutableStateOf(false) }
-    LaunchedEffect(showKeyCopied) {
-        if (showKeyCopied) {
-            delay(2000)
-            showKeyCopied = false
-        }
-    }
-
+    // Backup keys: the same shared screen as the standalone Backup route and the web Settings.
+    // Keyed by the active account so switching accounts rebuilds the VM with the new keys.
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
+    val backupVm = viewModel(key = activeAccountId) { BackupViewModel() }
     val backupContent: @Composable () -> Unit = {
-        BackupPanelContent(
-            privateKey = privateKey,
-            publicKey = publicKey,
-            showCopiedMessage = showKeyCopied,
-            onCopyPublicKey = {
-                publicKey?.let {
-                    copyToClipboard(it)
-                    showKeyCopied = true
-                }
-            },
-            onCopyPrivateKey = {
-                privateKey?.let {
-                    copyToClipboard(it)
-                    showKeyCopied = true
-                }
-            },
-        )
+        BackupPanelContent(backupVm)
     }
 
     // NIP-65 relay state
@@ -246,8 +224,20 @@ fun SettingsScreen(
         )
     }
 
+    val dmRelaysContent: @Composable () -> Unit = {
+        DmRelayPanelContent()
+    }
+
     val notificationsContent: @Composable () -> Unit = {
         NotificationsPanelContent()
+    }
+
+    val appTheme by AppModule.appearanceSettings.theme.collectAsState()
+    val appearanceContent: @Composable () -> Unit = {
+        AppearancePanelContent(
+            selectedTheme = appTheme,
+            onSelectTheme = { AppModule.appearanceSettings.setTheme(it) },
+        )
     }
 
     val autoLoadMedia by AppModule.mediaSettings.autoLoadMedia.collectAsState()
@@ -255,14 +245,6 @@ fun SettingsScreen(
         MediaPanelContent(
             autoLoadMedia = autoLoadMedia,
             onToggleAutoLoad = { AppModule.mediaSettings.setAutoLoadMedia(it) },
-        )
-    }
-
-    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
-    val experimentalContent: @Composable () -> Unit = {
-        ExperimentalPanelContent(
-            subgroupsEnabled = subgroupsEnabled,
-            onToggleSubgroups = { AppModule.featureFlags.setSubgroupsEnabled(it) },
         )
     }
 
@@ -315,10 +297,11 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                dmRelaysContent = dmRelaysContent,
+                appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
-                experimentalContent = experimentalContent,
             )
         } else {
             DesktopSettings(
@@ -330,15 +313,11 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                dmRelaysContent = dmRelaysContent,
+                appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
-                experimentalContent = experimentalContent,
-                showToolbar = showToolbar,
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                onHistoryBack = onHistoryBack,
-                onHistoryForward = onHistoryForward,
             )
         }
     }
@@ -356,26 +335,13 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
-    showToolbar: Boolean = false,
-    canGoBack: Boolean = false,
-    canGoForward: Boolean = false,
-    onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        if (showToolbar) {
-            NavigationToolbar(
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                onBack = onHistoryBack,
-                onForward = onHistoryForward,
-            )
-        }
-
         // Centered layout: sidebar(218) + content(740) + close(80) = 1038dp center block.
         // Two equal fills extend the sidebar/content background colors to the screen edges,
         // mirroring the CSS: settings-sidebar-fill { flex:1 } / settings-content-fill { flex:1 }.
@@ -420,7 +386,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
                     }
                 }
 
@@ -446,10 +412,11 @@ private fun MobileSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
 ) {
     if (!showPanel) {
         Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark).statusBarsPadding()) {
@@ -459,7 +426,7 @@ private fun MobileSettings(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Settings", color = NostrordColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                SettingsCloseButton(onClick = onClose, showEscHint = false)
+                SettingsCloseButton(onClick = onClose)
             }
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SettingsSidebar(
@@ -490,7 +457,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
             }
         }
     }
@@ -514,26 +481,16 @@ private fun SettingsSidebar(
         val activeId = AppModule.accountStore.activeId.collectAsState().value
         val accounts = AppModule.accountStore.accounts.collectAsState().value
         val activeMethod = accounts.firstOrNull { it.id == activeId }?.authMethod ?: AuthMethod.LOCAL
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showLogoutConfirm = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Log out?") },
-            text = { Text(logoutConfirmBody(activeMethod)) },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    showLogoutConfirm = false
-                    onLogout()
-                }) {
-                    Text("Log Out", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Log out?",
+            message = logoutConfirmBody(activeMethod),
+            confirmLabel = "Log Out",
+            destructive = true,
+            onConfirm = {
+                showLogoutConfirm = false
+                onLogout()
             },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLogoutConfirm = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { showLogoutConfirm = false },
         )
     }
 
@@ -546,6 +503,12 @@ private fun SettingsSidebar(
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
     }
+    SettingsNavItem("Direct Messages", activeSection == SettingsSection.DirectMessages, compact = compact) {
+        onSelectSection(SettingsSection.DirectMessages)
+    }
+    SettingsNavItem("Appearance", activeSection == SettingsSection.Appearance, compact = compact) {
+        onSelectSection(SettingsSection.Appearance)
+    }
     SettingsNavItem("Media", activeSection == SettingsSection.Media, compact = compact) {
         onSelectSection(SettingsSection.Media)
     }
@@ -556,9 +519,6 @@ private fun SettingsSidebar(
         SettingsNavItem("Security", activeSection == SettingsSection.Security, compact = compact) {
             onSelectSection(SettingsSection.Security)
         }
-    }
-    SettingsNavItem("Experimental", activeSection == SettingsSection.Experimental, compact = compact) {
-        onSelectSection(SettingsSection.Experimental)
     }
     SettingsNavDivider(compact)
     SettingsNavItem(
@@ -636,7 +596,7 @@ private fun SettingsNavDivider(compact: Boolean = false) {
 // ── Close button ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true) {
+private fun SettingsCloseButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
@@ -654,9 +614,6 @@ private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true
             tint = NostrordColors.TextSecondary,
             modifier = Modifier.size(16.dp),
         )
-        if (showEscHint) {
-            Text("ESC", color = NostrordColors.TextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        }
     }
 }
 
@@ -668,10 +625,11 @@ private fun SettingsPanel(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -688,10 +646,11 @@ private fun SettingsPanel(
             SettingsSection.Profile -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.DirectMessages -> dmRelaysContent()
+            SettingsSection.Appearance -> appearanceContent()
             SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()
             SettingsSection.Security -> securityContent()
-            SettingsSection.Experimental -> experimentalContent()
         }
     }
 }
@@ -860,11 +819,11 @@ private fun ProfileField(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.Divider,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
+                focusedContainerColor = NostrordColors.BackgroundFloating,
+                unfocusedContainerColor = NostrordColors.BackgroundFloating,
                 cursorColor = NostrordColors.Primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = NostrordColors.TextContent,
+                unfocusedTextColor = NostrordColors.TextContent,
             ),
             shape = NostrordShapes.shapeSmall,
         )
@@ -874,82 +833,20 @@ private fun ProfileField(
 // ── Backup panel content ──────────────────────────────────────────────────────
 
 @Composable
-private fun BackupPanelContent(
-    privateKey: String?,
-    publicKey: String?,
-    showCopiedMessage: Boolean,
-    onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit,
-) {
+private fun BackupPanelContent(vm: BackupViewModel) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = null,
-            tint = NostrordColors.WarningOrange,
-            modifier = Modifier.size(48.dp),
-        )
-
-        WarningCard(isCompact = false)
-
-        if (publicKey != null) {
-            KeyCard(
-                title = "Public Key (npub)",
-                titleColor = NostrordColors.TextSecondary,
-                keyValue = publicKey,
-                keyColor = Color.White,
-                buttonText = "Copy Public Key",
-                buttonColor = NostrordColors.Primary,
-                onCopy = onCopyPublicKey,
-                isCompact = false,
-            )
-        }
-
-        if (privateKey != null) {
-            KeyCard(
-                title = "Private Key (nsec)",
-                titleColor = NostrordColors.Error,
-                keyValue = privateKey,
-                keyColor = NostrordColors.LightRed,
-                buttonText = "Copy Private Key",
-                buttonColor = NostrordColors.Error,
-                onCopy = onCopyPrivateKey,
-                isCompact = false,
-                showSecretBadge = true,
-            )
-        }
-
-        if (showCopiedMessage) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Copied to clipboard", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        // Same keys UI as the web Settings backup panel: public cycles npub / nprofile / hex with a
+        // QR, the private key is reveal-gated and offers nsec / hex plus a NIP-49 ncryptsec export.
+        BackupKeysSections(vm)
 
         InfoCard(
             title = "Security Tips",
             titleColor = NostrordColors.Warning,
             icon = Icons.Default.Lightbulb,
-            content = "1. Write it down on paper and store in a safe place\n" +
-                "2. Use a password manager like 1Password or Bitwarden\n" +
-                "3. Never store it in plain text files or screenshots\n" +
-                "4. Never send it via email or messaging apps\n" +
-                "5. Consider using a hardware wallet for long-term storage",
+            content = backupSecurityTips.joinToString("\n") { "• $it" },
             isCompact = false,
         )
     }
@@ -1213,7 +1110,123 @@ private fun PermissionStatusRow(
     }
 }
 
-// ── Media panel content ───────────────────────────────────────────────────────
+// ── Appearance panel content ──────────────────────────────────────────────────
+
+@Composable
+private fun AppearancePanelContent(
+    selectedTheme: AppTheme,
+    onSelectTheme: (AppTheme) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(Spacing.xl)) {
+                Text(
+                    text = "THEME",
+                    color = NostrordColors.TextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(bottom = Spacing.md),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    ThemeCard("Dark", AppTheme.DARK, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                    ThemeCard("Light", AppTheme.LIGHT, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                    ThemeCard("System", AppTheme.SYSTEM, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeCard(
+    label: String,
+    theme: AppTheme,
+    selectedTheme: AppTheme,
+    modifier: Modifier = Modifier,
+    onSelect: (AppTheme) -> Unit,
+) {
+    val isSelected = theme == selectedTheme
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val borderColor = when {
+        isSelected -> NostrordColors.Primary
+        isHovered -> NostrordColors.TextMuted
+        else -> NostrordColors.Divider
+    }
+
+    Column(
+        modifier = modifier
+            .clip(NostrordShapes.cardShape)
+            .border(1.dp, borderColor, NostrordShapes.cardShape)
+            .hoverable(interactionSource)
+            .clickable { onSelect(theme) }
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(Spacing.sm),
+    ) {
+        ThemePreview(theme)
+        Spacer(Modifier.height(Spacing.sm))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isSelected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = NostrordColors.Primary,
+                    modifier = Modifier.size(13.dp),
+                )
+                Spacer(Modifier.width(Spacing.xs))
+            }
+            Text(label, color = NostrordColors.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun ThemePreview(theme: AppTheme) {
+    // Each card shows its own theme's surfaces from the fixed palettes, never the
+    // active NostrordColors (otherwise the Dark card would turn white in light mode).
+    // The pills are preview-only shades from the prototype, not palette tokens.
+    val darkSurface = Color(DarkColorPalette.background)
+    val lightSurface = Color(LightColorPalette.background)
+    val lightPill = Color(0xFFC4C9D0)
+    val darkPill = Color(0xFF4E5058)
+    val background = when (theme) {
+        AppTheme.DARK -> Brush.linearGradient(listOf(darkSurface, darkSurface))
+        AppTheme.LIGHT -> Brush.linearGradient(listOf(lightSurface, lightSurface))
+        AppTheme.SYSTEM -> Brush.linearGradient(listOf(darkSurface, lightSurface))
+    }
+    val pillShape = RoundedCornerShape(percent = 50)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, NostrordColors.Divider, RoundedCornerShape(6.dp))
+            .background(background)
+            .padding(6.dp),
+    ) {
+        Box(Modifier.width(32.dp).height(8.dp).clip(pillShape).background(NostrordColors.Primary))
+        Spacer(Modifier.height(Spacing.xs))
+        Box(
+            Modifier.width(40.dp).height(6.dp).clip(pillShape)
+                .background(if (theme == AppTheme.LIGHT) lightPill else darkPill),
+        )
+    }
+}
+
+// ── Media panel content ──────────────────────────────────────────────────────
 
 @Composable
 private fun MediaPanelContent(
@@ -1229,7 +1242,7 @@ private fun MediaPanelContent(
             shape = NostrordShapes.cardShape,
             colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
-            ExperimentalToggleRow(
+            SettingsToggleRow(
                 label = "Auto-load media",
                 description = "Automatically load images and videos in chat. When off, " +
                     "each one shows a tap-to-load placeholder so you choose what to fetch.",
@@ -1240,46 +1253,8 @@ private fun MediaPanelContent(
     }
 }
 
-// ── Experimental panel content ───────────────────────────────────────────────
-
 @Composable
-private fun ExperimentalPanelContent(
-    subgroupsEnabled: Boolean,
-    onToggleSubgroups: (Boolean) -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-    ) {
-        InfoCard(
-            title = "Draft protocol features",
-            titleColor = NostrordColors.Warning,
-            icon = Icons.Default.Lightbulb,
-            content = "Features here rely on NIP drafts that haven't been accepted " +
-                "upstream yet. Behavior, event kinds, and tags may change. Use " +
-                "at your own risk.",
-            isCompact = false,
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
-        ) {
-            ExperimentalToggleRow(
-                label = "NIP-29 Subgroups (draft)",
-                description = "Show parent/child group hierarchy, create subgroups, " +
-                    "and manage attestations. When off, groups are rendered as a " +
-                    "flat list and subgroup actions are hidden.",
-                checked = subgroupsEnabled,
-                onCheckedChange = onToggleSubgroups,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ExperimentalToggleRow(
+private fun SettingsToggleRow(
     label: String,
     description: String,
     checked: Boolean,
@@ -1324,6 +1299,23 @@ private fun ExperimentalToggleRow(
 
 @Composable
 private fun SecurityPanelContent() {
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
+    val accountSecurity = viewModel(key = activeAccountId) { SecurityViewModel() }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        // ncryptsec accounts are unlocked per session and own a rotatable password, independent
+        // of the desktop app-store passphrase handled below.
+        if (accountSecurity.isPasswordProtected) {
+            ChangeAccountPasswordForm(accountSecurity)
+        }
+        AppPassphraseContent()
+    }
+}
+
+@Composable
+private fun AppPassphraseContent() {
     when {
         !PassphraseSettings.isApplicable -> {
             InfoCard(
@@ -1360,6 +1352,88 @@ private fun SecurityPanelContent() {
                     "passphrase to persist your data securely.",
                 isCompact = false,
             )
+        }
+    }
+}
+
+@Composable
+private fun ChangeAccountPasswordForm(vm: SecurityViewModel) {
+    val current by vm.current.collectAsState()
+    val new by vm.new.collectAsState()
+    val confirm by vm.confirm.collectAsState()
+    val busy by vm.busy.collectAsState()
+    val error by vm.error.collectAsState()
+    val success by vm.success.collectAsState()
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        InfoCard(
+            title = "Account password",
+            titleColor = NostrordColors.TextSecondary,
+            icon = Icons.Default.Key,
+            content = "Your private key is encrypted with this password (NIP-49) and unlocked each " +
+                "session. Choose a new password below to rotate it. It cannot be recovered if you " +
+                "forget it.",
+            isCompact = false,
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                PassphraseField("Current password", current) { vm.setCurrent(it) }
+                PassphraseField("New password", new) { vm.setNew(it) }
+                PassphraseField("Confirm new password", confirm) { vm.setConfirm(it) }
+
+                Text(
+                    text = "At least 6 characters. Must match.",
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextSecondary,
+                )
+
+                error?.let {
+                    Text(text = it, style = NostrordTypography.MessageBody, color = NostrordColors.Error)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = { vm.changePassword() },
+                        enabled = !busy && current.isNotEmpty() && new.isNotEmpty() && confirm.isNotEmpty(),
+                    ) {
+                        Text(
+                            if (busy) "Saving…" else "Change password",
+                            color = NostrordColors.Primary,
+                            style = NostrordTypography.Button,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (success) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Password changed", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -1488,11 +1562,11 @@ private fun PassphraseField(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.Divider,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
+                focusedContainerColor = NostrordColors.BackgroundFloating,
+                unfocusedContainerColor = NostrordColors.BackgroundFloating,
                 cursorColor = NostrordColors.Primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = NostrordColors.TextContent,
+                unfocusedTextColor = NostrordColors.TextContent,
             ),
             shape = NostrordShapes.shapeSmall,
         )

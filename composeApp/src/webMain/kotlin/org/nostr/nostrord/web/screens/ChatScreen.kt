@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -18,8 +20,12 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.nostr.Nip68
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
+import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.MentionableGroup
 import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -27,36 +33,43 @@ import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.normalizeForSearch
+import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.ChatAudio
 import org.nostr.nostrord.web.components.ChatImage
 import org.nostr.nostrord.web.components.ChatMessageList
 import org.nostr.nostrord.web.components.ChatVideo
 import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.Spoiler
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.YouTubeEmbed
+import org.nostr.nostrord.web.components.confirmDialog
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
+import org.nostr.nostrord.web.components.messageSendStatus
 import org.nostr.nostrord.web.components.messageSkeleton
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
-import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
-import org.nostr.nostrord.web.modals.JoinRequestsModal
+import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
-import org.nostr.nostrord.web.modals.MemberManagementModal
+import org.nostr.nostrord.web.modals.ManageGroupModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -67,11 +80,12 @@ import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.kbd
 import react.dom.html.ReactHTML.pre
+import react.dom.html.ReactHTML.s
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
-import react.useEffectOnce
 import react.useMemo
 import react.useRef
 import react.useState
@@ -80,6 +94,7 @@ import web.dom.ElementId
 import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
 import kotlin.math.abs
+import org.nostr.nostrord.ui.screens.group.pendingJoinRequests as computePendingJoinRequests
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -97,9 +112,6 @@ external interface ChatScreenProps : Props {
     /** Opens the groups-sidebar drawer (mobile only — the chat header hamburger). */
     var onOpenDrawer: () -> Unit
 }
-
-// Window (seconds) for grouping consecutive messages from the same author.
-private const val GROUP_WINDOW = 5 * 60
 
 /**
  * Parent message id of a reply (kind 9 only). Nostrord tags replies with "q"; other clients
@@ -147,11 +159,11 @@ private fun processMentions(content: String, userMetadata: Map<String, UserMetad
         when (val entity = Nip19.decode(bech32)) {
             is Nip19.Entity.Npub -> {
                 val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                if (!name.isNullOrBlank()) "@$name" else "@" + shortNpub(entity.pubkey)
             }
             is Nip19.Entity.Nprofile -> {
                 val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                if (!name.isNullOrBlank()) "@$name" else "@" + shortNpub(entity.pubkey)
             }
             is Nip19.Entity.Note -> "[note]"
             is Nip19.Entity.Nevent -> "[event]"
@@ -163,7 +175,7 @@ private fun processMentions(content: String, userMetadata: Map<String, UserMetad
 
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
-    ?: (pubkey.take(8) + "…")
+    ?: shortNpub(pubkey)
 
 /** Active mention being typed in the composer: the trigger (@ or %), its query, and start index. */
 private data class MentionCtx(val trigger: Char, val query: String, val start: Int)
@@ -193,8 +205,15 @@ private fun detectMention(text: String, cursor: Int): MentionCtx? {
     return MentionCtx(before[idx], query, idx)
 }
 
+/** A mention requested from the profile modal, inserted into the composer draft. */
+private data class MentionRequest(val name: String, val pubkey: String, val nonce: Int)
+
 /** A run of composer text, flagged as a resolved @mention (gold) or plain. */
 private data class HlSeg(val text: String, val mention: Boolean)
+
+/** Per-message values that depend only on the message (+ group/relay), precomputed once per
+ *  message-list change so the row list doesn't re-encode bech32 + re-serialize JSON every render. */
+private data class RowMeta(val nevent: String, val eventJson: String, val link: String)
 
 /**
  * Split [text] into plain / mention runs for the composer's colored mirror. Only the literal
@@ -223,17 +242,36 @@ private fun highlightSegments(text: String, tokens: Collection<String>): List<Hl
     return segs
 }
 
+/** Markdown-toolbar button (prototype FmtBtn). Unsupported tokens render disabled. */
+private fun ChildrenBuilder.fmtBtn(ic: Ic, label: String, disabled: Boolean = false, onSelect: () -> Unit) {
+    button {
+        className = ClassName(if (disabled) "fmt-btn disabled" else "fmt-btn")
+        title = if (disabled) "$label (Coming soon)" else label
+        this.disabled = disabled
+        // Keep the textarea's focus/selection so wrapSelection still sees it.
+        onMouseDown = { it.preventDefault() }
+        onClick = { if (!disabled) onSelect() }
+        icon(ic)
+    }
+}
+
 private external interface ChatComposerProps : Props {
     var groupId: String
     var groupName: String
     var groupIsOpen: Boolean
     var canPost: Boolean
+
+    /** Group deleted / no longer on the relay: render no composer or join bar. */
+    var isOrphaned: Boolean
     var isPending: Boolean
     var members: List<String>
-    var allGroups: List<GroupMetadata>
+    var allGroups: List<MentionableGroup>
     var userMetadata: Map<String, UserMetadata>
     var relayUrl: String
-    var relayPubkey: String?
+
+    /** Relay's NIP-11 pubkey for a given relay URL, used as the naddr author when building a
+     *  `%group` mention so the reference carries the mentioned group's own relay, not the chat's. */
+    var relayPubkeyOf: (String) -> String?
 
     /** Id of the message being replied to (null = no reply), plus the parent's display name and a
      *  content preview for the banner (native ReplyingToBar shows both). */
@@ -245,6 +283,18 @@ private external interface ChatComposerProps : Props {
     /** Cleared after a successful publish so the parent can drop the reply target. */
     var onSent: () -> Unit
     var onJoin: () -> Unit
+
+    /** When the request to join a closed group is pending: the time it was sent (for the
+     *  "Requested ..." line) and the action to cancel it (mirrors native MessageInput). */
+    var pendingRequestedAtSeconds: Long?
+    var onCancelJoinRequest: () -> Unit
+
+    /** True while the member list is still loading for a group we're in our list of: render
+     *  neither the composer nor the pending/join state until we know which to show. */
+    var membersResolving: Boolean
+
+    /** Mention requested from the profile modal ("Mention" action); nonce dedupes. */
+    var mentionRequest: MentionRequest?
 
     /** The screen's GroupViewModel (shared, not a second instance). */
     var groupVm: GroupViewModel
@@ -283,6 +333,10 @@ private val ChatComposer =
         val (uploadError, setUploadError) = useState<String?> { null }
         // Composer emoji picker open state.
         val (emojiOpen, setEmojiOpen) = useState { false }
+        // Esc closes the emoji picker (its search input steals focus, so the
+        // textarea's own onKeyDown never sees the Escape). Document-level, same
+        // as the message reaction picker.
+        useEscClose { if (emojiOpen) setEmojiOpen(false) }
         // Active @user / %group mention being typed in the composer.
         val (mention, setMention) = useState<MentionCtx?> { null }
         // displayName -> pubkeyHex for @user mentions chosen from the popup.
@@ -329,20 +383,25 @@ private val ChatComposer =
                                 pk,
                                 group = false,
                                 ref = "nostr:" + Nip19.encodeNpub(pk),
-                                sub = pk.take(8) + "…" + pk.takeLast(4),
+                                sub = shortNpub(pk) + pk.takeLast(4),
                             )
                         }
                         .toList()
                 }
                 '%' -> {
                     val normalizedQuery = mention.query.normalizeForSearch()
-                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
                     allGroups.asSequence()
-                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
+                        .filter { mg ->
+                            mention.query.isBlank() ||
+                                (mg.meta.name ?: mg.meta.id).normalizeForSearch().contains(normalizedQuery)
+                        }
                         .take(6)
-                        .map { g ->
-                            val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, props.relayPubkey)
-                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref, sub = relayHost)
+                        .map { mg ->
+                            // Encode the naddr with the group's OWN hosting relay (and that relay's
+                            // pubkey), not the current chat relay, so the mention navigates correctly.
+                            val gRelayHost = mg.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                            val ref = "nostr:" + Nip19.encodeNaddr(mg.meta.id, mg.relayUrl, 39000, props.relayPubkeyOf(mg.relayUrl))
+                            MentionMatch(mg.meta.name ?: mg.meta.id, mg.meta.picture, mg.meta.id, group = true, ref = ref, sub = gRelayHost)
                         }
                         .toList()
                 }
@@ -420,6 +479,17 @@ private val ChatComposer =
         useEffect(props.replyingToId) {
             if (props.replyingToId != null) composerInputRef.current?.focus()
         }
+        // Insert an @mention requested from the profile modal (prototype behavior).
+        val lastMentionNonce = useRef(0)
+        useEffect(props.mentionRequest) {
+            val req = props.mentionRequest
+            if (req != null && req.nonce != lastMentionNonce.current) {
+                lastMentionNonce.current = req.nonce
+                setDraft { t -> (if (t.isBlank()) "" else t.trimEnd() + " ") + "@${req.name} " }
+                setMentions { it + (req.name to req.pubkey) }
+                composerInputRef.current?.focus()
+            }
+        }
         useEffect(draft) {
             val el = composerInputRef.current ?: return@useEffect
             // Reset before reading scrollHeight so the field can shrink when text
@@ -428,12 +498,126 @@ private val ChatComposer =
             el.style.height = "${el.scrollHeight}px"
         }
 
-        if (!props.canPost) {
+        // Markdown toolbar (prototype Composer): wraps the selection via execCommand
+        // so edits join the textarea's NATIVE undo stack (Ctrl+Z works).
+        val (toolbarOpen, setToolbarOpen) = useState { false }
+        // Hints popup (keyboard shortcuts on desktop, mention triggers on touch). It is an
+        // explicit toggle, not derived from the draft: "?" opens it without landing in the
+        // field, Esc (or typing) closes it, so "?" stays a normal message character.
+        val (showHints, setShowHints) = useState { false }
+        val isTouch = window.matchMedia("(pointer: coarse)").matches
+
+        fun insertAtCursor(replacement: String, caretBack: Int = 0) {
+            val ta = composerInputRef.current
+            if (ta == null) {
+                setDraft { it + replacement }
+                return
+            }
+            ta.focus()
+            document.asDynamic().execCommand("insertText", false, replacement)
+            if (caretBack > 0) {
+                val pos = ((ta.asDynamic().selectionStart as? Int) ?: 0) - caretBack
+                ta.asDynamic().setSelectionRange(pos, pos)
+            }
+        }
+
+        // Wrap the current selection (or cursor) with markdown tokens; the caret
+        // lands inside, before the closing token.
+        fun wrapSelection(pre: String, post: String = pre) {
+            val ta = composerInputRef.current ?: return
+            val start = (ta.asDynamic().selectionStart as? Int) ?: 0
+            val end = (ta.asDynamic().selectionEnd as? Int) ?: start
+            val sel = ta.value.substring(start, end)
+            insertAtCursor(pre + sel + post, post.length)
+        }
+
+        // List toolbar buttons: prefix the covered line(s) with a marker; clicking
+        // again toggles it off (prototype insertList).
+        fun insertList(ordered: Boolean) {
+            val ta = composerInputRef.current ?: return
+            val v = ta.value
+            val selStart = (ta.asDynamic().selectionStart as? Int) ?: 0
+            val selEnd = (ta.asDynamic().selectionEnd as? Int) ?: selStart
+            val start = v.lastIndexOf('\n', selStart - 1) + 1
+            var end = v.indexOf('\n', selEnd)
+            if (end == -1) end = v.length
+            val lines = v.substring(start, end).split('\n')
+            val re = if (ordered) Regex("^\\d+\\.\\s") else Regex("^[-*+]\\s")
+            // Either list marker, so switching types replaces instead of stacking (the
+            // "1. - foo" bug). Toggle-off only when every line already has the requested type.
+            val anyMarker = Regex("^(?:\\d+\\.|[-*+])\\s")
+            val allListed = lines.all { it.isBlank() || re.containsMatchIn(it) }
+            val out =
+                lines.mapIndexed { i, ln ->
+                    if (allListed) {
+                        ln.replaceFirst(re, "")
+                    } else {
+                        (if (ordered) "${i + 1}. " else "- ") + ln.replaceFirst(anyMarker, "")
+                    }
+                }.joinToString("\n")
+            ta.focus()
+            ta.asDynamic().setSelectionRange(start, end)
+            document.asDynamic().execCommand("insertText", false, out)
+        }
+
+        // Enter inside a list: continue with the next marker; on an empty item, drop
+        // the marker (exit the list) instead — so a second Enter ends the list rather
+        // than sending the message (prototype continueList).
+        fun continueList(): Boolean {
+            val ta = composerInputRef.current ?: return false
+            val pos = (ta.asDynamic().selectionStart as? Int) ?: return false
+            val end = (ta.asDynamic().selectionEnd as? Int) ?: pos
+            if (pos != end) return false
+            val v = ta.value
+            val lineStart = v.lastIndexOf('\n', pos - 1) + 1
+            val nextBreak = v.indexOf('\n', pos)
+            val lineEnd = if (nextBreak == -1) v.length else nextBreak
+            val line = v.substring(lineStart, lineEnd)
+            val ul = Regex("^(\\s*)([-*+])\\s+(.*)$").find(line)
+            val ol = Regex("^(\\s*)(\\d+)\\.\\s+(.*)$").find(line)
+            if (ul == null && ol == null) return false
+            val groups = (ul ?: ol)!!.groupValues
+            val indent = groups[1]
+            val content = if (ul != null) ul.groupValues[3] else ol!!.groupValues[3]
+            if (content.isBlank()) {
+                // Empty item: remove the marker and exit the list.
+                ta.asDynamic().setSelectionRange(lineStart, lineEnd)
+                document.asDynamic().execCommand("delete")
+                if (indent.isNotEmpty()) document.asDynamic().execCommand("insertText", false, indent)
+                return true
+            }
+            val marker = if (ul != null) "$indent${ul.groupValues[2]} " else "$indent${ol!!.groupValues[2].toInt() + 1}. "
+            insertAtCursor("\n" + marker)
+            return true
+        }
+
+        if (props.membersResolving || props.isOrphaned) {
+            // Member list still loading, or the group is gone (orphaned / deleted): render neither
+            // the composer nor the pending/join bar (the message area shows the "no longer
+            // available" panel instead).
+        } else if (!props.canPost) {
             // Not a member — prompt to join (or show pending) instead of the composer.
             div {
                 className = ClassName("composer-join")
                 if (props.isPending) {
-                    span { +"Your request to join is pending approval." }
+                    div {
+                        className = ClassName("composer-pending-text")
+                        span {
+                            className = ClassName("composer-pending-title")
+                            +"Your join request is pending admin approval"
+                        }
+                        props.pendingRequestedAtSeconds?.let { ts ->
+                            span {
+                                className = ClassName("composer-pending-time")
+                                +"Requested ${formatTimestamp(ts)}"
+                            }
+                        }
+                    }
+                    button {
+                        className = ClassName("composer-cancel-btn")
+                        onClick = { props.onCancelJoinRequest() }
+                        +"Cancel request"
+                    }
                 } else {
                     span { +"Join the group to send messages" }
                     button {
@@ -445,158 +629,48 @@ private val ChatComposer =
                 }
             }
         } else {
-            // Reply banner (above the composer)
-            val parentName = props.replyParentName
-            if (props.replyingToId != null && parentName != null) {
-                div {
-                    className = ClassName("composer-reply")
-                    div { className = ClassName("composer-reply-bar") }
-                    div {
-                        className = ClassName("composer-reply-body")
-                        div {
-                            className = ClassName("composer-reply-name")
-                            +"Replying to $parentName"
-                        }
-                        props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
-                            div {
-                                className = ClassName("composer-reply-text")
-                                +preview
-                            }
-                        }
-                    }
-                    button {
-                        className = ClassName("composer-reply-close")
-                        onClick = { props.onCancelReply() }
-                        icon(Ic.Close)
-                    }
-                }
-            }
-
-            // Composer
+            // Prototype Composer: one bordered frame holding the reply chip, the
+            // toggleable markdown toolbar and the input row; hints float above it.
             div {
-                className = ClassName(if (props.replyingToId != null) "composer replying" else "composer")
-                UploadButton {
-                    cls = "composer-btn"
-                    icon = Ic.AttachFile
-                    // Paste / drag-and-drop uploads run through handleMediaFile and are
-                    // tracked by uploadCount; surface their spinner on the attach icon.
-                    busy = uploadCount > 0
-                    // Count a file-pick upload in uploadCount too, so the send button is
-                    // disabled until the picked URL lands in the draft (it isn't sent empty).
-                    onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
-                    // The native file picker collapses the soft keyboard (no web API keeps it
-                    // open while the OS dialog is up). Refocus the composer the instant the
-                    // dialog closes, whether a file was chosen or cancelled, so the keyboard
-                    // re-opens and the user keeps typing. Fired from the file input's change /
-                    // cancel handlers, the closest point to the gesture, so Android re-pops the
-                    // keyboard; iOS Safari needs a live gesture and may not.
-                    onPickerClosed = { composerInputRef.current?.focus() }
-                    onUploaded = { upload ->
-                        val url = upload.url
-                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
-                        setPendingUploads { it + upload }
-                    }
-                    onError = { setUploadError(it) }
-                }
-                div {
-                    className = ClassName("composer-input-wrap")
-                    // Colored mirror painted behind the textarea: same text, but with
-                    // resolved @user / %group mentions tinted gold (native parity).
+                className = ClassName("composer-area")
+
+                // Every direct child carries a stable key: the hints / mention popups
+                // are conditional siblings rendered before the frame, and without keys
+                // React reconciles by index and REMOUNTS the frame - the focused
+                // textarea included (same failure mode as the chat-header note).
+                // Type "?" to surface hints (keyboard shortcuts on desktop, mention
+                // triggers on touch, where Enter is a newline).
+                if (showHints) {
                     div {
-                        className = ClassName("composer-highlight")
-                        ref = composerHighlightRef
-                        val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
-                        highlightSegments(draft, tokens).forEach { seg ->
-                            if (seg.mention) {
-                                span {
-                                    className = ClassName("msg-mention")
-                                    +seg.text
-                                }
-                            } else {
-                                +seg.text
-                            }
+                        key = "composer-hints"
+                        className = ClassName("composer-hints")
+                        div {
+                            className = ClassName("composer-hints-title")
+                            +(if (isTouch) "Mentions" else "Shortcuts")
                         }
-                    }
-                    textarea {
-                        ref = composerInputRef
-                        onScroll = {
-                            composerHighlightRef.current?.scrollTop =
-                                composerInputRef.current?.scrollTop ?: 0.0
-                        }
-                        className = ClassName("composer-input")
-                        placeholder = "Message $groupName"
-                        value = draft
-                        // Intentionally NOT readOnly while sending: toggling readOnly on the
-                        // focused field dismisses the mobile virtual keyboard. The double-send
-                        // guard lives in send() (sending check) and the Send button's disabled.
-                        rows = 1
-                        onChange = { event ->
-                            val v = event.currentTarget.value
-                            setDraft(v)
-                            val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                            setMention(detectMention(v, cursor))
-                            setMentionSelected(0)
-                        }
-                        onKeyDown = { event ->
-                            val hasMentions = mention != null && mentionMatches.isNotEmpty()
-                            when {
-                                hasMentions && event.key == "ArrowDown" -> {
-                                    event.preventDefault()
-                                    setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                        val rows =
+                            (
+                                if (isTouch) {
+                                    emptyList()
+                                } else {
+                                    listOf("Enter" to "send", "Shift + Enter" to "new line")
                                 }
-                                hasMentions && event.key == "ArrowUp" -> {
-                                    event.preventDefault()
-                                    setMentionSelected { (it - 1).coerceAtLeast(0) }
-                                }
-                                hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
-                                    event.preventDefault()
-                                    insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
-                                }
-                                mention != null && event.key == "Escape" -> {
-                                    event.preventDefault()
-                                    setMention(null)
-                                }
-                                props.replyingToId != null && event.key == "Escape" -> {
-                                    event.preventDefault()
-                                    props.onCancelReply()
-                                }
-                                event.key == "Enter" && !event.shiftKey -> {
-                                    event.preventDefault()
-                                    send()
-                                }
-                            }
-                        }
-                        onBlur = { window.setTimeout({ setMention(null) }, 150) }
-                        onPaste = { event ->
-                            val items = event.asDynamic().clipboardData?.items
-                            val count = (items?.length as? Int) ?: 0
-                            for (i in 0 until count) {
-                                val item = items[i]
-                                val type = item.type.unsafeCast<String?>()
-                                if (item.kind == "file" && isMediaMime(type)) {
-                                    val file = item.getAsFile()
-                                    if (file != null) {
-                                        event.preventDefault()
-                                        handleMediaFile(file)
-                                    }
-                                }
-                            }
-                        }
-                        onDragOver = { it.preventDefault() }
-                        onDrop = { event ->
-                            val files = event.asDynamic().dataTransfer?.files
-                            val count = (files?.length as? Int) ?: 0
-                            if (count > 0) event.preventDefault()
-                            for (i in 0 until count) {
-                                val file = files[i]
-                                val type = file.type.unsafeCast<String?>()
-                                if (isMediaMime(type)) handleMediaFile(file)
+                                ) + listOf("@" to "mention a person", "%" to "mention a group")
+                        rows.forEach { (k, v) ->
+                            div {
+                                className = ClassName("composer-hints-row")
+                                kbd { +k }
+                                span { +v }
                             }
                         }
                     }
                 }
+
+                // Mention popup floats above the frame (anchored to the area, the
+                // frame's overflow:hidden would clip it inside the input row).
                 if (mention != null && mentionMatches.isNotEmpty()) {
                     div {
+                        key = "mention-popup"
                         className = ClassName("mention-popup")
                         div {
                             className = ClassName("mention-header")
@@ -634,39 +708,285 @@ private val ChatComposer =
                         }
                     }
                 }
-                button {
-                    // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
-                    // where the OS keyboard already provides emoji (native parity).
-                    className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
-                    onClick = { setEmojiOpen(!emojiOpen) }
-                    icon(Ic.EmojiEmotions)
-                }
-                button {
-                    val uploading = uploadCount > 0
-                    // The upload spinner now lives on the attach icon; the send button
-                    // only spins for an in-flight send, but stays disabled while a paste
-                    // upload finishes so its URL can land in the draft first.
-                    className = ClassName(
-                        if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
-                    )
-                    disabled = (draft.isBlank() && !uploading) || sending || uploading
-                    // preventDefault on mousedown keeps focus on the textarea so tapping Send
-                    // does not blur it and dismiss the mobile keyboard (same trick as mention rows).
-                    onMouseDown = { e -> e.preventDefault() }
-                    onClick = { send() }
-                    if (sending) {
-                        span { className = ClassName("btn-spinner") }
-                    } else {
-                        icon(Ic.Send)
+
+                div {
+                    key = "composer-frame"
+                    className = ClassName("composer-frame")
+
+                    // Reply chip pinned to the top of the frame (prototype): the
+                    // textarea below keeps its own room and grows independently.
+                    val parentName = props.replyParentName
+                    if (props.replyingToId != null && parentName != null) {
+                        div {
+                            key = "composer-reply"
+                            className = ClassName("composer-reply")
+                            icon(Ic.Reply)
+                            span {
+                                className = ClassName("composer-reply-label")
+                                +"Replying to"
+                            }
+                            span {
+                                className = ClassName("composer-reply-name")
+                                +parentName
+                            }
+                            props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
+                                span {
+                                    className = ClassName("composer-reply-text")
+                                    +preview
+                                }
+                            }
+                            button {
+                                className = ClassName("composer-reply-close")
+                                onClick = { props.onCancelReply() }
+                                icon(Ic.Close)
+                            }
+                        }
+                    }
+
+                    // Markdown toolbar (toggleable). Tokens match what the message
+                    // renderer understands: *bold*, _italic_, `code`, ``` blocks,
+                    // ~~strikethrough~~ and ||spoiler||; quote/lists are plain-text
+                    // conventions.
+                    if (toolbarOpen) {
+                        div {
+                            key = "composer-toolbar"
+                            className = ClassName("composer-toolbar")
+                            fmtBtn(Ic.FormatBold, "Bold") { wrapSelection("*") }
+                            fmtBtn(Ic.FormatItalic, "Italic") { wrapSelection("_") }
+                            fmtBtn(Ic.FormatStrikethrough, "Strikethrough") { wrapSelection("~~") }
+                            fmtBtn(Ic.Code, "Code") { wrapSelection("`") }
+                            fmtBtn(Ic.DataObject, "Code block") { wrapSelection("```\n", "\n```") }
+                            fmtBtn(Ic.FormatQuote, "Quote") { wrapSelection("> ", "") }
+                            fmtBtn(Ic.FormatListBulleted, "Bulleted list") { insertList(false) }
+                            fmtBtn(Ic.FormatListNumbered, "Numbered list") { insertList(true) }
+                            fmtBtn(Ic.VisibilityOff, "Spoiler") { wrapSelection("||") }
+                            button {
+                                className = ClassName("fmt-btn fmt-close")
+                                title = "Close formatting (Esc)"
+                                onClick = { setToolbarOpen(false) }
+                                icon(Ic.Close)
+                            }
+                        }
+                    }
+
+                    // Input row
+                    div {
+                        key = "composer-row"
+                        className = ClassName("composer")
+                        button {
+                            className = ClassName(if (toolbarOpen) "composer-btn active" else "composer-btn")
+                            title = "Text formatting"
+                            onClick = {
+                                setToolbarOpen(!toolbarOpen)
+                                composerInputRef.current?.focus()
+                            }
+                            icon(Ic.TextFields)
+                        }
+                        UploadButton {
+                            cls = "composer-btn"
+                            icon = Ic.AttachFile
+                            // Paste / drag-and-drop uploads run through handleMediaFile and are
+                            // tracked by uploadCount; surface their spinner on the attach icon.
+                            busy = uploadCount > 0
+                            // Count a file-pick upload in uploadCount too, so the send button is
+                            // disabled until the picked URL lands in the draft (it isn't sent empty).
+                            onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
+                            // The native file picker collapses the soft keyboard (no web API keeps it
+                            // open while the OS dialog is up). Refocus the composer the instant the
+                            // dialog closes, whether a file was chosen or cancelled, so the keyboard
+                            // re-opens and the user keeps typing. Fired from the file input's change /
+                            // cancel handlers, the closest point to the gesture, so Android re-pops the
+                            // keyboard; iOS Safari needs a live gesture and may not.
+                            onPickerClosed = { composerInputRef.current?.focus() }
+                            onUploaded = { upload ->
+                                val url = upload.url
+                                setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                                setPendingUploads { it + upload }
+                            }
+                            onError = { setUploadError(it) }
+                        }
+                        div {
+                            className = ClassName("composer-input-wrap")
+                            // Colored mirror painted behind the textarea: same text, but with
+                            // resolved @user / %group mentions tinted gold (native parity).
+                            div {
+                                className = ClassName("composer-highlight")
+                                ref = composerHighlightRef
+                                val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
+                                highlightSegments(draft, tokens).forEach { seg ->
+                                    if (seg.mention) {
+                                        span {
+                                            className = ClassName("msg-mention")
+                                            +seg.text
+                                        }
+                                    } else {
+                                        +seg.text
+                                    }
+                                }
+                            }
+                            textarea {
+                                ref = composerInputRef
+                                onScroll = {
+                                    composerHighlightRef.current?.scrollTop =
+                                        composerInputRef.current?.scrollTop ?: 0.0
+                                }
+                                className = ClassName("composer-input")
+                                placeholder =
+                                    props.replyParentName?.takeIf { props.replyingToId != null }
+                                        ?.let { "Reply to $it" }
+                                        ?: "Message $groupName"
+                                value = draft
+                                // Intentionally NOT readOnly while sending: toggling readOnly on the
+                                // focused field dismisses the mobile virtual keyboard. The double-send
+                                // guard lives in send() (sending check) and the Send button's disabled.
+                                rows = 1
+                                onChange = { event ->
+                                    val v = event.currentTarget.value
+                                    if (isTouch && draft.isEmpty() && v == "?") {
+                                        // Touch keyboards don't emit a reliable keydown for "?", so open
+                                        // the hints from the value instead and keep the glyph out of the
+                                        // field (matches the desktop intercept below).
+                                        setShowHints(true)
+                                    } else {
+                                        if (showHints) setShowHints(false)
+                                        setDraft(v)
+                                        val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                        setMention(detectMention(v, cursor))
+                                        setMentionSelected(0)
+                                    }
+                                }
+                                onKeyDown = { event ->
+                                    val hasMentions = mention != null && mentionMatches.isNotEmpty()
+                                    when {
+                                        hasMentions && event.key == "ArrowDown" -> {
+                                            event.preventDefault()
+                                            setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                                        }
+                                        hasMentions && event.key == "ArrowUp" -> {
+                                            event.preventDefault()
+                                            setMentionSelected { (it - 1).coerceAtLeast(0) }
+                                        }
+                                        hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
+                                            event.preventDefault()
+                                            insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
+                                        }
+                                        mention != null && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setMention(null)
+                                        }
+                                        showHints && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setShowHints(false)
+                                        }
+                                        toolbarOpen && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setToolbarOpen(false)
+                                        }
+                                        props.replyingToId != null && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            props.onCancelReply()
+                                        }
+                                        !isTouch && event.key == "?" && draft.isEmpty() && !hasMentions -> {
+                                            // Open the shortcuts box; the glyph never lands in the field.
+                                            event.preventDefault()
+                                            setShowHints(true)
+                                        }
+                                        event.key == "Enter" && !event.shiftKey -> {
+                                            // Inside a list: continue / exit it, never send. On touch,
+                                            // Enter stays a newline (Send is the button).
+                                            if (continueList()) {
+                                                event.preventDefault()
+                                            } else if (!isTouch) {
+                                                event.preventDefault()
+                                                send()
+                                            }
+                                        }
+                                    }
+                                }
+                                onBlur = { window.setTimeout({ setMention(null) }, 150) }
+                                onPaste = { event ->
+                                    val items = event.asDynamic().clipboardData?.items
+                                    val count = (items?.length as? Int) ?: 0
+                                    for (i in 0 until count) {
+                                        val item = items[i]
+                                        val type = item.type.unsafeCast<String?>()
+                                        if (item.kind == "file" && isMediaMime(type)) {
+                                            val file = item.getAsFile()
+                                            if (file != null) {
+                                                event.preventDefault()
+                                                handleMediaFile(file)
+                                            }
+                                        }
+                                    }
+                                }
+                                onDragOver = { it.preventDefault() }
+                                onDrop = { event ->
+                                    val files = event.asDynamic().dataTransfer?.files
+                                    val count = (files?.length as? Int) ?: 0
+                                    if (count > 0) event.preventDefault()
+                                    for (i in 0 until count) {
+                                        val file = files[i]
+                                        val type = file.type.unsafeCast<String?>()
+                                        if (isMediaMime(type)) handleMediaFile(file)
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
+                            // where the OS keyboard already provides emoji (native parity).
+                            className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
+                            onClick = { setEmojiOpen(!emojiOpen) }
+                            icon(Ic.EmojiEmotions)
+                        }
+                        button {
+                            val uploading = uploadCount > 0
+                            // The upload spinner now lives on the attach icon; the send button
+                            // only spins for an in-flight send, but stays disabled while a paste
+                            // upload finishes so its URL can land in the draft first.
+                            className = ClassName(
+                                if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
+                            )
+                            disabled = (draft.isBlank() && !uploading) || sending || uploading
+                            // preventDefault on mousedown keeps focus on the textarea so tapping Send
+                            // does not blur it and dismiss the mobile keyboard (same trick as mention rows).
+                            onMouseDown = { e -> e.preventDefault() }
+                            onClick = { send() }
+                            if (sending) {
+                                span { className = ClassName("btn-spinner") }
+                            } else {
+                                icon(Ic.Send)
+                            }
+                        }
+                        if (emojiOpen) {
+                            div {
+                                className = ClassName("emoji-overlay")
+                                onClick = { setEmojiOpen(false) }
+                                EmojiPicker {
+                                    onPick = { emoji ->
+                                        insertAtCursor(emoji)
+                                        setEmojiOpen(false)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                if (emojiOpen) {
-                    div {
-                        className = ClassName("emoji-overlay")
-                        onClick = { setEmojiOpen(false) }
-                        EmojiPicker {
-                            onPick = { emoji -> setDraft { prev -> prev + emoji } }
-                        }
+
+                div {
+                    key = "composer-footer"
+                    className = ClassName("composer-hint-footer")
+                    // Clickable affordance: toggles the same box, the only reliable opener on
+                    // touch (where "?" never reaches a keydown).
+                    onClick = { setShowHints(!showHints) }
+                    if (showHints && !isTouch) {
+                        +"Press "
+                        kbd { +"Esc" }
+                        +" to close"
+                    } else {
+                        +"Type "
+                        kbd { +"?" }
+                        +(if (isTouch) " to see mention triggers" else " to see shortcuts")
                     }
                 }
             }
@@ -685,7 +1005,9 @@ private val ChatComposer =
 val ChatScreen =
     FC<ChatScreenProps> { props ->
         val group = props.group
-        val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
+        // Fall back to the group id while metadata is loading, same as the sidebar
+        // banner (group-side-banner-name), instead of a generic "Group" placeholder.
+        val groupName = group.name?.takeIf { it.isNotBlank() } ?: group.id
         // `vm` owns reads + most actions (shared with Compose). `repo` is kept ONLY for the
         // calls deliberately NOT routed through the VM:
         //   - leaveGroup / deleteGroup: followed immediately by onLeave() (unmount), so they
@@ -704,11 +1026,12 @@ val ChatScreen =
         val messageStatus = useStateFlow(vm.messageStatus)
         val membersByGroup = useStateFlow(vm.groupMembers)
         val adminsByGroup = useStateFlow(vm.groupAdmins)
-        val joinedByRelay = useStateFlow(vm.joinedGroupsByRelay)
         val userMetadata = useStateFlow(vm.userMetadata)
         val reactionsByMsg = useStateFlow(vm.reactions)
         val zapsByMsg = useStateFlow(vm.zaps)
-        val allGroups = useStateFlow(vm.groups)
+        // %group mention candidates: only joined + friends' groups (the new discovery),
+        // not every group the relay served.
+        val allGroups = useStateFlow(vm.mentionableGroups)
         val relayMetadata = useStateFlow(vm.relayMetadata)
         val relayUrl = useStateFlow(vm.currentRelayUrl)
         val isLoadingMore = useStateFlow(vm.isLoadingMore)[group.id] ?: false
@@ -719,6 +1042,11 @@ val ChatScreen =
         // state gate below to avoid showing "No messages yet" before the
         // socket has even spoken on this open.
         val groupLoadingState = useStateFlow(vm.groupStates)[group.id]
+        // True while the initial read is waiting on NIP-42 AUTH (private group whose relay
+        // challenges in response to the read, e.g. opened from the homepage). Keeps skeletons
+        // up across the pre-AUTH dance, which briefly bounces the controller through Idle,
+        // so the gate never flashes "No messages yet" before an authenticated read.
+        val awaitingAuthRead = group.id in useStateFlow(vm.groupsAwaitingAuthRead)
         val connState = useStateFlow(vm.connectionState)
         val membersLoading = group.id in useStateFlow(vm.loadingMembers)
         val myPubkey = vm.getPublicKey()
@@ -734,13 +1062,36 @@ val ChatScreen =
         // for it).
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
 
-        val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
-        val messagesById = messages.associateBy { it.id }
+        val rawMessages = messagesByGroup[group.id].orEmpty()
+        // Memoized so the O(n log n) sort + index only re-run when THIS group's messages change,
+        // not on every re-render (reactions, zaps, metadata and members each emit separately and
+        // would otherwise re-sort the whole list 15+ times during a group switch).
+        val messages = useMemo(rawMessages) { rawMessages.sortedBy { it.createdAt } }
+        val messagesById = useMemo(messages) { messages.associateBy { it.id } }
+        // The relay that actually HOSTS this group (where its kind:39000 lives), which may differ
+        // from the relay we're viewing it through. The copied nevent embeds this so readers fetch
+        // the event from its real home, not from wherever we happened to be connected.
+        val allGroupsByRelay = useStateFlow(AppModule.nostrRepository.groupsByRelay)
+        val neventRelay =
+            allGroupsByRelay.entries.firstOrNull { it.value.any { g -> g.id == group.id } }?.key ?: relayUrl
+        // Pure per-message values (bech32 nevent, the event JSON, the share link): expensive to
+        // compute and constant for a message, so build them once per message-list change instead of
+        // re-encoding/re-serializing all 200 rows on every re-render.
+        val rowMeta =
+            useMemo(messages, group.id, relayUrl, neventRelay) {
+                val host = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                messages.associate { m ->
+                    m.id to
+                        RowMeta(
+                            nevent = Nip19.encodeNevent(m.id, relays = listOf(neventRelay), authorHex = m.pubkey, kind = m.kind),
+                            eventJson = eventJsonOf(m),
+                            link = "https://nostrord.com/open/?relay=$host&group=${group.id}&e=${m.id}",
+                        )
+                }
+            }
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val isAdmin = myPubkey != null && myPubkey in admins
-        val adminMembers = members.filter { it in admins }
-        val plainMembers = members.filter { it !in admins }
         // Online = posted at least one event in the last 10 minutes. Same heuristic as the
         // native GroupScreen.kt:295 — no presence protocol, just "recently active". Drives the
         // green/grey dot on member avatars in the sidebar.
@@ -750,54 +1101,51 @@ val ChatScreen =
                 .filter { it.createdAt >= tenMinutesAgo }
                 .map { it.pubkey }
                 .toSet()
-        // Can post = an actual member (kind:39002), or in our list for an open group.
         val isMember = myPubkey != null && myPubkey in members
-        val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
-        val canPost = isMember || (group.isOpen && inMyList)
-        // Pending = we sent a join request (kind 9021) but aren't a member yet.
-        val isPending = !canPost && myPubkey != null && messages.any { it.kind == 9021 && it.pubkey == myPubkey }
+        // Membership standing (None / Resolving / Pending / Member / Admin) is derived once in the
+        // shared GroupViewModel so web and Compose apply identical rules. RESOLVING = joined but the
+        // kind:39002 list hasn't landed yet: render NEITHER composer nor pending bar (no flash on a
+        // background refresh, which re-fires requestGroupMembers). PENDING also fires from our own
+        // outstanding kind:9021 on a closed group, so it shows immediately instead of sitting blank
+        // until the member list arrives. Authoritative for BOTH composer and chat/members panels.
+        val membership = useStateFlow(vm.membershipState)
+        // Access shape for the Private/Closed labels: trusts kind:39000 when present, else infers
+        // from the relay's restricted signal (metadata is withheld from non-members). Replaces the
+        // raw group.isPublic/isOpen so an outsider sees Private/Closed even before any placeholder.
+        val access = useStateFlow(vm.groupAccess)
+        val canPost = membership.status == GroupMembership.MEMBER || membership.status == GroupMembership.ADMIN
+        val isPendingApproval = membership.status == GroupMembership.PENDING
+        val membersResolving = membership.status == GroupMembership.RESOLVING
+        val composerPending = isPendingApproval
+        // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
+        val pendingRequestedAt = membership.requestedAtSeconds
         // Restricted: relay returned a CLOSED "restricted" frame for this group.
         // Used to render the "Private group" UI in place of skeletons when the
         // account has no read access (NIP-29 private+closed group).
         val restrictedGroups = useStateFlow(vm.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
-        // Pending approval: joined a closed group, kind:39002 came back and
-        // we're not in it. Only fires when we have DATA — !membersLoading
-        // AND members.isNotEmpty(). Without those gates, an empty members
-        // list during the fetch window (or right after an account swap when
-        // _groupMembers was wiped + not yet re-loaded) made the screen
-        // wrongly assert "Awaiting" for actual members. Native's
-        // `members.isEmpty() && !group.isOpen` branch (GroupScreen.kt:237)
-        // is too optimistic — better to fall through to skeleton / empty
-        // state until we know than to assert pending and persist that UI
-        // through every transient empty.
-        val isPendingApproval =
-            inMyList &&
-                myPubkey != null &&
-                !membersLoading &&
-                members.isNotEmpty() &&
-                myPubkey !in members
-        // Pending join-request count — admin/closed-group only, drives the header badge.
-        // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
-        // and anyone whose most-recent event is a 9022 leave.
-        val pendingJoinRequests = if (isAdmin && !group.isOpen) {
-            val lastLeave =
-                messages.filter { it.kind == 9022 }
-                    .groupBy { it.pubkey }
-                    .mapValues { (_, evs) -> evs.maxOf { it.createdAt } }
-            messages.filter { it.kind == 9021 && it.pubkey !in members }
-                .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
-                .distinctBy { it.pubkey }
-                .size
+        // Orphaned: pinned in kind:10009 but the relay served no kind:39000 after its group list
+        // finished, i.e. the group was deleted / no longer exists. Drives the "no longer available"
+        // panel instead of perpetual loading skeletons.
+        val isOrphaned = useStateFlow(vm.isOrphaned)
+        // Pending join-request count (admin only) drives the header badge. Shares the Manage >
+        // Requests logic (pendingJoinRequests) so the badge and the list never disagree: a member
+        // removed by an admin (kind 9001) must not resurface as pending. Open groups count too:
+        // some relays leave a kind:9021 pending on a leave + rejoin, and the admin clears it.
+        val pendingJoinRequests = if (isAdmin) {
+            computePendingJoinRequests(messages, members.toSet()).size
         } else {
             0
         }
 
-        val (membersOpen, setMembersOpen) = useState { false }
+        // Members panel: persistent side column on desktop (open by default), slide-over
+        // drawer on mobile (closed by default). Same split as the prototype.
+        val (membersOpen, setMembersOpen) = useState { window.innerWidth > 1000 }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
-        val (menuOpen, setMenuOpen) = useState { false }
         val (replyingToId, setReplyingToId) = useState<String?> { null }
+        // Mention requested from the profile modal, consumed by the composer.
+        val (mentionRequest, setMentionRequest) = useState<MentionRequest?> { null }
         // Members sidebar search query.
         val (memberQuery, setMemberQuery) = useState { "" }
         // The deep-linked message currently flashing (cleared after the highlight animation).
@@ -821,6 +1169,10 @@ val ChatScreen =
         // (GroupViewModel.kt:148-157 + GroupScreen.kt:620-665) — the web used to
         // swallow it, so the reaction just blinked away with no explanation.
         val reactionError = useStateFlow(vm.reactionError)
+        // Relay rejected the kind:9021 join request (closed group needing an invite code, auth
+        // failure, etc.). Surfaced so tapping Join is never a silent no-op. Mirrors native's
+        // join-error dialog and the reactionError flow above.
+        val joinError = useStateFlow(vm.joinError)
 
         // In-chat search (UI-local). matchIds is cheap to recompute per render; the current
         // index walks it with wraparound and drives a scroll command to that row.
@@ -929,36 +1281,74 @@ val ChatScreen =
         // scrollKey jumps to a row (deep-link / reply), jumpNonce jumps to bottom.
         val (scrollKey, setScrollKey) = useState<String?> { null }
         val (jumpNonce, setJumpNonce) = useState { 0 }
+        // Two-stage jump: false until the first tap focuses the "New messages" divider,
+        // then the next tap drops to the bottom. Reset per group on entry.
+        val dividerSeen = useRef(false)
 
-        // Entering reply mode grows the composer with the reply banner; if the feed
-        // was at the bottom, the last message would slide behind it. Re-pin to the
-        // bottom so the replied-to message stays visible (native parity).
+        // Entering reply mode grows the composer with the reply banner, which can
+        // cover the message being replied to. Once the banner has grown (.chat-messages
+        // shrinks, it's a flex sibling above .composer-area), scroll that message just
+        // into view above the composer (prototype MessageList: scrollIntoView
+        // block:'nearest'). 'nearest' only moves the feed if the row is actually
+        // covered, so a reply to an already-visible message doesn't jump.
         useEffect(replyingToId) {
-            if (replyingToId != null && atBottom.current == true) {
-                setJumpNonce { it + 1 }
-            }
+            val id = replyingToId ?: return@useEffect
+            // Wait a frame for the reply banner to render and the list to reflow.
+            delay(48)
+            document.getElementById("msg-$id")?.asDynamic()
+                ?.scrollIntoView(js("({ block: 'nearest', behavior: 'smooth' })"))
+            Unit
         }
 
-        // "New messages" divider snapshot. Captured once on group entry, then
-        // cleared the first time the user scrolls up and back down to the bottom
-        // (issue #83 — divider sticks around after the user has clearly read them).
-        // Tracked together with `wasNotAtBottom` so the initial auto-pin-to-bottom
-        // doesn't clear it immediately on entry.
+        // "New messages" divider snapshot. Captured once on group entry; the group opens
+        // at the bottom with the divider above. It is consumed (see consumeDivider) only
+        // when the user acknowledges it: scrolls it into view (onDividerVisible), sends a
+        // message, or taps the jump pill to the bottom. Reaching the bottom on the entry
+        // settle must NOT clear it (issue #83). wasNotAtBottom records that the user has
+        // genuinely scrolled away this entry, gating onDividerVisible so the open-at-bottom
+        // settle can never wipe the divider unseen.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
+        // Latches once the divider has been on screen this entry (reported by onDividerVisible,
+        // including at the bottom on open). Leaving the bottom then consumes the line even though
+        // a single-unread divider slides off the viewport before that fires — a live-visibility
+        // check would miss the overlap and strand it (issue #83).
+        val dividerWasOnScreen = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
         // hot-path source of truth for the scroll handler; setAtBottomState is
         // only invoked on the transition so we don't re-render every scroll tick.
         val (atBottomState, setAtBottomState) = useState { true }
-        // Unread count for the FAB badge — only counts unread messages from
-        // *other* users, mirroring the divider's own filter. Updates whenever
-        // messages or the snapshot change.
+        // Unread count for the FAB badge — only counts unread CHAT messages (kind:9) from
+        // *other* users, mirroring the divider's own filter (ChatItems.kt:116). Without the
+        // kind:9 guard, membership/moderation events (9021 join, 9022 leave, 9000/9001) that the
+        // divider deliberately skips would still inflate the count, so a single "hi" plus a join
+        // shows "3 new". Updates whenever messages or the snapshot change.
         val unreadCount =
             if (lastReadSnapshot == null) {
                 0
             } else {
-                messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
+                messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey && it.kind == 9 }
             }
+
+        // Consume the "New messages" divider: the user has acknowledged the boundary (sent a
+        // message, or scrolled it into view). Re-anchor the snapshot to the newest loaded message
+        // so the current divider disappears AND a later arrival re-arms a fresh divider + "N new"
+        // count. markAsRead persists it so the divider does not return on the next entry. Mirrors
+        // GroupScreen.consumeDivider on native.
+        val consumeDivider = {
+            setLastReadSnapshot(messages.maxOfOrNull { it.createdAt })
+            vm.markAsRead()
+        }
+
+        // While following at the bottom after the user engaged the scroll this entry, keep the
+        // read snapshot at the newest message. The divider is an entry artifact (consumed by
+        // scroll-up, send, or jump); messages watched as they land are already read, so they must
+        // not flash a fresh divider above the latest while sitting at the bottom (mirrors GroupScreen).
+        useEffect(messages, atBottomState) {
+            if (atBottomState && wasNotAtBottom.current == true) {
+                messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
+            }
+        }
 
         // Load messages + author/member metadata when the group (or its rosters)
         // change. Re-firing covers three race windows during account swap:
@@ -967,8 +1357,8 @@ val ChatScreen =
         //    groupStates, joinedGroups — the new session needs its own REQ.
         //  - isConnected goes false→true: the connectionState transition is the
         //    cleanest "client healthy again" signal. But the state can briefly
-        //    stay Connected while reconnect() has already nulled primaryClient
-        //    (state is updated by connectPrimary, not by disconnect).
+        //    stay Connected while reconnect() has already nulled focusedClient
+        //    (state is updated by connectFocused, not by disconnect).
         //  - relayUrl flips empty → non-empty: clearCurrentRelay sets the URL
         //    to '' under the swap, then loadSavedRelay restores it. The empty
         //    interval is observable through useStateFlow and is the safest
@@ -998,7 +1388,15 @@ val ChatScreen =
         // effect with isMember as a dep + the force-refresh block below
         // catches that moment and replays the fetch so messages stream in
         // without the user having to leave / re-enter the group.
-        useEffect(group.id, activeAccountId, isConnected, relayUrl, isMember) {
+        // Keyed on identity + isConnected ONLY. relayUrl and isMember were also deps, but they
+        // oscillate during a normal open-with-relay-switch (relayUrl: blank -> url, isMember:
+        // false -> true), and re-running this body re-issued the WHOLE subscription cluster
+        // (msg/meta/members/admins) and tore down the in-flight load. That web-only duplicate
+        // -REQ churn made loading slow and starved pagination of a settled HasMore state. Native
+        // (GroupScreen) keeps the loader split the same way. The reset below is guarded to run
+        // once per group entry; post-approval (isMember) re-fetch is its own effect below.
+        val resetForGroup = useRef<String>(null)
+        useEffect(group.id, activeAccountId, isConnected) {
             if (!isConnected) return@useEffect
             if (relayUrl.isBlank()) return@useEffect
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
@@ -1006,6 +1404,8 @@ val ChatScreen =
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
+            dividerSeen.current = false
+            dividerWasOnScreen.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -1035,40 +1435,36 @@ val ChatScreen =
             // (Exhausted with 0 msgs is still settled — we just trigger one
             // extra fetch on relay reconnect of an empty group, which is
             // fine).
-            val entryState = repo.groupStates.value[group.id]
-            val haveMsgsAtEntry = repo.messages.value[group.id].orEmpty().isNotEmpty()
-            val needsForceRefresh = entryState is GroupLoadingState.InitialLoading ||
-                (
-                    !haveMsgsAtEntry &&
-                        (
-                            entryState is GroupLoadingState.Exhausted ||
-                                entryState is GroupLoadingState.Error
-                            )
-                    )
-            if (needsForceRefresh) {
-                repo.resetGroupLoadingState(group.id)
-            }
-            var attempts = 0
-            while (attempts < 5) {
-                val stateBefore = repo.groupStates.value[group.id]
-                // Same defensive reset between retries: if the prior attempt's
-                // REQ is still in InitialLoading at the start of the next
-                // attempt, it's stuck — reset before re-issuing.
-                if (stateBefore is GroupLoadingState.InitialLoading && attempts > 0) {
+            // Force-reset a stale InitialLoading (the REQ resubscribePoolRelay fired on the
+            // dying socket) or an empty Exhausted/Error ONCE per group entry, so the first load
+            // actually re-issues. Guarded by resetForGroup so a later reconnect / relay tick
+            // can't reset + re-issue and churn the relay; a genuinely stuck load is caught by
+            // the controller timeout -> Error -> the recovery effect below.
+            if (resetForGroup.current != group.id) {
+                resetForGroup.current = group.id
+                val entryState = repo.groupStates.value[group.id]
+                val haveMsgsAtEntry = repo.messages.value[group.id].orEmpty().isNotEmpty()
+                val needsForceRefresh = entryState is GroupLoadingState.InitialLoading ||
+                    (
+                        !haveMsgsAtEntry &&
+                            (
+                                entryState is GroupLoadingState.Exhausted ||
+                                    entryState is GroupLoadingState.Error
+                                )
+                        )
+                if (needsForceRefresh) {
                     repo.resetGroupLoadingState(group.id)
                 }
-                repo.requestGroupMessages(group.id)
-                delay(2_000)
-                val msgsAfter = repo.messages.value[group.id].orEmpty().size
-                val state = repo.groupStates.value[group.id]
-                val settled = msgsAfter > 0 ||
-                    state is GroupLoadingState.HasMore ||
-                    state is GroupLoadingState.Paginating ||
-                    state is GroupLoadingState.Exhausted ||
-                    state is GroupLoadingState.Error
-                if (settled) break
-                attempts++
             }
+            // Fire the initial read once. requestGroupMessages now waits for NIP-42 AUTH
+            // internally (private groups on a remote signer) while the controller stays in
+            // InitialLoading, so the UI keeps showing skeletons until the authenticated read
+            // lands. The previous delay(2_000) x5 loop reset the controller between ticks,
+            // which kicked it out of InitialLoading and flashed "No messages yet" before AUTH
+            // completed. A REQ that stalls (e.g. a silent no-op on a half-open socket) is now
+            // caught by the controller's load timeout → Error → the Error-recovery effect
+            // below, and a dropped connection by this effect's isConnected dep re-running.
+            repo.requestGroupMessages(group.id)
         }
         // Auto-recover from controller PARTIAL_TIMEOUT / TIMEOUT (state=Error).
         //
@@ -1109,6 +1505,19 @@ val ChatScreen =
             repo.resetGroupLoadingState(group.id)
             repo.requestGroupMessages(group.id)
         }
+        // Post-approval: an admin approving a pending join flips kind:39002 to make us a member.
+        // The prior non-member REQ left the controller Exhausted/Error with 0 msgs; re-fetch so
+        // the chat streams in. Its own effect keyed on isMember alone (isMember was dropped from
+        // the loader keys above to stop the churn), so it fires only on that transition.
+        useEffect(isMember) {
+            if (!isMember) return@useEffect
+            val s = repo.groupStates.value[group.id]
+            val haveMsgs = repo.messages.value[group.id].orEmpty().isNotEmpty()
+            if (!haveMsgs && (s is GroupLoadingState.Exhausted || s is GroupLoadingState.Error)) {
+                repo.resetGroupLoadingState(group.id)
+                repo.requestGroupMessages(group.id)
+            }
+        }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
         // chat, so the badge wouldn't appear on a fresh page load until navigating
@@ -1125,6 +1534,18 @@ val ChatScreen =
                 repo.requestPendingJoinRequests(group.id)
             }
         }
+        // Pending member in a closed group: the group is restricted, so it's excluded from the live
+        // mux and the approval kind:39002 is never pushed — the member would sit "Awaiting approval"
+        // until a restart re-fetched it. Poll the member list while pending so onApprovalDetected
+        // fires live. Mirrors native GroupScreen's pending poll (GroupScreen.kt:285-294). The suspend
+        // effect's delay propagates CancellationException, so approval / leaving tears down the loop.
+        useEffect(group.id, isPendingApproval, activeAccountId) {
+            if (!isPendingApproval) return@useEffect
+            while (true) {
+                delay(10_000)
+                vm.refreshGroupData()
+            }
+        }
         useEffect(group.id, members.size, messages.size, activeAccountId) {
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) vm.requestUserMetadata(pubkeys)
@@ -1132,16 +1553,18 @@ val ChatScreen =
         // The full ordered row list (date separators, grouped messages, system rows,
         // the "new messages" divider) — fed to ChatMessageList as its data. Scroll,
         // pagination latch and stall detection all live inside that component now.
-        val chatItems = if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
-        // Open at the bottom (newest) and let Virtuoso's followOutput keep it there
-        // as the initial pages stream in. We deliberately do NOT auto-scroll to the
-        // "New messages" divider on entry: during the connect/initial-load churn
-        // (the controller cycles Idle -> InitialLoading several times) that
-        // scrollToIndex fought followOutput and made the feed lurch up and down. The
-        // divider row still renders in place so the user sees where unread begins;
-        // it's just not auto-jumped to. (followOutput + per-item resize compensation
-        // are handled by Virtuoso, so the old DOM scroll / ResizeObserver effects
-        // that lived here are gone.)
+        // Memoized: rebuilding the date-separator / message-grouping / system-row tree is O(n) and
+        // only needs to re-run when the sorted messages, the read divider, or the viewer change.
+        val chatItems =
+            useMemo(messages, lastReadSnapshot, myPubkey) {
+                if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
+            }
+        // The group always opens at the bottom (newest). The "New messages" line still
+        // renders in the feed, and the jump-to-bottom pill still offers a tap to it, but we
+        // no longer auto-scroll to the divider on entry: it landed far up in unread history
+        // and the scroll-into-view tripped the near-top auto-pagination, walking the view
+        // upward on its own. Mark-as-read still advances from the bottom (onRangeChange /
+        // onAtBottomChange), so the line clears on the next entry.
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
         // a single targeted REQ that lands the message even when it's far older than the loaded
         // window, instead of paginating the whole history (mirrors native's fetchMessageById).
@@ -1263,7 +1686,7 @@ val ChatScreen =
                 // the jump FAB are conditional siblings rendered BEFORE / around the message
                 // list; without keys React reconciles .chat-main's children by index, so
                 // toggling search shifted .chat-messages by one slot and REMOUNTED it — every
-                // row's avatar <img> reloaded, flashing to the Jdenticon fallback and back.
+                // row's avatar <img> reloaded, flashing to the gradient fallback and back.
                 // (Same failure mode the loading pill hit one level down; see its key comment.)
                 div {
                     key = "chat-header"
@@ -1286,25 +1709,37 @@ val ChatScreen =
                             cls = "chat-header-icon"
                         }
                         div {
-                            className = ClassName("chat-header-meta")
-                            div {
-                                className = ClassName("chat-header-name")
-                                +groupName
+                            className = ClassName("chat-header-name")
+                            +groupName
+                        }
+                        // Relay status dot (prototype RelayStatusDot): colored by the
+                        // active relay's connection state, tooltip = relay URL + status.
+                        val (dotCls, dotLabel) =
+                            when (connState) {
+                                is ConnectionManager.ConnectionState.Connected -> "st-connected" to "Connected"
+                                is ConnectionManager.ConnectionState.Connecting,
+                                is ConnectionManager.ConnectionState.Reconnecting,
+                                -> "st-connecting" to "Connecting..."
+                                else -> "st-offline" to "Offline"
                             }
-                            if (!group.about.isNullOrBlank()) {
-                                div {
-                                    className = ClassName("chat-header-about")
-                                    +group.about
-                                }
+                        span {
+                            className = ClassName("chat-relay-dot $dotCls")
+                            title = "${relayUrl.ifBlank { "relay" }} · $dotLabel"
+                        }
+                        if (!group.about.isNullOrBlank()) {
+                            div {
+                                className = ClassName("chat-header-about")
+                                +group.about
                             }
                         }
                     }
                     // Pending join-requests indicator (admin + closed group, count > 0).
-                    // Opens the JoinRequestsModal directly so admins don't need to dig into
-                    // the 3-dots menu when the badge is calling for attention.
+                    // Opens Manage group on its Requests tab directly so admins don't need to
+                    // dig into the 3-dots menu when the badge is calling for attention.
                     if (pendingJoinRequests > 0) {
                         button {
                             className = ClassName("chat-icon-btn chat-requests-btn")
+                            title = "Join requests"
                             onClick = { setModal("requests") }
                             icon(Ic.PersonAdd)
                             span {
@@ -1313,36 +1748,50 @@ val ChatScreen =
                             }
                         }
                     }
-                    button {
-                        className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
-                        onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
-                        icon(Ic.Search)
+                    // A private group exposes nothing to non-members (no messages, member list or
+                    // shareable invite), so hide Search / Invite / Group Info / Members there; a
+                    // public group, or a private one you're a member of, keeps them.
+                    if (!access.isPrivate || canPost) {
+                        button {
+                            className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
+                            title = "Search"
+                            onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
+                            icon(Ic.Search)
+                        }
+                        // Prototype header actions: Share (group address / link) and Info, then Members.
+                        button {
+                            className = ClassName("chat-icon-btn")
+                            title = "Share"
+                            onClick = { setModal("share") }
+                            icon(Ic.Link)
+                        }
+                        button {
+                            className = ClassName("chat-icon-btn chat-info-btn")
+                            title = "Group Info"
+                            onClick = { setInfoOpen(true) }
+                            icon(Ic.Info)
+                        }
+                        button {
+                            className = ClassName(if (membersOpen) "chat-icon-btn active" else "chat-icon-btn")
+                            title = "Members"
+                            onClick = { setMembersOpen(!membersOpen) }
+                            icon(Ic.People)
+                        }
                     }
-                    button {
-                        className = ClassName("chat-members-btn")
-                        onClick = { setMembersOpen(!membersOpen) }
-                        icon(Ic.People)
-                    }
-                    if (!canPost) {
-                        if (isPending) {
+                    if (!canPost && !membersResolving && !isOrphaned) {
+                        if (composerPending) {
                             span {
                                 className = ClassName("chat-pending")
                                 +"Request pending"
                             }
                         } else {
                             // Closed groups: surface an "Invite Code" button next to
-                            // Join (matches native GroupHeader.kt:208-232). Uses
-                            // window.prompt for the code input — quick & matches the
-                            // single-field native modal without a new component.
-                            if (!group.isOpen) {
+                            // Join (matches native GroupHeader.kt:208-232). Opens the
+                            // JoinWithCodeModal — the web port of native InviteCodeJoinModal.
+                            if (!access.isOpen) {
                                 button {
                                     className = ClassName("chat-invite-btn")
-                                    onClick = {
-                                        val code = window.prompt("Enter invite code", "")?.trim()
-                                        if (!code.isNullOrBlank()) {
-                                            vm.joinGroup(code)
-                                        }
-                                    }
+                                    onClick = { setModal("joincode") }
                                     icon(Ic.Key)
                                     span { +"Invite Code" }
                                 }
@@ -1351,72 +1800,13 @@ val ChatScreen =
                                 className = ClassName("chat-join-btn")
                                 onClick = { join() }
                                 icon(Ic.PersonAdd)
-                                span { +(if (!group.isOpen) "Request to Join" else "Join") }
-                            }
-                        }
-                    } else {
-                        button {
-                            className = ClassName("chat-icon-btn")
-                            onClick = { setMenuOpen(!menuOpen) }
-                            icon(Ic.MoreVert)
-                        }
-                    }
-
-                    if (menuOpen && canPost) {
-                        div {
-                            className = ClassName("chat-menu-overlay")
-                            onClick = { setMenuOpen(false) }
-                        }
-                        div {
-                            className = ClassName("chat-menu")
-                            // Admin-only moderation actions (mirrors native: gated by isAdmin).
-                            if (isAdmin) {
-                                chatMenuItem("Edit Group") {
-                                    setMenuOpen(false)
-                                    setModal("edit")
-                                }
-                                chatMenuItem("Manage Members") {
-                                    setMenuOpen(false)
-                                    setModal("members")
-                                }
-                                // Invite codes only matter for closed groups (native gates on isClosed).
-                                if (!group.isOpen) {
-                                    chatMenuItem("Invite Codes") {
-                                        setMenuOpen(false)
-                                        setModal("invite")
-                                    }
-                                    chatMenuItem("Join Requests") {
-                                        setMenuOpen(false)
-                                        setModal("requests")
-                                    }
-                                }
-                                chatMenuItem("Create Subgroup") {
-                                    setMenuOpen(false)
-                                    setModal("subgroup")
-                                }
-                                chatMenuItem("Manage Children") {
-                                    setMenuOpen(false)
-                                    setModal("children")
-                                }
-                                chatMenuItem("Delete Group", danger = true) {
-                                    setMenuOpen(false)
-                                    launchApp { repo.deleteGroup(group.id) }
-                                    props.onLeave()
-                                }
-                                div { className = ClassName("chat-menu-divider") }
-                            }
-                            // Available to everyone.
-                            chatMenuItem("Share") {
-                                setMenuOpen(false)
-                                setModal("share")
-                            }
-                            chatMenuItem("Leave Group", danger = true) {
-                                setMenuOpen(false)
-                                launchApp { repo.leaveGroup(group.id) }
-                                props.onLeave()
+                                span { +(if (!access.isOpen) "Request to Join" else "Join") }
                             }
                         }
                     }
+                    // No 3-dots menu (prototype shape): Leave lives in the info modal,
+                    // admin management in the sidebar "Manage group" entry and the
+                    // members panel gear.
                 }
 
                 // In-chat search bar. Floats as an overlay anchored under the header (absolute
@@ -1551,6 +1941,7 @@ val ChatScreen =
                     // returns an empty EOSE but the controller settles into
                     // HasMore-with-zero, or into a state web didn't whitelist).
                     val isLoadingThis = isLoadingMore ||
+                        awaitingAuthRead ||
                         groupLoadingState is GroupLoadingState.InitialLoading ||
                         groupLoadingState is GroupLoadingState.Retrying
                     // Restricted / pending-approval / skeleton / empty panels apply
@@ -1561,7 +1952,28 @@ val ChatScreen =
                     // arrive late); if the panel could win with messages present, that
                     // flip would unmount and remount ChatMessageList, and each remount
                     // snapped the feed to the bottom (the pagination "jump to bottom").
-                    if (messages.isEmpty() && (isGroupRestricted || isPendingApproval)) {
+                    // Not gated on messages.isEmpty(): a deleted group can still have leftover
+                    // moderation events (e.g. the kind:9002 that named it) that the relay keeps
+                    // serving, and isOrphaned already means "no kind:39000", so it can't hide a live group.
+                    if (isOrphaned) {
+                        div {
+                            className = ClassName("chat-restricted")
+                            icon(Ic.Block, "chat-restricted-icon")
+                            div {
+                                className = ClassName("chat-restricted-title")
+                                +"Group no longer available"
+                            }
+                            div {
+                                className = ClassName("chat-restricted-body")
+                                +"This group has been deleted or is no longer on the relay."
+                            }
+                            button {
+                                className = ClassName("btn-secondary chat-restricted-action")
+                                onClick = { vm.forget { props.onLeave() } }
+                                +"Remove from your list"
+                            }
+                        }
+                    } else if (messages.isEmpty() && (isGroupRestricted || isPendingApproval)) {
                         div {
                             className = ClassName("chat-restricted")
                             icon(Ic.Lock, "chat-restricted-icon")
@@ -1599,14 +2011,13 @@ val ChatScreen =
                             // (the loading pill) toggles — a remount snaps to the bottom.
                             key = "chat-message-list"
                             items = chatItems.toTypedArray().unsafeCast<Array<dynamic>>()
-                            keyOf = { chatItemKey(it.unsafeCast<WebChatItem>()) }
                             resetKey = group.id
                             this.hasMore = moreAvail
                             this.isLoadingMore = loadingMore
                             scrollToKey = scrollKey
                             // Search lands the hit at the top (under the overlay, via scroll-padding),
                             // matching Compose; reply / deep-link jumps stay centered.
-                            scrollToKeyBlock = if (searchActive) "start" else "center"
+                            scrollToKeyBlock = if (searchActive || scrollKey == "new-msg-divider") "start" else "center"
                             onScrolledToKey = { setScrollKey(null) }
                             this.jumpNonce = jumpNonce
                             onStartReached = { vm.loadMoreMessages() }
@@ -1615,10 +2026,34 @@ val ChatScreen =
                                 setAtBottomState(ab)
                                 if (!ab) {
                                     wasNotAtBottom.current = true
+                                    // Re-arm the unread baseline at the moment we leave the bottom when
+                                    // it was already cleared (caught up). Otherwise the jump pill's count
+                                    // stays dead for the rest of the session: a message arriving while
+                                    // scrolled up is never newer than a null snapshot, so "N new" never
+                                    // shows. Anchoring to the current newest means only later arrivals count.
+                                    if (lastReadSnapshot == null) {
+                                        messages.maxOfOrNull { it.createdAt }?.let { setLastReadSnapshot(it) }
+                                    }
+                                    // The divider was already on screen (seen at the bottom) and the user
+                                    // has now scrolled away: consume it even though it slid off the viewport
+                                    // before onDividerVisible could fire for this scroll (issue #83).
+                                    if (dividerWasOnScreen.current == true && lastReadSnapshot != null) consumeDivider()
                                 } else {
-                                    if (wasNotAtBottom.current == true && lastReadSnapshot != null) setLastReadSnapshot(null)
+                                    // Reaching the bottom persists read state but does NOT dismiss the
+                                    // divider (issue #83): the entry settle opens at the bottom, so a
+                                    // reach-bottom clear there would wipe it unseen. The divider is
+                                    // consumed only via onDividerVisible (scrolled to it), send, or the
+                                    // jump pill's second tap.
                                     vm.markAsRead()
                                 }
+                            }
+                            onDividerVisible = {
+                                // The divider is within the viewport. Latch it as seen (covers the
+                                // bottom-on-open case so the scroll-away can consume it later), and
+                                // consume now if a genuine scroll-away already happened this entry, so
+                                // the open-at-bottom settle never clears it.
+                                dividerWasOnScreen.current = true
+                                if (wasNotAtBottom.current == true && lastReadSnapshot != null) consumeDivider()
                             }
                             onRangeChange = { end ->
                                 // Mark read up to the newest message in/above the
@@ -1675,9 +2110,9 @@ val ChatScreen =
                                                         tags = it.tags,
                                                     )
                                                 }
-                                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
                                             val authorMeta = userMetadata[message.pubkey]
                                             val zapInfo = zapsByMsg[message.id]
+                                            val meta = rowMeta[message.id]
                                             MessageRow {
                                                 key = message.id
                                                 domId = "msg-${message.id}"
@@ -1709,8 +2144,11 @@ val ChatScreen =
                                                 replyTo = replyPreview
                                                 onReplyClick = { parent?.let { scrollToMessage(it.id) } }
                                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
-                                                messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
-                                                eventJson = eventJsonOf(message)
+                                                this.isMine = message.pubkey == myPubkey
+                                                this.isAdmin = myPubkey != null && myPubkey in admins
+                                                messageLink = meta?.link ?: ""
+                                                nevent = meta?.nevent ?: ""
+                                                eventJson = meta?.eventJson ?: ""
                                                 status = messageStatus[message.id]
                                                 onRetrySend = { vm.retrySend(message.id) }
                                                 onDismissFailed = { vm.dismissFailed(message.id) }
@@ -1729,36 +2167,43 @@ val ChatScreen =
                             }
                         }
                     }
-                }
 
-                // Jump-to-bottom FAB with unread badge — Telegram pattern. Visible
-                // when the user has scrolled up from the bottom; the badge shows
-                // the count of unread messages from others so the user can either
-                // skip them (click) or keep reading from the divider.
-                if (!atBottomState) {
-                    button {
-                        key = "chat-jump-bottom"
-                        // Lift the FAB above the reply banner so it never covers
-                        // the banner's close (X) button on the right edge.
-                        className = ClassName(
-                            if (replyingToId != null) "chat-jump-bottom replying" else "chat-jump-bottom",
-                        )
-                        title = "Jump to latest message"
-                        onClick = {
-                            // Command ChatMessageList to jump to the newest row.
-                            setJumpNonce { it + 1 }
-                            // Tapping the FAB is an explicit "I've seen everything"
-                            // intent — dismiss the divider for this session.
-                            if (lastReadSnapshot != null) setLastReadSnapshot(null)
-                        }
-                        // Chevron, not the bold arrow — matches native's
-                        // KeyboardArrowDown in MessagesList.kt:644.
-                        icon(Ic.ExpandMore)
-                        if (unreadCount > 0) {
-                            span {
-                                className = ClassName("chat-jump-badge")
-                                +unreadCount.toString()
+                    // Jump-to-bottom pill. Lives INSIDE .chat-messages (which ends at the
+                    // composer's top edge), so it always floats 12px above the composer
+                    // regardless of its height (reply banner, toolbar, multiline) — the
+                    // prototype's anchoring. Visible only when scrolled up from the bottom.
+                    // With unread from others it shows the count and a two-stage jump: the
+                    // first tap focuses the "New messages" divider so they're read top-down,
+                    // the second drops to the very latest.
+                    if (!atBottomState) {
+                        val hasDivider = lastReadSnapshot != null && unreadCount > 0
+                        button {
+                            key = "chat-jump-bottom"
+                            className = ClassName("chat-jump-bottom")
+                            title = if (hasDivider) "Jump to new messages" else "Jump to latest message"
+                            onClick = {
+                                if (hasDivider && dividerSeen.current != true) {
+                                    // First tap: land on the "New messages" divider.
+                                    dividerSeen.current = true
+                                    setScrollKey("new-msg-divider")
+                                } else {
+                                    // Second tap (or no divider): drop to the latest and
+                                    // dismiss the divider for this session.
+                                    dividerSeen.current = false
+                                    setJumpNonce { it + 1 }
+                                    if (lastReadSnapshot != null) setLastReadSnapshot(null)
+                                }
                             }
+                            val unreadLabel = if (unreadCount > 99) "99+" else unreadCount.toString()
+                            if (unreadCount > 0) {
+                                span {
+                                    className = ClassName("chat-jump-badge")
+                                    +unreadLabel
+                                }
+                            }
+                            span { +(if (unreadCount > 0) "$unreadLabel new" else "Jump to latest") }
+                            // Down chevron (matches native KeyboardArrowDown).
+                            icon(Ic.ExpandMore)
                         }
                     }
                 }
@@ -1773,12 +2218,14 @@ val ChatScreen =
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
                     this.canPost = canPost
-                    this.isPending = isPending
+                    this.isOrphaned = isOrphaned
+                    this.isPending = composerPending
+                    this.mentionRequest = mentionRequest
                     this.members = members
                     this.allGroups = allGroups
                     this.userMetadata = userMetadata
                     this.relayUrl = relayUrl
-                    this.relayPubkey = relayMetadata[relayUrl]?.pubkey
+                    this.relayPubkeyOf = { r -> relayMetadata[r]?.pubkey ?: relayMetadata[r.normalizeRelayUrl()]?.pubkey }
                     this.replyingToId = replyingToId
                     this.replyParentName =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
@@ -1787,8 +2234,19 @@ val ChatScreen =
                             messagesById[id]?.let { p -> replyPreviewText(p.content, userMetadata, 80) }
                         }
                     this.onCancelReply = { setReplyingToId(null) }
-                    this.onSent = { setReplyingToId(null) }
+                    this.onSent = {
+                        setReplyingToId(null)
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
+                    }
                     this.onJoin = { join() }
+                    this.pendingRequestedAtSeconds = pendingRequestedAt
+                    this.membersResolving = membersResolving
+                    // Cancel a pending join request = leave the group, then navigate away.
+                    this.onCancelJoinRequest = {
+                        launchApp { repo.leaveGroup(group.id) }
+                        props.onLeave()
+                    }
                 }
             }
 
@@ -1803,45 +2261,38 @@ val ChatScreen =
                     className = ClassName("member-header")
                     span {
                         className = ClassName("member-header-title")
-                        // Person icon next to "Members (N)" — same layout as
-                        // native MemberSidebar.kt:130-145. Both icon and label
-                        // stay in white (the muted-grey was easy to miss on the
-                        // BackgroundDark band).
-                        icon(Ic.Person)
-                        span { +"Members (${members.size})" }
+                        +"Members · ${members.size}"
                     }
-                    // Only admins can add members — kind:9000 (put-user) is admin-only and the
-                    // relay rejects it from non-admins. Mirrors native MemberSidebar.
+                    // Only admins can add/manage members — kind:9000 (put-user) is
+                    // admin-only and the relay rejects it from non-admins. Grouped on
+                    // the right (prototype MembersPanel).
                     if (isAdmin) {
-                        button {
-                            className = ClassName("member-add-btn")
-                            onClick = { setModal("addmember") }
-                            icon(Ic.PersonAdd)
+                        div {
+                            className = ClassName("member-header-actions")
+                            button {
+                                className = ClassName("member-add-btn")
+                                title = "Add member"
+                                onClick = { setModal("addmember") }
+                                icon(Ic.PersonAdd)
+                            }
+                            // Prototype MembersPanel gear: opens member management.
+                            button {
+                                className = ClassName("member-add-btn")
+                                title = "Manage members"
+                                onClick = { setModal("members") }
+                                icon(Ic.Settings)
+                            }
                         }
                     }
                 }
                 div {
                     className = ClassName("member-search")
-                    icon(Ic.Search, "member-search-icon")
-                    input {
-                        className = ClassName("member-search-input")
-                        placeholder = "Search members"
-                        value = memberQuery
-                        onChange = { event -> setMemberQuery(event.currentTarget.value) }
-                        onKeyDown = { event ->
-                            if (event.key == "Escape") {
-                                setMemberQuery("")
-                                event.currentTarget.blur()
-                            }
-                        }
-                    }
-                    if (memberQuery.isNotEmpty()) {
-                        button {
-                            className = ClassName("search-clear-btn member-search-clear")
-                            onClick = { setMemberQuery("") }
-                            icon(Ic.Close)
-                        }
-                    }
+                    searchInput(
+                        placeholder = "Search members",
+                        value = memberQuery,
+                        onChange = { setMemberQuery(it) },
+                        compact = true,
+                    )
                 }
                 div {
                     className = ClassName("member-scroll")
@@ -1858,11 +2309,11 @@ val ChatScreen =
                     // section, so the role info isn't lost.
                     val online = filtered.filter { it in recentlyActiveMembers }
                     val offline = filtered.filter { it !in recentlyActiveMembers }
-                    if (isGroupRestricted || isPendingApproval) {
-                        // Mirror native MemberSidebar.kt:296-324 — a private
-                        // group's member list is hidden until you join /
-                        // get approved, surfaced as a centered lock panel
-                        // instead of a skeleton or an empty list.
+                    if ((isGroupRestricted || isPendingApproval) && !props.group.isPublic) {
+                        // A private group's member list is hidden until you join / get
+                        // approved, surfaced as a centered lock panel instead of a skeleton
+                        // or an empty list. A PUBLIC group's members are served to everyone,
+                        // so they show even while pending (parity with native MemberSidebar).
                         div {
                             className = ClassName("member-private")
                             icon(Ic.Lock, "member-private-icon")
@@ -1911,19 +2362,40 @@ val ChatScreen =
             if (infoOpen) {
                 GroupInfoModal {
                     this.group = group
+                    onLeave = {
+                        setInfoOpen(false)
+                        // App-lifetime scope: the leave publish must survive the
+                        // navigation away that follows (see `repo` note above).
+                        launchApp { repo.leaveGroup(group.id) }
+                        props.onLeave()
+                    }
                     onClose = { setInfoOpen(false) }
                 }
             }
             profilePubkey?.let { pubkey ->
                 UserProfileModal {
                     this.pubkey = pubkey
+                    // Group context unlocks the admin section (remove / role rows).
+                    groupId = group.id
+                    iAmAdmin = isAdmin
+                    targetIsAdmin = pubkey in admins
+                    onMention = { pk ->
+                        setMentionRequest(
+                            MentionRequest(
+                                name = displayName(pk, userMetadata[pk]),
+                                pubkey = pk,
+                                nonce = (mentionRequest?.nonce ?: 0) + 1,
+                            ),
+                        )
+                        setProfilePubkey(null)
+                    }
                     onClose = { setProfilePubkey(null) }
                 }
             }
 
             when (modal) {
                 "edit" ->
-                    EditGroupModal {
+                    ManageGroupModal {
                         this.group = group
                         onClose = { setModal(null) }
                     }
@@ -1933,8 +2405,9 @@ val ChatScreen =
                         onClose = { setModal(null) }
                     }
                 "members" ->
-                    MemberManagementModal {
-                        groupId = group.id
+                    ManageGroupModal {
+                        this.group = group
+                        initialTab = "members"
                         onClose = { setModal(null) }
                     }
                 "addmember" ->
@@ -1947,9 +2420,16 @@ val ChatScreen =
                         groupId = group.id
                         onClose = { setModal(null) }
                     }
+                "joincode" ->
+                    JoinWithCodeModal {
+                        initialCode = null
+                        onJoin = { code -> vm.joinGroup(code) }
+                        onClose = { setModal(null) }
+                    }
                 "requests" ->
-                    JoinRequestsModal {
-                        groupId = group.id
+                    ManageGroupModal {
+                        this.group = group
+                        initialTab = "requests"
                         onClose = { setModal(null) }
                     }
                 "subgroup" ->
@@ -1966,7 +2446,11 @@ val ChatScreen =
             // explicit "cannot be undone" copy. Esc closes via useEscClose,
             // backdrop click cancels.
             messageToDelete?.let { msgId ->
-                deleteMessageConfirm(
+                confirmDialog(
+                    title = "Delete Message",
+                    body = "Are you sure you want to delete this message? This action cannot be undone.",
+                    confirmLabel = "Delete",
+                    danger = true,
                     onCancel = { setMessageToDelete(null) },
                     onConfirm = {
                         setMessageToDelete(null)
@@ -1995,8 +2479,40 @@ val ChatScreen =
                     },
                 )
             }
+            // Relay rejected the join request — show the reason instead of a silent no-op.
+            joinError?.let { error ->
+                joinErrorDialog(error) { vm.clearJoinError() }
+            }
         }
     }
+
+/** Error dialog shown when the relay rejects a kind:9021 join request. Single OK button. */
+private fun ChildrenBuilder.joinErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +"Could Not Join"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
+                }
+            }
+        }
+    }
+}
 
 /** Error dialog shown when the relay rejects a kind:5. Single OK button —
  *  matches the native AlertDialog at GroupScreen.kt:548-562. */
@@ -2113,50 +2629,6 @@ private fun ChildrenBuilder.reactionErrorDialog(message: String, onDismiss: () -
     }
 }
 
-/** Confirm dialog for the destructive "delete this message" action. Uses the
- *  same modal-card + title/subtitle/footer pattern as RemoveAccountDialog so
- *  the destructive confirms across the app read the same. */
-private fun ChildrenBuilder.deleteMessageConfirm(onCancel: () -> Unit, onConfirm: () -> Unit) {
-    div {
-        className = ClassName("modal-overlay")
-        onClick = { onCancel() }
-        div {
-            className = ClassName("modal-card sm")
-            onClick = { it.stopPropagation() }
-
-            div {
-                className = ClassName("modal-title")
-                +"Delete Message"
-            }
-            div {
-                className = ClassName("modal-subtitle tight")
-                +"Are you sure you want to delete this message? This action cannot be undone."
-            }
-            div {
-                className = ClassName("modal-footer")
-                button {
-                    className = ClassName("btn-text")
-                    onClick = { onCancel() }
-                    +"Cancel"
-                }
-                button {
-                    className = ClassName("btn-danger")
-                    onClick = { onConfirm() }
-                    +"Delete"
-                }
-            }
-        }
-    }
-}
-
-private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false, onSelect: () -> Unit) {
-    div {
-        className = ClassName(if (danger) "chat-menu-item danger" else "chat-menu-item")
-        onClick = { onSelect() }
-        +label
-    }
-}
-
 external interface MessageRowProps : Props {
     var domId: String
     var highlighted: Boolean
@@ -2179,11 +2651,18 @@ external interface MessageRowProps : Props {
     var replyTo: ReplyPreviewData?
     var onReplyClick: () -> Unit
     var canDelete: Boolean
+
+    /** The viewer authored this message (hides Report). */
+    var isMine: Boolean
+
+    /** The viewer is a group admin (shows the moderation section). */
+    var isAdmin: Boolean
     var canZap: Boolean
     var zapTotalMsats: Long
     var zapCount: Int
     var zappedByMe: Boolean
     var messageLink: String
+    var nevent: String
     var eventJson: String
 
     // Optimistic-send delivery status for the author's own message. Null = delivered.
@@ -2504,28 +2983,8 @@ private val MessageRow =
                     )
                 }
                 // Optimistic-send status (own messages only). Delivered = null = nothing.
-                val ownStatus = props.status
-                if (props.myPubkey != null && props.myPubkey == props.pubkey && ownStatus != null) {
-                    when (ownStatus) {
-                        is GroupManager.MessageStatus.Sending -> div {
-                            className = ClassName("msg-status sending")
-                            +"Sending..."
-                        }
-                        is GroupManager.MessageStatus.Failed -> div {
-                            className = ClassName("msg-status failed")
-                            span { +"Not delivered" }
-                            button {
-                                className = ClassName("msg-status-action")
-                                onClick = { props.onRetrySend() }
-                                +"Retry"
-                            }
-                            button {
-                                className = ClassName("msg-status-action dismiss")
-                                onClick = { props.onDismissFailed() }
-                                +"Dismiss"
-                            }
-                        }
-                    }
+                if (props.myPubkey != null && props.myPubkey == props.pubkey) {
+                    messageSendStatus(props.status, props.onRetrySend, props.onDismissFailed)
                 }
                 // Pending emojis still waiting on signEvent + relay; hide any
                 // that the optimistic update already merged into props.reactions
@@ -2642,28 +3101,45 @@ private val MessageRow =
                         props.onReply()
                         setMenuOpen(false)
                     }
+                    // Threads / saved / reports are not implemented yet; shown disabled
+                    // so the menu shape matches the prototype.
+                    ctxItem(Ic.Forum, "Start thread here", disabled = true) {}
                     if (props.canZap) {
                         ctxItem(Ic.Bolt, "Zap", zap = true) {
                             props.onZap()
                             setMenuOpen(false)
                         }
                     }
+                    ctxItem(Ic.Bookmark, "Save for later", disabled = true) {}
+                    if (!props.isMine) {
+                        ctxItem(Ic.Shield, "Report", disabled = true) {}
+                    }
                     div { className = ClassName("ctx-divider") }
-                    ctxItem(Ic.ContentCopy, "Copy Text") {
+                    ctxItem(Ic.ContentCopy, "Copy text") {
                         copyToClipboard(props.content)
                         setMenuOpen(false)
                     }
-                    ctxItem(Ic.Link, "Copy Message Link") {
+                    ctxItem(Ic.Link, "Copy link") {
                         copyToClipboard(props.messageLink)
                         setMenuOpen(false)
                     }
-                    ctxItem(Ic.Code, "Copy Event JSON") {
+                    // Prototype: shareable NIP-19 event reference.
+                    ctxItem(Ic.Code, "Copy nevent") {
+                        copyToClipboard(props.nevent)
+                        setMenuOpen(false)
+                    }
+                    ctxItem(Ic.Code, "Copy event JSON") {
                         copyToClipboard(props.eventJson)
                         setMenuOpen(false)
                     }
+                    if (props.isAdmin) {
+                        div { className = ClassName("ctx-divider") }
+                        // Disabled until the pinning backend exists (matches native).
+                        ctxItem(Ic.PushPin, "Pin message", disabled = true) {}
+                    }
                     if (props.canDelete) {
                         div { className = ClassName("ctx-divider") }
-                        ctxItem(Ic.Delete, "Delete Message", danger = true) {
+                        ctxItem(Ic.Delete, "Delete message", danger = true) {
                             props.onDelete()
                             setMenuOpen(false)
                         }
@@ -2687,17 +3163,26 @@ private val MessageRow =
         }
     }
 
-private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = false, zap: Boolean = false, onSelect: () -> Unit) {
+private fun ChildrenBuilder.ctxItem(
+    ic: Ic,
+    label: String,
+    danger: Boolean = false,
+    zap: Boolean = false,
+    disabled: Boolean = false,
+    onSelect: () -> Unit,
+) {
     div {
         className =
             ClassName(
                 when {
+                    disabled -> "ctx-item disabled"
                     danger -> "ctx-item danger"
                     zap -> "ctx-item zap"
                     else -> "ctx-item"
                 },
             )
-        onClick = { onSelect() }
+        if (disabled) title = "Coming soon"
+        onClick = { if (!disabled) onSelect() }
         span {
             className = ClassName("ctx-item-icon")
             icon(ic)
@@ -2805,10 +3290,15 @@ private val URL_REGEX =
             // (mirrors native MessageContentParser so the apostrophe form renders a group card).
             "|(wss?://[^\\s<>\"]+)" +
             "|(nostr:(?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]+)" +
-            "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})",
+            "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})" +
+            // Bare NIP-29 group address without the scheme, `relay.host'groupId` (the share field's
+            // copy form). Dotted host + 4+ char id so ordinary apostrophes don't match. No
+            // lookbehind here on purpose: older Safari throws on it and would break all rendering.
+            "|([a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+'[a-zA-Z0-9]{4,})",
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
+private val AUDIO_EXT = Regex("\\.(mp3|wav|ogg|flac|m4a|aac|opus)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
 // Detect YouTube links (watch / shorts / live / embed / youtu.be) and capture
 // the 11-char video id, mirroring the native MessageContentParser regex.
@@ -2893,10 +3383,11 @@ private fun ChildrenBuilder.renderMessageContent(
 ) {
     val emojiMap = extractEmojiMap(tags)
     val posters = extractVideoPosters(tags)
+    val dims = Nip68.extractImetaDimensions(tags)
     var last = 0
     for (block in CODE_BLOCK_REGEX.findAll(content)) {
         if (block.range.first > last) {
-            renderInline(content.substring(last, block.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderInline(content.substring(last, block.range.first), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         val lang = block.groupValues[1].takeIf { it.isNotBlank() }
         div {
@@ -2915,7 +3406,7 @@ private fun ChildrenBuilder.renderMessageContent(
         last = block.range.last + 1
     }
     if (last < content.length) {
-        renderInline(content.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderInline(content.substring(last), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
@@ -2924,6 +3415,7 @@ private fun ChildrenBuilder.renderInline(
     text: String,
     emojiMap: Map<String, String>,
     posters: Map<String, String>,
+    dims: Map<String, Pair<Int, Int>>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2933,7 +3425,7 @@ private fun ChildrenBuilder.renderInline(
     var last = 0
     for (m in INLINE_CODE_REGEX.findAll(text)) {
         if (m.range.first > last) {
-            renderEntities(text.substring(last, m.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderEntities(text.substring(last, m.range.first), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         code {
             className = ClassName("msg-code")
@@ -2942,7 +3434,7 @@ private fun ChildrenBuilder.renderInline(
         last = m.range.last + 1
     }
     if (last < text.length) {
-        renderEntities(text.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderEntities(text.substring(last), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
@@ -2950,6 +3442,7 @@ private fun ChildrenBuilder.renderEntities(
     content: String,
     emojiMap: Map<String, String>,
     posters: Map<String, String>,
+    dims: Map<String, Pair<Int, Int>>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2959,22 +3452,33 @@ private fun ChildrenBuilder.renderEntities(
     var last = 0
     for (match in URL_REGEX.findAll(content)) {
         if (match.range.first > last) {
-            renderTextWithEmojis(content.substring(last, match.range.first), emojiMap)
+            renderFormattedText(content.substring(last, match.range.first), emojiMap)
         }
         val token = match.value
         if (token.startsWith("data:image/")) {
-            ChatImage { imageUrl = token }
+            ChatImage {
+                imageUrl = token
+                dimensions = dims[token]
+            }
         } else if (token.startsWith("http")) {
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
             val youtubeId = YOUTUBE_REGEX.find(url)?.groupValues?.get(1)
             if (youtubeId != null) {
                 YouTubeEmbed { videoId = youtubeId }
             } else if (IMAGE_EXT.containsMatchIn(url)) {
-                ChatImage { imageUrl = url }
+                ChatImage {
+                    imageUrl = url
+                    dimensions = dims[url]
+                }
             } else if (VIDEO_EXT.containsMatchIn(url)) {
                 ChatVideo {
                     videoUrl = url
                     posterUrl = posters[url]
+                    dimensions = dims[url]
+                }
+            } else if (AUDIO_EXT.containsMatchIn(url)) {
+                ChatAudio {
+                    audioUrl = url
                 }
             } else {
                 a {
@@ -2999,15 +3503,39 @@ private fun ChildrenBuilder.renderEntities(
             } else {
                 +token
             }
+        } else if (token.contains('\'')) {
+            // Bare NIP-29 group address `relay'groupId` (no scheme): normalize with wss:// and
+            // render the same group card as the scheme form.
+            val apostrophe = token.indexOf('\'')
+            GroupLinkCard {
+                groupId = token.substring(apostrophe + 1)
+                relayUrl = "wss://" + token.substring(0, apostrophe)
+                onNavigate = onGroupRef
+            }
         } else {
+            // A mention standing alone (the whole message) keeps the rich form (group card,
+            // @name); inline with other text it becomes a compact avatar+name chip, matching
+            // the prototype.
+            val standalone = content.trim() == token
             when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
-                is Nip19.Entity.Npub -> mentionSpan(entity.pubkey, userMetadata, onUser)
-                is Nip19.Entity.Nprofile -> mentionSpan(entity.pubkey, userMetadata, onUser)
+                is Nip19.Entity.Npub ->
+                    if (standalone) {
+                        mentionSpan(entity.pubkey, userMetadata, onUser)
+                    } else {
+                        userMentionChip(entity.pubkey, userMetadata, onUser)
+                    }
+                is Nip19.Entity.Nprofile ->
+                    if (standalone) {
+                        mentionSpan(entity.pubkey, userMetadata, onUser)
+                    } else {
+                        userMentionChip(entity.pubkey, userMetadata, onUser)
+                    }
                 is Nip19.Entity.Nevent ->
                     QuotedEvent {
                         eventId = entity.eventId
                         relays = entity.relays
                         author = entity.author
+                        kind = entity.kind
                         localById = messagesById
                         onScrollTo = onEventRef
                         this.onUser = onUser
@@ -3018,6 +3546,7 @@ private fun ChildrenBuilder.renderEntities(
                         eventId = entity.eventId
                         relays = emptyList()
                         author = null
+                        kind = null
                         localById = messagesById
                         onScrollTo = onEventRef
                         this.onUser = onUser
@@ -3025,10 +3554,18 @@ private fun ChildrenBuilder.renderEntities(
                     }
                 is Nip19.Entity.Naddr ->
                     if (entity.kind == 39000) {
-                        GroupLinkCard {
-                            groupId = entity.identifier
-                            relayUrl = entity.relays.firstOrNull()
-                            onNavigate = onGroupRef
+                        if (standalone) {
+                            GroupLinkCard {
+                                groupId = entity.identifier
+                                relayUrl = entity.relays.firstOrNull()
+                                onNavigate = onGroupRef
+                            }
+                        } else {
+                            GroupMentionChip {
+                                groupId = entity.identifier
+                                relayUrl = entity.relays.firstOrNull()
+                                onNavigate = onGroupRef
+                            }
                         }
                     } else {
                         a {
@@ -3044,7 +3581,33 @@ private fun ChildrenBuilder.renderEntities(
         }
         last = match.range.last + 1
     }
-    if (last < content.length) renderTextWithEmojis(content.substring(last), emojiMap)
+    if (last < content.length) renderFormattedText(content.substring(last), emojiMap)
+}
+
+private val STRIKE_OR_SPOILER_REGEX = Regex("~~[\\s\\S]+?~~|\\|\\|[\\s\\S]+?\\|\\|")
+
+/**
+ * Render inline ~~strikethrough~~ and ||spoiler|| in a non-URL text run, delegating the
+ * remaining text to [renderTextWithEmojis]. Mirrors native MessageContent's Strikethrough
+ * / Spoiler parts.
+ */
+private fun ChildrenBuilder.renderFormattedText(text: String, emojiMap: Map<String, String>) {
+    var last = 0
+    for (m in STRIKE_OR_SPOILER_REGEX.findAll(text)) {
+        if (m.range.first > last) renderTextWithEmojis(text.substring(last, m.range.first), emojiMap)
+        val token = m.value
+        val inner = token.substring(2, token.length - 2)
+        if (token.startsWith("~~")) {
+            s {
+                className = ClassName("msg-strike")
+                renderTextWithEmojis(inner, emojiMap)
+            }
+        } else {
+            Spoiler { content = inner }
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) renderTextWithEmojis(text.substring(last), emojiMap)
 }
 
 private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {
@@ -3055,10 +3618,29 @@ private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String
     }
 }
 
+/** Inline user mention chip (prototype): circular avatar + display name, tinted and tappable. */
+private fun ChildrenBuilder.userMentionChip(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {
+    val name = displayName(pubkey, userMetadata[pubkey])
+    span {
+        className = ClassName("msg-mention-chip")
+        onClick = { onUser(pubkey) }
+        WebAvatar {
+            url = userMetadata[pubkey]?.picture
+            seed = pubkey
+            this.name = name
+            cls = "msg-mention-chip-avatar"
+        }
+        +name
+    }
+}
+
 private external interface QuotedEventProps : Props {
     var eventId: String
     var relays: List<String>
     var author: String?
+
+    /** nevent kind hint (null for a bare note) — shown on the not-found card. */
+    var kind: Int?
     var localById: Map<String, NostrGroupClient.NostrMessage>
     var onScrollTo: (String) -> Unit
     var onUser: (String) -> Unit
@@ -3083,9 +3665,25 @@ private val QuotedEvent =
         val createdAt = local?.createdAt ?: cachedEv?.createdAt
         val quotedTags = local?.tags ?: cachedEv?.tags ?: emptyList()
 
-        useEffectOnce {
+        // Flips true when the event never resolves (e.g. its relay isn't connected), so the card
+        // shows "Event not found" instead of spinning forever — parity with native's 5s give-up.
+        val (notFound, setNotFound) = useState { false }
+        val (menuOpen, setMenuOpen) = useState { false }
+
+        useEffect(props.eventId) {
+            setNotFound(false)
             if (props.eventId !in cached && local == null) {
                 launchApp { repo.requestEventById(props.eventId, props.relays, props.author) }
+            }
+        }
+        // Give up after 5s of no resolution. Re-runs when content arrives (cancels the timer).
+        useEffect(content, props.eventId) {
+            if (content != null) return@useEffect
+            val timer = window.setTimeout({ setNotFound(true) }, 5000)
+            try {
+                awaitCancellation()
+            } finally {
+                window.clearTimeout(timer)
             }
         }
         useEffect(pubkey) {
@@ -3113,13 +3711,95 @@ private val QuotedEvent =
             if (missing.isNotEmpty()) launchApp { repo.requestUserMetadata(missing) }
         }
 
+        // A resolved NIP-29 group event (carries an `h` tag) that is NOT a message in the current
+        // group is a forwarded reference: it renders with a "forwarded from <group>" header that
+        // opens the source group (mirroring native's ForwardedEventCard). A plain quote would be
+        // unscrollable here and the event is only fetchable on its own group relay. The relay rides
+        // on the nevent hint (embedded by the "copy nevent" action).
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val refGroupId =
+            cachedEv?.tags?.firstOrNull { it.size >= 2 && it.getOrNull(0) == "h" }?.getOrNull(1)
+        val isForwarded = local == null && refGroupId != null
+        // Navigate using the nevent's own relay hint — that's where the event lives. The
+        // navigation effect connects that relay on demand if it isn't already, then loads the
+        // group + scrolls to the message. (The group name/avatar below resolve from any relay we
+        // already know the group on, so the header still fills in.)
+        val fwdRelay = props.relays.firstOrNull()
+        val fwdGroupMeta = refGroupId?.let { gid -> groupsByRelay.values.flatten().firstOrNull { it.id == gid } }
+        val fwdGroupName = fwdGroupMeta?.name?.takeIf { it.isNotBlank() } ?: refGroupId.orEmpty()
+        useEffect(refGroupId, fwdRelay, fwdGroupMeta?.name) {
+            if (isForwarded && refGroupId != null && fwdRelay != null && fwdGroupMeta?.name == null) {
+                launchApp { repo.fetchGroupPreview(refGroupId, fwdRelay) }
+            }
+        }
+
+        // Reply preview: if the quoted event is itself a reply (q tag), resolve the parent so the
+        // card shows "↳ <author>: <snippet>" like native, or "Loading reply…" until it arrives.
+        val replyParentId =
+            quotedTags.firstOrNull {
+                it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() }
+            }?.getOrNull(1)
+        val replyLocal = replyParentId?.let { props.localById[it] }
+        val replyCached = replyParentId?.let { cached[it] }
+        val replyPubkey = replyLocal?.pubkey ?: replyCached?.pubkey
+        val replyContent = replyLocal?.content ?: replyCached?.content
+        useEffect(replyParentId) {
+            val pid = replyParentId ?: return@useEffect
+            if (pid !in cached && replyLocal == null) {
+                launchApp { repo.requestEventById(pid, props.relays, null) }
+            }
+        }
+        useEffect(replyPubkey) {
+            val pk = replyPubkey
+            if (pk != null && userMetadata[pk] == null) launchApp { repo.requestUserMetadata(setOf(pk)) }
+        }
+
         // Clickable only when the referenced event is a local message we can scroll to; an
         // external nevent reference has nowhere to scroll, so it stays static (no pointer).
         val scrollable = local != null
 
         div {
-            className = ClassName(if (scrollable) "quoted-event" else "quoted-event quoted-event-static")
+            className =
+                ClassName(
+                    when {
+                        isForwarded -> "quoted-event quoted-event-static forwarded-event"
+                        scrollable -> "quoted-event"
+                        else -> "quoted-event quoted-event-static"
+                    },
+                )
             if (scrollable) onClick = { props.onScrollTo(props.eventId) }
+            if (isForwarded && refGroupId != null) {
+                div {
+                    className = ClassName("forwarded-event-head")
+                    // Open the source group AND scroll to + highlight this message (same path as a
+                    // ?...&e= deep link): pushRoute fires hashchange, AppFrame feeds messageId to
+                    // ChatScreen.scrollToMessageId. Falls back to a plain group open if no relay.
+                    onClick = { ev ->
+                        ev.stopPropagation()
+                        if (fwdRelay != null) {
+                            pushRoute(GroupRoute(relayUrl = fwdRelay, groupId = refGroupId, messageId = props.eventId))
+                        } else {
+                            props.onGroupRef(refGroupId, null)
+                        }
+                    }
+                    icon(Ic.Reply)
+                    span {
+                        className = ClassName("forwarded-event-from")
+                        +"forwarded from"
+                    }
+                    WebAvatar {
+                        url = fwdGroupMeta?.picture
+                        seed = refGroupId
+                        kind = AvatarKind.GROUP
+                        this.name = fwdGroupName
+                        cls = "forwarded-event-group-avatar"
+                    }
+                    span {
+                        className = ClassName("forwarded-event-group")
+                        +fwdGroupName
+                    }
+                }
+            }
             if (content != null && pubkey != null) {
                 div {
                     className = ClassName("quoted-event-head")
@@ -3154,6 +3834,40 @@ private val QuotedEvent =
                         icon(Ic.OpenInNew)
                     }
                 }
+                if (replyParentId != null) {
+                    if (replyContent != null && replyPubkey != null) {
+                        div {
+                            className = ClassName("quoted-event-reply")
+                            span {
+                                className = ClassName("quoted-event-reply-arrow")
+                                +"↳"
+                            }
+                            WebAvatar {
+                                url = userMetadata[replyPubkey]?.picture
+                                seed = replyPubkey
+                                this.name = displayName(replyPubkey, userMetadata[replyPubkey])
+                                cls = "quoted-event-reply-avatar"
+                            }
+                            span {
+                                className = ClassName("quoted-event-reply-author")
+                                +displayName(replyPubkey, userMetadata[replyPubkey])
+                            }
+                            span {
+                                className = ClassName("quoted-event-reply-text")
+                                +replyPreviewText(replyContent, userMetadata, 100)
+                            }
+                        }
+                    } else {
+                        div {
+                            className = ClassName("quoted-event-reply quoted-event-reply-loading")
+                            span {
+                                className = ClassName("quoted-event-reply-arrow")
+                                +"↳"
+                            }
+                            +"Loading reply…"
+                        }
+                    }
+                }
                 div {
                     className = ClassName("quoted-event-content")
                     renderMessageContent(
@@ -3165,6 +3879,81 @@ private val QuotedEvent =
                         props.onScrollTo,
                         props.onGroupRef,
                     )
+                }
+            } else if (notFound) {
+                div {
+                    className = ClassName("quoted-event-notfound")
+                    div {
+                        className = ClassName("quoted-event-notfound-title")
+                        icon(Ic.Warning)
+                        span {
+                            className = ClassName("quoted-event-notfound-label")
+                            +"Event not found"
+                        }
+                        div {
+                            className = ClassName("quoted-event-menu")
+                            button {
+                                className = ClassName("quoted-event-menu-btn")
+                                title = "More options"
+                                onClick = { ev ->
+                                    ev.stopPropagation()
+                                    setMenuOpen(!menuOpen)
+                                }
+                                icon(Ic.MoreVert)
+                            }
+                            if (menuOpen) {
+                                div {
+                                    className = ClassName("quoted-event-menu-backdrop")
+                                    onClick = { ev ->
+                                        ev.stopPropagation()
+                                        setMenuOpen(false)
+                                    }
+                                }
+                                div {
+                                    className = ClassName("quoted-event-menu-pop")
+                                    button {
+                                        className = ClassName("quoted-event-menu-item")
+                                        onClick = { ev ->
+                                            ev.stopPropagation()
+                                            val parsed =
+                                                buildJsonObject {
+                                                    put("type", if (props.kind != null) "nevent" else "note")
+                                                    put("event_id", props.eventId)
+                                                    props.kind?.let { put("kind", it) }
+                                                    props.author?.let { put("author", it) }
+                                                    putJsonArray("relays") { props.relays.forEach { add(it) } }
+                                                }.toString()
+                                            copyToClipboard(parsed)
+                                            setMenuOpen(false)
+                                        }
+                                        +"Copy Parsed JSON"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    props.kind?.let {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"kind: $it"
+                        }
+                    }
+                    div {
+                        className = ClassName("quoted-event-notfound-row")
+                        +"id: ${props.eventId}"
+                    }
+                    props.author?.let {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"author: $it"
+                        }
+                    }
+                    if (props.relays.isNotEmpty()) {
+                        div {
+                            className = ClassName("quoted-event-notfound-row")
+                            +"relays: ${props.relays.joinToString(", ")}"
+                        }
+                    }
                 }
             } else {
                 span {
@@ -3233,10 +4022,48 @@ private val GroupLinkCard =
         }
     }
 
+/**
+ * Inline group mention chip (prototype): a decoded naddr (kind 39000) shown compactly with the
+ * group's square avatar + name when resolved, or `#name` when it has no picture. Clicking opens
+ * the group. Standalone group references still render as the full GroupLinkCard.
+ */
+private val GroupMentionChip =
+    FC<GroupLinkCardProps> { props ->
+        val repo = AppModule.nostrRepository
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val meta = groupsByRelay.values.flatten().firstOrNull { it.id == props.groupId }
+        val name = meta?.name?.takeIf { it.isNotBlank() } ?: props.groupId
+
+        useEffect(props.groupId, props.relayUrl, meta?.name) {
+            val relay = props.relayUrl
+            if (relay != null && meta?.name == null) {
+                launchApp { repo.fetchGroupPreview(props.groupId, relay) }
+            }
+        }
+
+        span {
+            className = ClassName("msg-mention-chip")
+            onClick = { props.onNavigate(props.groupId, props.relayUrl) }
+            val picture = meta?.picture
+            if (!picture.isNullOrBlank()) {
+                WebAvatar {
+                    url = picture
+                    seed = props.groupId
+                    this.name = name
+                    kind = AvatarKind.GROUP
+                    cls = "msg-mention-chip-avatar group"
+                }
+                +name
+            } else {
+                +"#$name"
+            }
+        }
+    }
+
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     div {
         className = ClassName("member-section")
-        +"$title ($count)"
+        +"$title · $count"
     }
 }
 

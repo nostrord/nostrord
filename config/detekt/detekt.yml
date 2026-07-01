@@ -1,0 +1,98 @@
+# detekt config — dead-code safety net (see build.gradle.kts `detekt {}`).
+# Layered on top of detekt's default config (buildUponDefaultConfig = true).
+# Purpose: catch unused members and a few real smells; leave formatting/style to
+# spotless+ktlint and silence the rules that fight this codebase's conventions.
+
+comments:
+  active: false
+
+empty-blocks:
+  # Intentional no-op lambdas and `catch (_) {}` at boundaries are pervasive and
+  # deliberate; these are not dead code.
+  EmptyFunctionBlock:
+    active: false
+  EmptyCatchBlock:
+    active: false
+  EmptyIfBlock:
+    active: false
+
+naming:
+  # Multi-declaration files and backing-field naming are KMP/Compose conventions
+  # already settled in the ktlint config.
+  MatchingDeclarationName:
+    active: false
+  VariableNaming:
+    active: false
+  FunctionNaming:
+    active: false
+  TopLevelPropertyNaming:
+    active: false
+
+complexity:
+  # The Compose/React render functions are intentionally long; flagging size here
+  # would only produce noise. Dead code is what we care about, not method length.
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  LargeClass:
+    active: false
+  TooManyFunctions:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  CognitiveComplexMethod:
+    active: false
+  NestedBlockDepth:
+    active: false
+  ComplexCondition:
+    active: false
+
+exceptions:
+  # The codebase deliberately catches broadly at JS/dynamic and IO boundaries
+  # (see CLAUDE.md). Those are reviewed by hand, not by detekt.
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: false
+  TooGenericExceptionThrown:
+    active: false
+  ThrowingExceptionInMain:
+    active: false
+  InstanceOfCheckForException:
+    active: false
+  PrintStackTrace:
+    active: false
+
+style:
+  # The dead-code rules — the reason detekt is here.
+  UnusedPrivateMember:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UnusedParameter:
+    # Off: overrides and Compose slot params legitimately ignore parameters.
+    active: false
+  # Noise we already handle elsewhere or accept by convention.
+  MagicNumber:
+    active: false
+  ReturnCount:
+    active: false
+  WildcardImport:
+    active: false
+  MaxLineLength:
+    active: false
+  ForbiddenComment:
+    active: false
+  DataClassContainsFunctions:
+    active: false
+  LoopWithTooManyJumpStatements:
+    active: false
+  UseRequire:
+    active: false
+  UseCheckOrError:
+    active: false
+  MayBeConst:
+    active: false
+  ThrowsCount:
+    active: false

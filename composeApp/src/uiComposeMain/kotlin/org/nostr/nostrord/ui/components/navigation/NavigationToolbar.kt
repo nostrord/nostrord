@@ -1,6 +1,8 @@
 package org.nostr.nostrord.ui.components.navigation
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -11,14 +13,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,20 +34,25 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.window.WindowDraggableArea
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NavigationToolbar(
     canGoBack: Boolean,
     canGoForward: Boolean,
     onBack: () -> Unit,
     onForward: () -> Unit,
+    backHistory: List<String> = emptyList(),
+    onJumpBack: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val windowControls = LocalDesktopWindowControls.current
+    var backMenuOpen by remember { mutableStateOf(false) }
 
     Row(
         modifier =
@@ -49,13 +62,48 @@ fun NavigationToolbar(
             .background(NostrordColors.BackgroundDark),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // LEFT: Back/Forward buttons
-        IconButton(onClick = onBack, enabled = canGoBack) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = if (canGoBack) NostrordColors.TextPrimary else NostrordColors.TextMuted,
-            )
+        // LEFT: Back (long-press opens the history dropdown) + Forward
+        Box {
+            Box(
+                modifier =
+                Modifier
+                    .size(48.dp)
+                    .combinedClickable(
+                        enabled = canGoBack,
+                        onClick = onBack,
+                        onLongClick = if (backHistory.isNotEmpty()) ({ backMenuOpen = true }) else null,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = if (canGoBack) NostrordColors.TextPrimary else NostrordColors.TextMuted,
+                )
+            }
+            DropdownMenu(
+                expanded = backMenuOpen,
+                onDismissRequest = { backMenuOpen = false },
+                containerColor = NostrordColors.BackgroundFloating,
+            ) {
+                backHistory.forEachIndexed { stepsBack, label ->
+                    DropdownMenuItem(
+                        onClick = {
+                            backMenuOpen = false
+                            onJumpBack(stepsBack)
+                        },
+                        text = {
+                            Text(
+                                label,
+                                color = NostrordColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 260.dp),
+                            )
+                        },
+                    )
+                }
+            }
         }
         IconButton(onClick = onForward, enabled = canGoForward) {
             Icon(

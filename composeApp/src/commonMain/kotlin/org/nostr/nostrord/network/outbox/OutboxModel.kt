@@ -122,19 +122,6 @@ data class Nip65Relay(
     val read: Boolean = true,
     val write: Boolean = true,
 ) {
-    companion object {
-        fun fromTag(tag: List<String>): Nip65Relay? {
-            if (tag.size < 2 || tag[0] != "r") return null
-            val url = tag[1]
-            val marker = tag.getOrNull(2)
-            return when (marker) {
-                "read" -> Nip65Relay(url, read = true, write = false)
-                "write" -> Nip65Relay(url, read = false, write = true)
-                else -> Nip65Relay(url, read = true, write = true)
-            }
-        }
-    }
-
     fun toTag(): List<String> = when {
         read && write -> listOf("r", url)
         read -> listOf("r", url, "read")
@@ -154,10 +141,6 @@ data class CachedRelayList(
     val expiresAt: Long,
 ) {
     fun isExpired(currentTimeMs: Long): Boolean = currentTimeMs > expiresAt
-
-    companion object {
-        const val DEFAULT_TTL_MS = 3600_000L // 1 hour
-    }
 }
 
 /**

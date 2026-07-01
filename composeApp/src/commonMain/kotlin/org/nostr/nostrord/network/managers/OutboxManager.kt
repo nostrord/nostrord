@@ -44,7 +44,6 @@ class OutboxManager(
 
     private var kind10009SubId: String? = null
     private var kind10009Received = false
-    private var eoseReceived = false
 
     private val groupsMutex = Mutex()
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
@@ -151,7 +150,6 @@ class OutboxManager(
         val relaysToQuery = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
 
         kind10009Received = false
-        eoseReceived = false
 
         val subId = "joined-groups-${epochMillis()}"
         kind10009SubId = subId
@@ -257,11 +255,6 @@ class OutboxManager(
 
             val signedEvent = signEvent(event)
 
-            groupsMutex.withLock {
-                latestKind10009CreatedAt = event.createdAt
-            }
-            SecureStorage.saveKind10009Timestamp(pubKey, event.createdAt)
-
             _kind10009Relays.value = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.toSet()
             refreshGroupTagRelays()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
@@ -273,20 +266,51 @@ class OutboxManager(
                 }.toString()
 
             val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
-            val published =
+            var published =
                 targets.mapNotNull { relayUrl ->
                     connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
                 }
+            if (published.isEmpty()) {
+                // kind:10009 is a user list (replaceable) event and must land on a general/outbox
+                // relay that stores it. When none are connected yet (a fresh session, e.g. an
+                // account that just joined via an invite link), connect the publish targets rather
+                // than falling back to the NIP-29 focused below: NIP-29 relays reject kind:10009,
+                // so that fallback silently dropped the list update and the joined group never
+                // appeared in the user's kind:10009.
+                published =
+                    targets.mapNotNull { relayUrl ->
+                        try {
+                            connectionManager.getOrConnectRelay(relayUrl, messageHandler)?.takeIf { it.isConnected() }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+            }
             val clients =
                 if (published.isEmpty()) {
-                    listOfNotNull(connectionManager.getPrimaryClient())
+                    listOfNotNull(connectionManager.getFocusedClient())
                 } else {
                     published
                 }
             clients.forEach { client ->
                 scope.launch {
                     try {
-                        client.sendAndAwaitOk(message, eventId)
+                        val publishResult = client.sendAndAwaitOk(message, eventId)
+                        // Advance the freshness guard only once a relay actually ACCEPTED
+                        // the event. Persisting it unconditionally let a publish that no
+                        // relay stored outrun reality, and the guard then dropped the
+                        // (older but real) kind:10009 the relays still serve — the local
+                        // list got stuck on localStorage forever.
+                        if (publishResult is org.nostr.nostrord.network.PublishResult.Success) {
+                            groupsMutex.withLock {
+                                if (event.createdAt > latestKind10009CreatedAt) {
+                                    latestKind10009CreatedAt = event.createdAt
+                                }
+                            }
+                            SecureStorage.saveKind10009Timestamp(pubKey, event.createdAt)
+                        }
                     } catch (_: Exception) {
                     }
                 }
@@ -306,6 +330,7 @@ class OutboxManager(
         onRelaysRestored: suspend (List<String>) -> Unit = {},
         onRelayGroupsUpdated: (Map<String, Set<String>>) -> Unit = {},
         messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> },
+        isGroupDropped: (String) -> Boolean = { false },
     ) {
         // Author guard: relays may deliver kind:10009 events for the *previous*
         // account if a subscription stayed open across an account switch. The
@@ -319,10 +344,15 @@ class OutboxManager(
         val tags = event["tags"]?.jsonArray ?: return
 
         val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
-        groupsMutex.withLock {
-            if (createdAt <= latestKind10009CreatedAt) return
-            latestKind10009CreatedAt = createdAt
-        }
+        val isNewest =
+            groupsMutex.withLock {
+                if (createdAt > latestKind10009CreatedAt) {
+                    latestKind10009CreatedAt = createdAt
+                    true
+                } else {
+                    false
+                }
+            }
 
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
         val explicitNip29Relays = mutableListOf<String>()
@@ -349,7 +379,54 @@ class OutboxManager(
         }
 
         val immutableRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
+
+        if (!isNewest) {
+            // A stale event never REPLACES local state, but groups the local list does
+            // not know yet are merged in additively (minus locally-left/deleted ones).
+            // The freshness guard can outrun what relays actually stored (a publish
+            // accepted by only some relays, clock skew, another client's list); a
+            // strict drop then hides the user's real groups behind localStorage
+            // forever. Trade-off: a lagging relay can resurrect a group left on
+            // another device until the next confirmed publish supersedes it.
+            val known = groupsMutex.withLock { allRelayGroups }
+            val additions =
+                immutableRelayGroups
+                    .mapValues { (relay, ids) ->
+                        ids.filterNot { it in known[relay].orEmpty() || isGroupDropped(it) }.toSet()
+                    }.filterValues { it.isNotEmpty() }
+            if (additions.isEmpty()) return
+            groupsMutex.withLock {
+                val merged = allRelayGroups.toMutableMap()
+                additions.forEach { (relay, ids) -> merged[relay] = merged[relay].orEmpty() + ids }
+                allRelayGroups = merged.toMap()
+            }
+            val mergedSlots =
+                additions.mapValues { (relay, ids) ->
+                    val slot = SecureStorage.getJoinedGroupsForRelay(pubKey, relay) + ids
+                    SecureStorage.saveJoinedGroupsForRelay(pubKey, relay, slot)
+                    slot
+                }
+            onRelayGroupsUpdated(mergedSlots)
+            val previousList = SecureStorage.loadRelayListFor(pubKey).map { it.normalizeRelayUrl() }
+            val addedRelays = additions.keys.filter { it !in previousList }
+            if (addedRelays.isNotEmpty()) {
+                SecureStorage.saveRelayListFor(pubKey, previousList + addedRelays)
+                _kind10009Relays.value = _kind10009Relays.value + addedRelays
+                refreshGroupTagRelays()
+                onRelaysRestored(addedRelays)
+            }
+            return
+        }
+
+        // The newest kind:10009 is the complete, authoritative list. A relay we knew
+        // locally that it no longer lists means every group there was left (possibly on
+        // another device) — so its slot must be emptied, not kept. Without this, leaving
+        // the LAST group on a relay (its tag drops out of the event entirely) left the
+        // group lingering in memory + storage, and the next publish (which unions storage
+        // and memory) resurrected it. Capture those relays before swapping the map.
+        val droppedRelays: Set<String>
         groupsMutex.withLock {
+            droppedRelays = allRelayGroups.keys - immutableRelayGroups.keys
             allRelayGroups = immutableRelayGroups
         }
 
@@ -378,8 +455,18 @@ class OutboxManager(
         immutableRelayGroups.forEach { (relayUrl, groups) ->
             SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
         }
+        // Clear the persisted slots of relays dropped from the authoritative list (and any
+        // stored relay it no longer covers) so a group left on another device can't be
+        // resurrected by the next publish or re-added by the additive storage restore.
+        val staleStoredRelays =
+            (droppedRelays + previouslySaved) - immutableRelayGroups.keys
+        staleStoredRelays.forEach { relayUrl ->
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, emptySet())
+        }
 
-        onRelayGroupsUpdated(immutableRelayGroups)
+        // Include the emptied relays so the in-memory joined map clears them too (the
+        // merge `it + relayGroups` overwrites each key, so an empty set removes the group).
+        onRelayGroupsUpdated(immutableRelayGroups + droppedRelays.associateWith { emptySet() })
 
         val normalizedCurrentRelay = currentRelayUrl.normalizeRelayUrl()
         val currentRelayGroups = immutableRelayGroups[normalizedCurrentRelay]
@@ -425,12 +512,6 @@ class OutboxManager(
             } else {
                 relayListManager.cacheRelayListForUser(eventPubkey, relays, eventCreatedAt)
             }
-        }
-    }
-
-    fun handleEose(subId: String) {
-        if (subId == kind10009SubId) {
-            eoseReceived = true
         }
     }
 
@@ -557,7 +638,6 @@ class OutboxManager(
 
     fun resetKind10009State() {
         kind10009Received = false
-        eoseReceived = false
     }
 
     suspend fun clear() {
@@ -570,6 +650,5 @@ class OutboxManager(
         _groupTagRelays.value = emptySet()
         kind10009SubId = null
         kind10009Received = false
-        eoseReceived = false
     }
 }

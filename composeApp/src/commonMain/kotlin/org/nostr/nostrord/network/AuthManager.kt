@@ -29,11 +29,15 @@ import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.platformDisplayName
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearAllCredentialsForAccount
+import org.nostr.nostrord.storage.clearEncryptedPrivateKeyFor
+import org.nostr.nostrord.storage.clearPrivateKeyFor
 import org.nostr.nostrord.storage.getBunkerClientPrivateKeyFor
 import org.nostr.nostrord.storage.getBunkerUrlFor
+import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.getPrivateKeyFor
 import org.nostr.nostrord.storage.saveBunkerClientPrivateKeyFor
 import org.nostr.nostrord.storage.saveBunkerUrlFor
+import org.nostr.nostrord.storage.saveEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.savePrivateKeyFor
 import org.nostr.nostrord.utils.epochMillis
 
@@ -73,6 +77,20 @@ class AuthManager(
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
     /**
+     * Set when session restore (or an account switch) hits a NIP-49
+     * password-protected account: only the ncryptsec is on disk, so the app
+     * cannot build a signer until the user enters the password. The UIs gate
+     * an unlock dialog on this; cleared on a successful login/unlock or when
+     * the user dismisses it.
+     */
+    private val _pendingUnlock = MutableStateFlow<Account?>(null)
+    val pendingUnlock: StateFlow<Account?> = _pendingUnlock.asStateFlow()
+
+    fun clearPendingUnlock() {
+        _pendingUnlock.value = null
+    }
+
+    /**
      * Invoked when the active session is invalidated involuntarily (bunker
      * permission revoked, etc). Receives the pubkey that just lost its
      * session so the host can try to switch to another signed-in account
@@ -106,12 +124,13 @@ class AuthManager(
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
 
-    // Default relays for nostrconnect:// QR code flow. relay.nsec.app is a
-    // dedicated NIP-46 relay; damus.io / nos.lol are general-purpose fallbacks.
+    // Default relays for nostrconnect:// QR code flow. damus.io / nos.lol are
+    // general-purpose relays that reliably carry NIP-46 traffic. relay.nsec.app
+    // is intentionally excluded: it was unreachable for some users and made the
+    // whole QR connect fail with "Failed to connect to any relay".
     // Users can override these per-session in the QR login screen.
     val defaultNostrConnectRelays =
         listOf(
-            "wss://relay.nsec.app",
             "wss://relay.damus.io",
             "wss://nos.lol",
         )
@@ -169,7 +188,6 @@ class AuthManager(
     suspend fun loginWithBunker(bunkerUrl: String): String {
         val bunkerInfo = parseBunkerUrl(bunkerUrl)
 
-        // Check if we have an existing client key (from previous session)
         val existingClientKey = SecureStorage.getBunkerClientPrivateKey()
         val newNip46Client =
             if (existingClientKey != null) {
@@ -319,11 +337,15 @@ class AuthManager(
     }
 
     /**
-     * Login with local private key
+     * Login with local private key. When [ncryptsec] is given the account is
+     * password-protected: only the encrypted key is persisted (the raw key
+     * lives in the in-memory signer) and the next session restore asks for the
+     * password via [pendingUnlock].
      */
     fun loginWithPrivateKey(
         privateKeyHex: String,
         publicKeyHex: String,
+        ncryptsec: String? = null,
     ) {
         zeroAndClearKeyPair()
         keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
@@ -333,12 +355,20 @@ class AuthManager(
         nip07UserPubkey = null
         nip46Client = null
 
-        SecureStorage.savePrivateKey(privateKeyHex)
-        SecureStorage.savePrivateKeyFor(publicKeyHex, privateKeyHex)
+        if (ncryptsec == null) {
+            SecureStorage.savePrivateKey(privateKeyHex)
+            SecureStorage.savePrivateKeyFor(publicKeyHex, privateKeyHex)
+            SecureStorage.clearEncryptedPrivateKeyFor(publicKeyHex)
+        } else {
+            SecureStorage.clearPrivateKey()
+            SecureStorage.clearPrivateKeyFor(publicKeyHex)
+            SecureStorage.saveEncryptedPrivateKeyFor(publicKeyHex, ncryptsec)
+        }
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
         SecureStorage.clearNip07UserPubkey()
+        _pendingUnlock.value = null
         registerAccountAfterLogin(publicKeyHex, AuthMethod.LOCAL)
     }
 
@@ -414,16 +444,23 @@ class AuthManager(
         val prepared: PreparedAccount =
             when (account.authMethod) {
                 AuthMethod.LOCAL -> {
-                    val priv =
-                        SecureStorage.getPrivateKeyFor(account.pubkey)
-                            ?: SecureStorage.getPrivateKey()
-                            ?: return false
+                    // The legacy global slot holds the LAST plain-key login, which in a
+                    // multi-account setup can belong to a different account. Only accept
+                    // it when it actually derives this account's pubkey — otherwise a
+                    // password-protected account (empty per-account slot) would silently
+                    // come up signing with another account's key.
                     val kp =
-                        try {
-                            KeyPair.fromPrivateKeyHex(priv)
-                        } catch (_: Exception) {
-                            return false
+                        SecureStorage.getPrivateKeyFor(account.pubkey)?.let(::keyPairOrNull)
+                            ?: SecureStorage.getPrivateKey()?.let(::keyPairOrNull)
+                                ?.takeIf { it.publicKeyHex == account.pubkey }
+                    if (kp == null) {
+                        // Password-protected key: only the ncryptsec is stored. Signal
+                        // the unlock gate instead of silently failing the restore.
+                        if (SecureStorage.getEncryptedPrivateKeyFor(account.pubkey) != null) {
+                            _pendingUnlock.value = account
                         }
+                        return false
+                    }
                     PreparedAccount.Local(kp)
                 }
                 AuthMethod.BUNKER -> {
@@ -467,6 +504,7 @@ class AuthManager(
             }
         }
 
+        _pendingUnlock.value = null
         accountStore.setActive(account.pubkey)
         return true
     }
@@ -694,6 +732,12 @@ class AuthManager(
         }
 
         return true
+    }
+
+    private fun keyPairOrNull(privateKeyHex: String): KeyPair? = try {
+        KeyPair.fromPrivateKeyHex(privateKeyHex)
+    } catch (_: Exception) {
+        null
     }
 
     private fun restorePrivateKeySession(privateKeyHex: String): Boolean = try {

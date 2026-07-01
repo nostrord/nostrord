@@ -14,17 +14,28 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.CachedEventRow
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 class MetadataManager(
     private val connectionManager: ConnectionManager,
     private val outboxManager: OutboxManager,
     private val scope: CoroutineScope,
+    private val cacheStore: CacheStore = InMemoryCacheStore(),
+    // Active account (pubkey hex) for scoping the event cache; null/blank skips persistence.
+    private val accountProvider: () -> String? = { null },
 ) {
     /** Set by NostrRepository so batchFetch can reconnect bootstrap relays when all are offline. */
     var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
@@ -32,7 +43,11 @@ class MetadataManager(
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
-        const val MAX_METADATA_CACHE_SIZE = 500
+        // Holds enough profiles for a large active room so members don't get evicted (and their
+        // avatars blanked) mid-session. A UserMetadata is small (a few hundred bytes), so a few
+        // thousand entries is ~1-2 MB. The disk-backed store (see docs/metadata-cache-plan.md)
+        // later makes eviction fall back to disk instead of the network.
+        const val MAX_METADATA_CACHE_SIZE = 5000
         const val MAX_EVENTS_CACHE_SIZE = 500
 
         /** Metadata older than this is considered stale and will be re-fetched. */
@@ -68,7 +83,21 @@ class MetadataManager(
 
         /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
         const val EOSE_FALLBACK_MS = 5_000L
+
+        /** Debounce before snapshotting the metadata cache to disk after a change. */
+        const val DISK_PERSIST_DELAY_MS = 5_000L
     }
+
+    /** On-disk form of a [CachedMetadata] entry (see the global user-metadata store). */
+    @Serializable
+    private data class PersistedMetadata(
+        val pubkey: String,
+        val metadata: UserMetadata,
+        val createdAt: Long,
+        val fetchedAt: Long,
+    )
+
+    private val persistedMetadataListSerializer = ListSerializer(PersistedMetadata.serializer())
 
     /**
      * Cached kind:0 entry. [createdAt] is the event's own timestamp (seconds, NIP-01) and
@@ -218,6 +247,16 @@ class MetadataManager(
             outboxManager.bootstrapRelays
                 .filter { it !in nip29Relays }
 
+        // Relays we have already dispatched this batch's author set to. Re-sending
+        // the identical filter to the same relay a few seconds later cannot yield a
+        // different result, so retries skip them and target only relays we could
+        // NOT reach yet (offline / not connected), which is the loop's real
+        // purpose. This is send-based, not EOSE-based, on purpose: a relay whose
+        // EOSE we never observe (e.g. metadata that rode the NIP-46 bunker socket,
+        // whose handler does not route metadata EOSE) would otherwise be re-queried
+        // every attempt forever — it was ~2/3 of all metadata REQs.
+        val completedRelays = mutableSetOf<String>()
+
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             val missing =
                 pubkeys.filter { pk ->
@@ -225,6 +264,13 @@ class MetadataManager(
                     fetchedAt == null || fetchedAt < fetchStartedAt
                 }
             if (missing.isEmpty()) return
+
+            // completedRelays is keyed by the client's own (normalized) URL, the
+            // same key notifyMetadataEose removes by, so compare candidates the
+            // same way.
+            val activeCandidates = candidates.filter { it.normalizeRelayUrl() !in completedRelays }
+            // Every reachable relay has already answered — nothing left to retry.
+            if (activeCandidates.isEmpty()) return
 
             // Register the batch BEFORE sending any REQ so a fast relay's EOSE
             // is not dropped between dispatch and registration.
@@ -236,9 +282,23 @@ class MetadataManager(
                 id to relays
             }
 
+            // Relays we actually dispatched to this attempt (kept even after their
+            // EOSE removes them from pendingRelays), so we can mark the EOSEd ones
+            // complete once the wait settles.
+            val sentRelays = mutableSetOf<String>()
+
             suspend fun trySendOn(client: NostrGroupClient?, relayUrl: String): Boolean {
                 if (client == null || !client.isConnected()) return false
-                metadataBatchesMutex.withLock { pendingRelays.add(relayUrl) }
+                // Key the relay by the client's own URL (normalized), because the
+                // EOSE handler reports the source as client.getRelayUrl(); the
+                // bootstrap-list string can differ (e.g. a bunker relay carries a
+                // trailing slash), and a mismatch left the relay forever "pending"
+                // so the batch always timed out and re-queried just that relay.
+                val key = client.getRelayUrl().normalizeRelayUrl()
+                metadataBatchesMutex.withLock {
+                    pendingRelays.add(key)
+                    sentRelays.add(key)
+                }
                 return try {
                     missing.chunked(BATCH_SIZE).forEach { chunk ->
                         client.requestMetadata(chunk, subId)
@@ -246,7 +306,8 @@ class MetadataManager(
                     true
                 } catch (_: Exception) {
                     val complete = metadataBatchesMutex.withLock {
-                        pendingRelays.remove(relayUrl) && pendingRelays.isEmpty()
+                        sentRelays.remove(key)
+                        pendingRelays.remove(key) && pendingRelays.isEmpty()
                     }
                     if (complete) deferred.complete(Unit)
                     false
@@ -256,7 +317,7 @@ class MetadataManager(
             // Dispatch in parallel so we don't pay per-relay round-trip latency
             // serially — all REQs go in flight before we start waiting on EOSE.
             coroutineScope {
-                candidates.map { relayUrl ->
+                activeCandidates.map { relayUrl ->
                     async { trySendOn(connectionManager.getClientForRelay(relayUrl), relayUrl) }
                 }.awaitAll()
             }
@@ -266,7 +327,7 @@ class MetadataManager(
             if (!anySent) {
                 val handler = messageHandler
                 if (handler != null) {
-                    candidates.firstOrNull { relayUrl ->
+                    activeCandidates.firstOrNull { relayUrl ->
                         runCatching {
                             trySendOn(connectionManager.getOrConnectRelay(relayUrl, handler), relayUrl)
                         }.getOrDefault(false)
@@ -279,7 +340,12 @@ class MetadataManager(
                 // Wait for EOSE from every relay we sent to; bounded fallback in
                 // case a relay never EOSEs so we don't hang the next attempt.
                 withTimeoutOrNull(EOSE_FALLBACK_MS) { deferred.await() }
-                metadataBatchesMutex.withLock { metadataBatches.remove(subId) }
+                metadataBatchesMutex.withLock {
+                    // Every relay we successfully sent to is done for this batch,
+                    // whether or not we observed its EOSE. Re-querying it can't help.
+                    completedRelays.addAll(sentRelays)
+                    metadataBatches.remove(subId)
+                }
 
                 val allFresh =
                     pubkeys.all { pk ->
@@ -304,9 +370,10 @@ class MetadataManager(
      */
     suspend fun notifyMetadataEose(subId: String, sourceRelayUrl: String) {
         if (!subId.startsWith("metadata_batch_")) return
+        val key = sourceRelayUrl.normalizeRelayUrl()
         val toComplete = metadataBatchesMutex.withLock {
             val batch = metadataBatches[subId] ?: return@withLock null
-            batch.pendingRelays.remove(sourceRelayUrl)
+            batch.pendingRelays.remove(key)
             if (batch.pendingRelays.isEmpty()) batch.deferred else null
         }
         toComplete?.complete(Unit)
@@ -320,6 +387,23 @@ class MetadataManager(
     ) {
         // Skip if already cached or already in-flight
         if (_cachedEvents.value.containsKey(eventId)) return
+        // Disk fallback: resolve a previously-seen event from the persistent cache before any
+        // network REQ (cold-start quotes/reactions/replies, and a cheap re-fetch avoidance when
+        // the in-memory LRU has evicted it).
+        val account = accountProvider()?.takeIf { it.isNotBlank() }
+        if (account != null) {
+            val persisted =
+                try {
+                    cacheStore.getEvent(account, eventId)
+                } catch (_: Exception) {
+                    null
+                }
+            if (persisted != null) {
+                eventsCache.put(eventId, persisted.toCachedEvent())
+                _cachedEvents.value = eventsCache.toMap()
+                return
+            }
+        }
         val shouldFetch =
             inFlightEventsMutex.withLock {
                 if (inFlightEvents.contains(eventId)) {
@@ -332,33 +416,35 @@ class MetadataManager(
         if (!shouldFetch) return
 
         try {
-            // Use outbox model for relay selection
-            val relaysToTry =
-                outboxManager.selectConnectedOutboxRelays(
-                    authors = if (author != null) listOf(author) else emptyList(),
-                    explicitRelays = relayHints,
-                )
-
-            // All relays in relaysToTry are already connected (pre-filtered).
-            var sent =
-                relaysToTry.count { relayUrl ->
-                    try {
-                        connectionManager.getClientForRelay(relayUrl)!!.requestEventById(eventId)
-                        true
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-
-            // Always also try primary NIP-29 relay — it hosts the events being quoted.
-            val primary = connectionManager.getPrimaryClient()
-            if (primary != null && primary.isConnected()) {
+            // Broadcast to EVERY connected relay, not just the nevent's relay hint. A NIP-29 event
+            // lives only on its group's relay, and the hint is often wrong or absent (it points at
+            // the relay it was copied from, not the event's home), so querying only the hint misses
+            // it while another connected relay actually has it. This is how native effectively
+            // resolves these — it has those relays connected. (Includes the focused + author
+            // outbox relays already in the pool.)
+            connectionManager.getAllConnectedClients().forEach { client ->
                 try {
-                    primary.requestEventById(eventId)
-                    sent++
+                    client.requestEventById(eventId)
                 } catch (_: Exception) {
                 }
             }
+
+            // Plus any relay hint we are NOT connected to: connect on demand and REQ there, so a
+            // correct hint to a relay outside the pool (an event whose group relay we never joined)
+            // still resolves. getOrConnectRelay is singleflight + pool-checked; messageHandler wires
+            // the freshly-connected client so its reply is cached.
+            relayHints
+                .filter { it.isNotBlank() }
+                .distinct()
+                .forEach { hint ->
+                    try {
+                        val existing = connectionManager.getClientForRelay(hint)
+                        if (existing == null || !existing.isConnected()) {
+                            connectionManager.getOrConnectRelay(hint, messageHandler)?.requestEventById(eventId)
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
         } finally {
             // Remove after a delay to allow the response to arrive and be cached.
             // If not cached after 10s, subsequent requests can try again.
@@ -411,11 +497,11 @@ class MetadataManager(
                     }
                 }
 
-            // Always also try primary NIP-29 relay — it hosts the addressable events.
-            val primary = connectionManager.getPrimaryClient()
-            if (primary != null && primary.isConnected()) {
+            // Always also try focused NIP-29 relay — it hosts the addressable events.
+            val focused = connectionManager.getFocusedClient()
+            if (focused != null && focused.isConnected()) {
                 try {
-                    primary.requestAddressableEvent(kind, pubkey, identifier)
+                    focused.requestAddressableEvent(kind, pubkey, identifier)
                     sent++
                 } catch (_: Exception) {
                 }
@@ -459,6 +545,53 @@ class MetadataManager(
         }
         metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         scheduleMetadataFlush()
+        scheduleDiskPersist()
+    }
+
+    /**
+     * Pre-populates the cache + StateFlow from the on-disk store so names/avatars show
+     * instantly on cold start, without waiting for the network. Must run AFTER
+     * [SecureStorage.preloadMetadata] on web (IndexedDB reads are async there). Restored
+     * entries keep their original fetchedAt so a stale one (>30 min) still revalidates on
+     * the next incoming event; it does NOT mark anything as fetched, so refresh still runs.
+     */
+    fun restoreFromCache() {
+        try {
+            val cached = SecureStorage.getUserMetadataCache()
+            if (cached.isNullOrBlank()) return
+            val entries = json.decodeFromString(persistedMetadataListSerializer, cached)
+            entries.forEach { e ->
+                val existing = metadataCache.get(e.pubkey)
+                if (existing == null || e.createdAt > existing.createdAt) {
+                    metadataCache.put(e.pubkey, CachedMetadata(e.metadata, e.createdAt, e.fetchedAt))
+                }
+            }
+            if (entries.isNotEmpty()) publishMetadataSnapshot()
+        } catch (_: Exception) {
+            // Corrupted cache — start fresh.
+        }
+    }
+
+    private var diskPersistJob: Job? = null
+
+    /** Debounced snapshot of the (recency-bounded) cache to the global on-disk store. */
+    private fun scheduleDiskPersist() {
+        diskPersistJob?.cancel()
+        diskPersistJob =
+            scope.launch {
+                delay(DISK_PERSIST_DELAY_MS)
+                val entries =
+                    metadataCache.toMap().map { (pk, c) ->
+                        PersistedMetadata(pk, c.metadata, c.createdAt, c.fetchedAt)
+                    }
+                // Never overwrite the store with an empty snapshot (e.g. if a logout cleared
+                // the in-memory cache between the schedule and the write).
+                if (entries.isEmpty()) return@launch
+                try {
+                    SecureStorage.saveUserMetadataCache(json.encodeToString(persistedMetadataListSerializer, entries))
+                } catch (_: Exception) {
+                }
+            }
     }
 
     private fun publishMetadataSnapshot() {
@@ -488,6 +621,7 @@ class MetadataManager(
     ) {
         metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         flushMetadataNow()
+        scheduleDiskPersist()
     }
 
     private fun UserMetadata.isEmpty(): Boolean = name.isNullOrBlank() &&
@@ -503,7 +637,46 @@ class MetadataManager(
     fun handleCachedEvent(event: CachedEvent) {
         eventsCache.put(event.id, event)
         _cachedEvents.value = eventsCache.toMap()
+        persistEvent(event)
     }
+
+    private val eventTagsSerializer = ListSerializer(ListSerializer(String.serializer()))
+
+    /** Write a generic event through to the persistent cache so it resolves on cold start. */
+    private fun persistEvent(event: CachedEvent) {
+        val account = accountProvider()?.takeIf { it.isNotBlank() } ?: return
+        scope.launch {
+            try {
+                cacheStore.upsertEvents(
+                    account,
+                    listOf(
+                        CachedEventRow(
+                            id = event.id,
+                            pubkey = event.pubkey,
+                            createdAt = event.createdAt,
+                            kind = event.kind,
+                            content = event.content,
+                            tagsJson = json.encodeToString(eventTagsSerializer, event.tags),
+                        ),
+                    ),
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun CachedEventRow.toCachedEvent(): CachedEvent = CachedEvent(
+        id = id,
+        pubkey = pubkey,
+        kind = kind,
+        content = content,
+        createdAt = createdAt,
+        tags = try {
+            json.decodeFromString(eventTagsSerializer, tagsJson)
+        } catch (_: Exception) {
+            emptyList()
+        },
+    )
 
     fun parseAndCacheEvent(eventJson: JsonObject): CachedEvent? {
         return try {
@@ -532,6 +705,7 @@ class MetadataManager(
 
             eventsCache.put(eventId, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
+            persistEvent(cachedEvent)
             cachedEvent
         } catch (e: Exception) {
             null
@@ -567,6 +741,7 @@ class MetadataManager(
             eventsCache.put(eventId, cachedEvent)
             eventsCache.put(addressKey, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
+            persistEvent(cachedEvent)
             cachedEvent
         } catch (_: Exception) {
             null
@@ -587,6 +762,9 @@ class MetadataManager(
     fun getCachedEvent(eventId: String): CachedEvent? = eventsCache.get(eventId)
 
     fun clear() {
+        // Cancel any pending persist so it can't write the about-to-be-emptied cache over
+        // the on-disk store (which is global and survives logout for fast re-login).
+        diskPersistJob?.cancel()
         metadataCache.clear()
         eventsCache.clear()
         _userMetadata.value = emptyMap()

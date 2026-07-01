@@ -7,11 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -36,12 +37,12 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
         Text(
             text = "Browser Extension Login",
             style = MaterialTheme.typography.titleMedium,
-            color = Color.White,
+            color = NostrordColors.TextPrimary,
             textAlign = TextAlign.Center,
         )
 
         Text(
-            text = "Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostrame.",
+            text = "Connect using a NIP-07 compatible extension such as nos2x or Nostrame.",
             style = MaterialTheme.typography.bodySmall,
             color = NostrordColors.TextMuted,
             textAlign = TextAlign.Center,
@@ -56,7 +57,8 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
             )
         }
 
-        Button(
+        AppButton(
+            text = if (isLoading) "Connecting..." else "Connect Extension",
             onClick = {
                 isLoading = true
                 errorMessage = null
@@ -70,17 +72,9 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
                 }
             },
             enabled = !isLoading,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-            Text(if (isLoading) "Connecting..." else "Connect Extension")
-        }
+            size = AppButtonSize.Large,
+            fullWidth = true,
+            loading = isLoading,
+        )
     }
 }

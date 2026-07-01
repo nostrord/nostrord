@@ -34,7 +34,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -120,7 +119,7 @@ fun AccountChooserDialog(
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                     Text(
                         "Choose an account",
-                        color = Color.White,
+                        color = NostrordColors.TextPrimary,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -207,7 +206,7 @@ private fun ChooserAccountRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 displayName,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -244,9 +243,9 @@ private fun ChooserActionRow(
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = NostrordColors.TextPrimary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(16.dp))
-        Text(label, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        Text(label, color = NostrordColors.TextPrimary, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

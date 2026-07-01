@@ -2,6 +2,7 @@ package org.nostr.nostrord.di
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -38,10 +39,12 @@ import org.nostr.nostrord.notifications.NotificationRequest
 import org.nostr.nostrord.notifications.NotificationService
 import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.notifications.playNotificationSound
-import org.nostr.nostrord.settings.FeatureFlags
+import org.nostr.nostrord.settings.AppearanceSettings
 import org.nostr.nostrord.settings.MediaSettings
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.createCacheStore
 import org.nostr.nostrord.utils.epochSeconds
 
 /**
@@ -51,6 +54,14 @@ import org.nostr.nostrord.utils.epochSeconds
 object AppModule {
     // Coroutine scope for the entire app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * App-lifetime scope for fire-and-forget suspend actions triggered from the UI
+     * (follow, send, ...). They must outlive the Composable/screen that triggered them,
+     * so navigating away quickly never cancels (and loses) the work. Native counterpart
+     * of the web bridge's `launchApp`.
+     */
+    fun launchApp(block: suspend CoroutineScope.() -> Unit): Job = appScope.launch(block = block)
 
     // Global event deduplicator — single instance shared across all managers.
     // Runs TTL eviction once per hour so long sessions don't accumulate stale entries.
@@ -82,6 +93,25 @@ object AppModule {
     /** Surface a one-shot transient confirmation/notice to the user (snackbar). */
     fun postSystemMessage(message: String) {
         _systemMessages.tryEmit(message)
+    }
+
+    // Set by the friends sidebar's "Follow people" empty-state action to re-open the
+    // onboarding wizard for an account that already finished it but follows nobody.
+    // AppViewModel folds this into its onboarding gate (overriding a prior Skip) and
+    // clears it when the user leaves the wizard. It lives here, not on AppViewModel,
+    // because the sidebar is too deep to reach the top-level AppViewModel (and on web
+    // each useViewModel call site builds its own instance).
+    private val _onboardingRequested = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val onboardingRequested: kotlinx.coroutines.flow.StateFlow<Boolean> = _onboardingRequested
+
+    /** Re-open the onboarding wizard from inside the app (friends sidebar). */
+    fun requestOnboarding() {
+        _onboardingRequested.value = true
+    }
+
+    /** Clear the re-open request once the user leaves the wizard. */
+    fun clearOnboardingRequest() {
+        _onboardingRequested.value = false
     }
 
     val authManager: AuthManager by lazy {
@@ -174,7 +204,6 @@ object AppModule {
     val sessionManager: SessionManager by lazy {
         SessionManager(
             authManager = authManager,
-            scope = appScope,
         )
     }
 
@@ -197,10 +226,15 @@ object AppModule {
         LiveCursorStore()
     }
 
+    // Bulk message/event history cache. SQLDelight-backed on native, IndexedDB-backed on web
+    // (web still on the in-memory fallback until that backend lands). No consumer reads it yet,
+    // so wiring the real backend here is inert until the disk-first read paths are added.
+    val cacheStore: CacheStore by lazy { createCacheStore() }
+
     val muxTracker: MuxSubscriptionTracker by lazy { MuxSubscriptionTracker() }
 
     val adaptiveConfig: AdaptiveConfig by lazy {
-        AdaptiveConfig(connStats = connStats, scope = appScope)
+        AdaptiveConfig(scope = appScope)
     }
 
     val groupManager: GroupManager by lazy {
@@ -212,6 +246,7 @@ object AppModule {
             connStats = connStats,
             muxTracker = muxTracker,
             adaptiveConfig = adaptiveConfig,
+            cacheStore = cacheStore,
             onNewMessagesFlushed = { groupId, newMessages ->
                 unreadManager.onMessagesFlushed(groupId, newMessages)
             },
@@ -223,6 +258,8 @@ object AppModule {
             connectionManager = connectionManager,
             outboxManager = outboxManager,
             scope = appScope,
+            cacheStore = cacheStore,
+            accountProvider = { sessionManager.getPublicKey() },
         )
     }
 
@@ -453,6 +490,7 @@ object AppModule {
             // Drop a group's notifications from the feed the moment its unread
             // badge is cleared, so opening/reading a chat clears both (issue #67).
             onGroupRead = { groupId -> notificationHistoryStore.markReadForGroup(groupId) },
+            scope = appScope,
         )
     }
 
@@ -460,11 +498,11 @@ object AppModule {
         RelayMetadataManager(scope = appScope)
     }
 
-    val featureFlags: FeatureFlags by lazy { FeatureFlags() }
-
     val notificationSettings: NotificationSettings by lazy { NotificationSettings() }
 
     val mediaSettings: MediaSettings by lazy { MediaSettings() }
+
+    val appearanceSettings: AppearanceSettings by lazy { AppearanceSettings() }
 
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(
@@ -481,6 +519,7 @@ object AppModule {
             connStats = connStats,
             notificationHistoryStore = notificationHistoryStore,
             notificationSettings = notificationSettings,
+            cacheStore = cacheStore,
             scope = appScope,
         )
     }
@@ -503,6 +542,9 @@ object AppModule {
      * has not loaded credentials yet, the existing session is left unchanged.
      */
     suspend fun activateSessionForActiveAccount() {
+        // Re-allow pool connections that a prior logout gated off (no-op if still
+        // logged in). Runs before any login-time relay/outbox/DM work.
+        connectionManager.resumeConnections()
         val account = accountStore.active ?: return
         if (ActiveAccountManager.session.value?.accountId?.value == account.id) return
         val session = accountSessionFactory.build(account, authManager) ?: return
@@ -529,13 +571,16 @@ object AppModule {
         try {
             notificationService.cancelAllPending()
         } catch (_: Throwable) {}
-        // Close the old account's group-list subscriptions on every open
-        // socket — the sub ID is a function of the relay URL alone, so the
-        // new account would otherwise reuse it and a late EOSE from A's REQ
-        // would consume B's pendingFullFetchRelays entry, falsely marking
-        // the relay fully fetched and pruning partial data.
+        // Close ALL of the old account's live subscriptions on every open socket BEFORE
+        // clearing state and installing the new account. The mux chat/meta and dm_inbox REQs
+        // are group/kind-filtered, not pubkey-filtered, so while they stay open the socket
+        // (still AUTH'd as the old account) keeps pushing the old account's kind:9 / 39000 /
+        // gift-wrap events, which land in the new account's freshly-cleared, now-new-account-
+        // bound state — the old account's groups/messages then render under the new account.
+        // Sockets stay connected; the new account re-subscribes via reloadForActiveAccount.
+        // (Supersedes the group-list-only close: that sub id is also in openSubscriptions.)
         try {
-            connectionManager.closeGroupListSubscriptionsOnAllClients()
+            connectionManager.closeAllSubscriptionsOnAllClients()
         } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()

@@ -1,6 +1,8 @@
 package org.nostr.nostrord.storage
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -138,6 +140,18 @@ expect object SecureStorage {
 
     fun clearLastViewedGroup(pubkey: String)
 
+    // Last open route, for reopening straight into it on the next launch (native).
+    // Stores the route's URL hash; it already encodes relay + groupId (or the home tab),
+    // so a single string round-trips via parseHashRoute. Only groups and home are tracked.
+    fun saveLastRoute(
+        pubkey: String,
+        routeHash: String,
+    )
+
+    fun getLastRoute(pubkey: String): String?
+
+    fun clearLastRoute(pubkey: String)
+
     // Message persistence (for offline-first behavior)
     // Stores recent messages per group to survive app restarts
     fun saveMessagesForGroup(
@@ -199,6 +213,20 @@ expect object SecureStorage {
 
     fun getRelayMetadata(): String?
 
+    // kind:0 user metadata cache (persisted across restarts). Public, non-sensitive: a
+    // pubkey's profile is the same for everyone, so this is a single global store (not
+    // per-account) restored before network so names/avatars show instantly on cold start.
+    fun saveUserMetadataCache(json: String)
+
+    fun getUserMetadataCache(): String?
+
+    // Other users' kind:10009 group lists (friends + curator), so the From friends /
+    // Recommended tabs render from cache before the network answers. Public, non-sensitive,
+    // global (a user's list is the same for everyone).
+    fun saveUserGroupListsCache(json: String)
+
+    fun getUserGroupListsCache(): String?
+
     // Live subscription cursors — last-seen event timestamp per group per relay
     fun saveLiveCursors(
         relayUrl: String,
@@ -250,89 +278,37 @@ expect object SecureStorage {
     suspend fun preloadMetadata()
 }
 
-// Per-relay last-viewed group. Stored as "groupId|groupName" with `|` and `%`
-// percent-escaped so the pipe stays unambiguous as the field separator.
-private fun lastGroupForRelayKey(
-    pubkey: String,
-    relayUrl: String,
-): String = "last_group_${pubkeyDigest(pubkey)}_${relayUrl.hashCode()}"
-
-// Legacy key — used only by the one-shot read-time migration in getLastGroupForRelay.
-// The pubkey portion used to be String.hashCode() (32-bit, collision-prone).
-private fun legacyLastGroupForRelayKey(
-    pubkey: String,
-    relayUrl: String,
-): String = "last_group_${pubkey.hashCode()}_${relayUrl.hashCode()}"
-
-private fun encodeLastGroupValue(
-    groupId: String,
-    groupName: String?,
-): String {
-    fun esc(s: String) = s.replace("%", "%25").replace("|", "%7C")
-    return if (groupName == null) esc(groupId) else "${esc(groupId)}|${esc(groupName)}"
-}
-
-private fun decodeLastGroupValue(raw: String): Pair<String, String?>? {
-    if (raw.isBlank()) return null
-
-    fun unesc(s: String) = s.replace("%7C", "|").replace("%25", "%")
-    val parts = raw.split("|", limit = 2)
-    val id = unesc(parts[0])
-    if (id.isBlank()) return null
-    val name = parts.getOrNull(1)?.let(::unesc)?.takeIf { it.isNotBlank() }
-    return id to name
-}
-
-fun SecureStorage.saveLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-    groupId: String,
-    groupName: String?,
-) {
-    if (pubkey.isBlank() || relayUrl.isBlank() || groupId.isBlank()) return
-    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), encodeLastGroupValue(groupId, groupName))
-}
-
-fun SecureStorage.getLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-): Pair<String, String?>? {
-    if (pubkey.isBlank() || relayUrl.isBlank()) return null
-    val raw =
-        migrateStringSlot(
-            lastGroupForRelayKey(pubkey, relayUrl),
-            legacyLastGroupForRelayKey(pubkey, relayUrl),
-        ) ?: return null
-    return decodeLastGroupValue(raw)
-}
-
-fun SecureStorage.clearLastGroupForRelay(
-    pubkey: String,
-    relayUrl: String,
-) {
-    if (pubkey.isBlank() || relayUrl.isBlank()) return
-    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), "")
-    saveStringPref(legacyLastGroupForRelayKey(pubkey, relayUrl), "")
-}
-
 // Per-relay group-list EOSE timestamp — lets the app skip requestGroups() when the
 // cached group list is fresh enough (< GROUP_CACHE_TTL_S seconds old).
 private const val GROUP_CACHE_TTL_S = 3600L // 1 hour
 
+// Per-account: the freshness of one account's joined-group snapshot must not mark the
+// relay "fresh" for a different account after a warm switch (that skipped the re-fetch and
+// left the other account's groups on "No description"). Keyed by relay AND pubkey.
+private fun groupEoseKey(
+    relayUrl: String,
+    pubkey: String?,
+) = "group_eose_ts_${relayUrl.hashCode()}_${pubkey?.hashCode() ?: 0}"
+
 fun SecureStorage.saveGroupListEoseTimestamp(
     relayUrl: String,
+    pubkey: String?,
     timestampSeconds: Long,
 ) {
-    saveStringPref("group_eose_ts_${relayUrl.hashCode()}", timestampSeconds.toString())
+    saveStringPref(groupEoseKey(relayUrl, pubkey), timestampSeconds.toString())
 }
 
-fun SecureStorage.getGroupListEoseTimestamp(relayUrl: String): Long = getStringPref("group_eose_ts_${relayUrl.hashCode()}", "0").toLongOrNull() ?: 0L
+fun SecureStorage.getGroupListEoseTimestamp(
+    relayUrl: String,
+    pubkey: String?,
+): Long = getStringPref(groupEoseKey(relayUrl, pubkey), "0").toLongOrNull() ?: 0L
 
 fun SecureStorage.isGroupListCacheFresh(
     relayUrl: String,
+    pubkey: String?,
     nowSeconds: Long,
 ): Boolean {
-    val ts = getGroupListEoseTimestamp(relayUrl)
+    val ts = getGroupListEoseTimestamp(relayUrl, pubkey)
     return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
 }
 
@@ -380,10 +356,6 @@ fun SecureStorage.loadKind10009Timestamp(pubkey: String): Long {
     return raw?.toLongOrNull() ?: 0L
 }
 
-// Legacy global key — kept for one-shot migration on first run after the upgrade.
-// Removed once a fresh kind:10009 arrives for any user.
-internal fun SecureStorage.loadLegacyKind10009Timestamp(): Long = getStringPref("kind10009_latest_ts", "0").toLongOrNull() ?: 0L
-
 // ── Per-account NIP-29 relay list ───────────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveRelayList`/`loadRelayList`
 // slot, which would otherwise leak relays across accounts. The first read for
@@ -415,6 +387,11 @@ fun SecureStorage.getNostrConnectRelays(): List<String>? = try {
     } else {
         Json.decodeFromString<List<String>>(raw)
             .filter { it.isNotBlank() }
+            // Drop relay.nsec.app from any previously-saved list: it was unreachable
+            // for some users and made the QR connect fail with "Failed to connect to
+            // any relay". Filtering on read auto-heals lists persisted before it was
+            // removed from the defaults; an emptied list falls back to the defaults.
+            .filterNot { it.trimEnd('/').endsWith("relay.nsec.app") }
             .takeIf { it.isNotEmpty() }
     }
 } catch (_: Exception) {
@@ -472,11 +449,95 @@ fun SecureStorage.loadRelayListFor(pubkey: String): List<String> {
     return emptyList()
 }
 
-fun SecureStorage.clearRelayListFor(pubkey: String) {
+// ── Per-account friends cache ───────────────────────────────────────────────
+// Last-known followed users (kind:3) with their resolved kind:0 metadata, so the
+// home sidebar shows names + avatars instantly on launch instead of re-fetching
+// every time. Refreshed from live data and on follow/unfollow.
+private fun followingCacheKey(pubkey: String) = "following_cache_${pubkeyDigest(pubkey)}"
+
+/**
+ * The followed pubkey list (kind:3), per account. Only the identities are cached here — the
+ * ordering pointer for the friends sidebar; their kind:0 metadata comes from the global
+ * user-metadata store (MetadataManager), so it is not duplicated and stays a single source
+ * of truth. Lets the sidebar render its rows before kind:3 re-arrives on cold start.
+ */
+fun SecureStorage.saveFollowingCacheFor(
+    pubkey: String,
+    following: List<String>,
+) {
     if (pubkey.isBlank()) return
-    saveStringPref(relayListForAccountKey(pubkey), "")
-    saveStringPref(legacyHashRelayListForAccountKey(pubkey), "")
+    try {
+        saveStringPref(
+            followingCacheKey(pubkey),
+            Json.encodeToString(ListSerializer(String.serializer()), following),
+        )
+    } catch (_: Exception) {
+    }
 }
+
+fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(followingCacheKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(ListSerializer(String.serializer()), raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+// ── Per-account group membership cache ──────────────────────────────────────
+// One JSON blob per account holding every known group's members/admins/roles
+// (NIP-29 kind:39002/39001/39003) plus each list's source-event timestamp, so a
+// previously-seen group renders its member list instantly on cold start
+// (stale-while-revalidate) instead of waiting on a relay REQ. The blob shape is
+// owned by GroupManager; this slot only stores the encoded string.
+private fun groupMembershipCacheKey(pubkey: String) = "group_membership_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveGroupMembershipFor(
+    pubkey: String,
+    membershipJson: String,
+) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), membershipJson)
+}
+
+fun SecureStorage.loadGroupMembershipFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getStringPref(groupMembershipCacheKey(pubkey), "").ifBlank { null }
+}
+
+fun SecureStorage.clearGroupMembershipFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), "")
+}
+
+// One-shot guard: true once the legacy per-group message blobs have been seeded into the
+// bulk history cache (CacheStore), so the migration runs at most once per account.
+private fun messageBlobMigratedKey(pubkey: String) = "message_blob_migrated_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.isMessageBlobMigratedFor(pubkey: String): Boolean = getBooleanPref(messageBlobMigratedKey(pubkey), false)
+
+fun SecureStorage.setMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), true)
+}
+
+fun SecureStorage.clearMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), false)
+}
+
+// ── NIP-11 relay-info refresh timestamps ────────────────────────────────────
+// Per-relay last-successful-fetch epoch seconds, one JSON blob (account-independent,
+// like the relay metadata itself). Lets the NIP-11 cache skip the network fetch while
+// the cached document is fresh (soft TTL) and refresh only occasionally, instead of
+// re-fetching every relay on every cold start.
+private const val RELAY_NIP11_FETCHED_AT_KEY = "relay_nip11_fetched_at"
+
+fun SecureStorage.saveRelayMetadataFetchedAt(fetchedAtJson: String) {
+    saveStringPref(RELAY_NIP11_FETCHED_AT_KEY, fetchedAtJson)
+}
+
+fun SecureStorage.getRelayMetadataFetchedAt(): String? = getStringPref(RELAY_NIP11_FETCHED_AT_KEY, "").ifBlank { null }
 
 // ── Per-account "current relay" pointer ─────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveCurrentRelayUrl`, so a
@@ -637,6 +698,90 @@ fun SecureStorage.removeRestrictedGroupForRelay(
     }
 }
 
+// ── Left-groups persistence ─────────────────────────────────────────────────
+// Durable per-account/per-relay record of groups the user EXPLICITLY left (sent a
+// kind:9022). Survives restart so the membership derivation can report NONE even when
+// the relay still lists us in its kind:39002 (some relays keep a member listed after a
+// leave). Entries auto-expire after LEFT_GROUPS_TTL_S so a long-abandoned marker can't
+// keep a group out forever; a rejoin clears it immediately.
+private const val LEFT_GROUPS_TTL_S = 30 * 24 * 3600L
+
+private fun leftGroupsKey(
+    pubkey: String,
+    relayUrl: String,
+): String = "left_groups_${pubkeyDigest(pubkey)}_${relayUrl.hashCode()}"
+
+fun SecureStorage.getLeftGroupsForRelay(
+    pubkey: String,
+    relayUrl: String,
+    nowSeconds: Long,
+): Map<String, Long> {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return emptyMap()
+    val parsed: Map<String, Long> =
+        try {
+            Json.decodeFromString(raw)
+        } catch (_: Exception) {
+            return emptyMap()
+        }
+    val fresh = parsed.filterValues { nowSeconds - it < LEFT_GROUPS_TTL_S }
+    if (fresh.size != parsed.size) {
+        try {
+            saveStringPref(key, Json.encodeToString(fresh))
+        } catch (_: Exception) {
+        }
+    }
+    return fresh
+}
+
+fun SecureStorage.addLeftGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+    nowSeconds: Long,
+) {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    val current: MutableMap<String, Long> =
+        if (raw.isBlank()) {
+            mutableMapOf()
+        } else {
+            try {
+                Json.decodeFromString<Map<String, Long>>(raw).toMutableMap()
+            } catch (_: Exception) {
+                mutableMapOf()
+            }
+        }
+    current[groupId] = nowSeconds
+    try {
+        saveStringPref(key, Json.encodeToString<Map<String, Long>>(current))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.removeLeftGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+) {
+    val key = leftGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return
+    val current: MutableMap<String, Long> =
+        try {
+            Json.decodeFromString<Map<String, Long>>(raw).toMutableMap()
+        } catch (_: Exception) {
+            return
+        }
+    if (current.remove(groupId) != null) {
+        try {
+            saveStringPref(key, Json.encodeToString<Map<String, Long>>(current))
+        } catch (_: Exception) {
+        }
+    }
+}
+
 // ── Unread state persistence ────────────────────────────────────────────────
 // Persists per-account unread counters + high-water timestamps so badges,
 // rail bubbles, and the title counter survive app restarts. The high-water
@@ -670,6 +815,107 @@ internal fun SecureStorage.saveUnreadEntries(
 ) {
     try {
         saveStringPref(unreadEntriesKey(pubkey), Json.encodeToString<Map<String, UnreadEntry>>(entries))
+    } catch (_: Exception) {
+    }
+}
+
+// ── NIP-17 direct messages ──────────────────────────────────────────────────
+// Decrypted DM rumors are cached per account so they survive restarts and we
+// never re-decrypt a gift wrap. The sync cursor is the last time we opened the
+// inbox; the next start subscribes from cursor - 2 days to cover NIP-59's
+// randomized (backdated) gift-wrap timestamps. Read high-water per peer drives
+// unread badges.
+
+private fun dmMessagesKey(pubkey: String): String = "dm_messages_${pubkeyDigest(pubkey)}"
+
+private fun dmLastReadKey(pubkey: String): String = "dm_last_read_${pubkeyDigest(pubkey)}"
+
+private fun dmSyncCursorKey(pubkey: String): String = "dm_sync_cursor_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmMessages(pubkey: String): List<org.nostr.nostrord.network.managers.DmMessage> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(dmMessagesKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun dmCacheMigratedKey(pubkey: String) = "dm_cache_migrated_${pubkeyDigest(pubkey)}"
+
+/**
+ * Whether the legacy DM blob ([loadDmMessages]) has been moved into the CacheStore. DM history now
+ * lives in the bulk message cache (IndexedDB / SQLDelight); this one-shot flag stops the migration
+ * from re-running and lets [clearDmMessages] free the old KV slot.
+ */
+fun SecureStorage.isDmCacheMigratedFor(pubkey: String): Boolean = getBooleanPref(dmCacheMigratedKey(pubkey), false)
+
+fun SecureStorage.setDmCacheMigratedFor(pubkey: String) {
+    saveBooleanPref(dmCacheMigratedKey(pubkey), true)
+}
+
+/** Drop the legacy DM message blob once it has been migrated into the CacheStore. */
+fun SecureStorage.clearDmMessages(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(dmMessagesKey(pubkey), "")
+}
+
+fun SecureStorage.loadDmLastRead(pubkey: String): Map<String, Long> {
+    if (pubkey.isBlank()) return emptyMap()
+    val raw = getStringPref(dmLastReadKey(pubkey), "")
+    if (raw.isBlank()) return emptyMap()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
+fun SecureStorage.saveDmLastRead(
+    pubkey: String,
+    lastRead: Map<String, Long>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmLastReadKey(pubkey), Json.encodeToString(lastRead))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadDmSyncCursor(pubkey: String): Long = if (pubkey.isBlank()) 0L else getStringPref(dmSyncCursorKey(pubkey), "0").toLongOrNull() ?: 0L
+
+fun SecureStorage.saveDmSyncCursor(
+    pubkey: String,
+    cursor: Long,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmSyncCursorKey(pubkey), cursor.toString())
+    } catch (_: Exception) {
+    }
+}
+
+// Gift-wrap (kind:1059) ids we have already unwrapped, so a re-streamed backlog skips the
+// expensive per-wrap decrypt (a remote round-trip on a bunker signer) instead of redoing it.
+// Durable progress: a slow/interrupted backfill resumes across app restarts.
+private fun dmProcessedWrapsKey(pubkey: String): String = "dm_processed_wraps_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmProcessedWrapIds(pubkey: String): Set<String> {
+    if (pubkey.isBlank()) return emptySet()
+    val raw = getStringPref(dmProcessedWrapsKey(pubkey), "") ?: ""
+    if (raw.isBlank()) return emptySet()
+    return runCatching { Json.decodeFromString<Set<String>>(raw) }.getOrDefault(emptySet())
+}
+
+fun SecureStorage.saveDmProcessedWrapIds(
+    pubkey: String,
+    ids: Set<String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmProcessedWrapsKey(pubkey), Json.encodeToString(ids))
     } catch (_: Exception) {
     }
 }
@@ -768,6 +1014,8 @@ fun SecureStorage.clearLastActiveAt(pubkey: String) {
 
 private fun privKeyForAccountKey(pubkey: String) = "priv_key_${pubkeyDigest(pubkey)}"
 
+private fun encryptedPrivKeyForAccountKey(pubkey: String) = "ncryptsec_${pubkeyDigest(pubkey)}"
+
 private fun bunkerUrlForAccountKey(pubkey: String) = "bunker_url_${pubkeyDigest(pubkey)}"
 
 private fun bunkerClientPrivForAccountKey(pubkey: String) = "bunker_client_priv_${pubkeyDigest(pubkey)}"
@@ -808,6 +1056,26 @@ fun SecureStorage.clearPrivateKeyFor(pubkey: String) {
     if (pubkey.isBlank()) return
     clearSensitive(privKeyForAccountKey(pubkey))
     clearSensitive(legacyHashPrivKeyForAccountKey(pubkey))
+}
+
+// NIP-49 password-protected accounts: only the ncryptsec touches disk (the raw key
+// lives in the in-memory signer) and the unlock password is asked at startup.
+fun SecureStorage.saveEncryptedPrivateKeyFor(
+    pubkey: String,
+    ncryptsec: String,
+) {
+    if (pubkey.isBlank()) return
+    saveSensitive(encryptedPrivKeyForAccountKey(pubkey), ncryptsec)
+}
+
+fun SecureStorage.getEncryptedPrivateKeyFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getSensitive(encryptedPrivKeyForAccountKey(pubkey))
+}
+
+fun SecureStorage.clearEncryptedPrivateKeyFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    clearSensitive(encryptedPrivKeyForAccountKey(pubkey))
 }
 
 fun SecureStorage.saveBunkerUrlFor(
@@ -858,20 +1126,37 @@ fun SecureStorage.clearBunkerClientPrivateKeyFor(pubkey: String) {
 /** Convenience: wipe every credential slot belonging to [pubkey]. */
 fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
     clearPrivateKeyFor(pubkey)
+    clearEncryptedPrivateKeyFor(pubkey)
     clearBunkerUrlFor(pubkey)
     clearBunkerClientPrivateKeyFor(pubkey)
 }
 
-// Legacy support functions (deprecated - use account-scoped versions)
-@Deprecated("Use account-scoped saveJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.saveJoinedGroups(groups: Set<String>) {
-    saveJoinedGroupsForRelay("legacy", "legacy", groups)
+private fun droppedGroupsForAccountKey(pubkey: String) = "dropped_groups_${pubkeyDigest(pubkey)}"
+
+/**
+ * Group ids the user deleted or left on this device. Persisted so the additive kind:10009 merge
+ * (OutboxManager) keeps skipping them after a restart: a relay that never received the updated list
+ * still serves the old one, and without this guard the stale copy resurrects the group in the rail.
+ * Cleared (per id) on re-join.
+ */
+fun SecureStorage.saveDroppedGroupIds(
+    pubkey: String,
+    ids: Set<String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(droppedGroupsForAccountKey(pubkey), Json.encodeToString<List<String>>(ids.toList()))
+    } catch (_: Exception) {
+    }
 }
 
-@Deprecated("Use account-scoped getJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.getJoinedGroups(): Set<String> = getJoinedGroupsForRelay("legacy", "legacy")
-
-@Deprecated("Use account-scoped clearJoinedGroupsForRelay with pubkey")
-suspend fun SecureStorage.clearJoinedGroups() {
-    clearJoinedGroupsForRelay("legacy", "legacy")
+fun SecureStorage.loadDroppedGroupIds(pubkey: String): Set<String> {
+    if (pubkey.isBlank()) return emptySet()
+    val raw = getStringPref(droppedGroupsForAccountKey(pubkey), "")
+    if (raw.isBlank()) return emptySet()
+    return try {
+        Json.decodeFromString<List<String>>(raw).toSet()
+    } catch (_: Exception) {
+        emptySet()
+    }
 }

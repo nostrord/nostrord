@@ -6,15 +6,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.fetchNip11RelayInfo
 import org.nostr.nostrord.nostr.nip11RelayInfoMapSerializer
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.getRelayMetadataFetchedAt
+import org.nostr.nostrord.storage.saveRelayMetadataFetchedAt
+import org.nostr.nostrord.utils.epochSeconds
 
 /**
  * Fetches and caches NIP-11 relay metadata for each relay URL.
@@ -40,14 +46,25 @@ class RelayMetadataManager(
     private val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata.asStateFlow()
 
+    // Relays whose NIP-11 HTTP fetch exhausted all retries: the document host is
+    // unreachable. Cleared if a later fetch succeeds. Used (with socket reachability)
+    // to hide groups on dead relays from the discovery surfaces.
+    private val _failedRelays = MutableStateFlow<Set<String>>(emptySet())
+    val failedRelays: StateFlow<Set<String>> = _failedRelays.asStateFlow()
+
     // URLs that resolved successfully — never re-fetch these
     private val succeeded = mutableSetOf<String>()
 
     // URLs currently being fetched — prevents duplicate concurrent requests
     private val inProgress = mutableSetOf<String>()
 
-    // Serialises all reads/writes to [succeeded] and [inProgress]
+    // Serialises all reads/writes to [succeeded], [inProgress] and [fetchedAt]
     private val mutex = Mutex()
+
+    // Per-relay last-successful-fetch epoch seconds, hydrated from storage. A relay whose
+    // cached document is still within the soft TTL skips the network fetch entirely.
+    private val fetchedAt = mutableMapOf<String, Long>()
+    private val fetchedAtSerializer = MapSerializer(String.serializer(), Long.serializer())
 
     companion object {
         // Maximum number of retries before giving up for the session. High enough that
@@ -58,6 +75,19 @@ class RelayMetadataManager(
         // Base backoff for the first retry; doubles each time, capped at BACKOFF_CAP_MS.
         private const val BACKOFF_BASE_MS = 10_000L
         private const val BACKOFF_CAP_MS = 5 * 60_000L // 5 minutes
+
+        // Soft TTL: a relay's NIP-11 document is re-fetched at most once a day. Icons and
+        // capabilities still refresh, just not on every launch.
+        internal const val SOFT_TTL_SECONDS = 24 * 60 * 60L
+
+        /** True if a cached document fetched at [fetchedAtSeconds] is still within the soft TTL. */
+        internal fun isWithinSoftTtl(
+            fetchedAtSeconds: Long?,
+            nowSeconds: Long,
+        ): Boolean {
+            if (fetchedAtSeconds == null) return false
+            return nowSeconds - fetchedAtSeconds < SOFT_TTL_SECONDS
+        }
     }
 
     /**
@@ -80,16 +110,29 @@ class RelayMetadataManager(
         } catch (_: Exception) {
             // Corrupted cache — start fresh
         }
+        try {
+            val ts = SecureStorage.getRelayMetadataFetchedAt()
+            if (!ts.isNullOrBlank()) {
+                fetchedAt.putAll(json.decodeFromString(fetchedAtSerializer, ts))
+            }
+        } catch (_: Exception) {
+            // Corrupted timestamps — treat every relay as stale and re-fetch.
+        }
     }
 
     fun fetch(relayUrl: String) {
         scope.launch {
-            // Check under lock: skip if already succeeded or in-flight
+            // Check under lock: skip if already succeeded, in-flight, or fresh within the TTL.
             val shouldFetch =
                 mutex.withLock {
                     when {
                         succeeded.contains(relayUrl) -> false
                         inProgress.contains(relayUrl) -> false
+                        isFreshLocked(relayUrl) -> {
+                            // Cached document still fresh: serve it and don't re-fetch this session.
+                            succeeded.add(relayUrl)
+                            false
+                        }
                         else -> {
                             inProgress.add(relayUrl)
                             true
@@ -101,6 +144,10 @@ class RelayMetadataManager(
             fetchWithRetry(relayUrl, attempt = 1)
         }
     }
+
+    // Caller must hold [mutex]. Fresh = hydrated metadata present AND fetched within the soft TTL.
+    private fun isFreshLocked(relayUrl: String): Boolean = _relayMetadata.value.containsKey(relayUrl) &&
+        isWithinSoftTtl(fetchedAt[relayUrl], epochSeconds())
 
     private fun fetchWithRetry(
         relayUrl: String,
@@ -116,14 +163,20 @@ class RelayMetadataManager(
                 val info = fetchNip11RelayInfo(relayUrl)
 
                 if (info != null) {
-                    mutex.withLock {
-                        inProgress.remove(relayUrl)
-                        succeeded.add(relayUrl)
-                    }
+                    val now = epochSeconds()
+                    val fetchedAtSnapshot =
+                        mutex.withLock {
+                            inProgress.remove(relayUrl)
+                            succeeded.add(relayUrl)
+                            fetchedAt[relayUrl] = now
+                            fetchedAt.toMap()
+                        }
+                    _failedRelays.update { it - relayUrl }
                     val updated = _relayMetadata.value + (relayUrl to info)
                     _relayMetadata.value = updated
                     try {
                         SecureStorage.saveRelayMetadata(json.encodeToString(nip11RelayInfoMapSerializer, updated))
+                        SecureStorage.saveRelayMetadataFetchedAt(json.encodeToString(fetchedAtSerializer, fetchedAtSnapshot))
                     } catch (_: Exception) {
                         // Non-critical — cache write failure doesn't break anything
                     }
@@ -141,7 +194,9 @@ class RelayMetadataManager(
                             mutex.withLock { inProgress.remove(relayUrl) }
                         }
                     } else {
+                        // Retries exhausted: the NIP-11 host is unreachable for this session.
                         mutex.withLock { inProgress.remove(relayUrl) }
+                        _failedRelays.update { it + relayUrl }
                     }
                 }
             } finally {

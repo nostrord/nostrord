@@ -36,6 +36,12 @@ data class Nip11RelayInfo(
     val version: String? = null,
     val authRequired: Boolean? = null,
     val paymentRequired: Boolean? = null,
+    /**
+     * NIP-29 subgroups capability, from the relay's top-level `nip29: {subgroups: bool}`
+     * (see nostr-protocol/nips#2319). Null = the relay didn't advertise it. Only `true`
+     * means the relay hosts subgroups; absent or false means it does not.
+     */
+    val supportsSubgroups: Boolean? = null,
 ) {
     companion object
 }
@@ -116,6 +122,13 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
                 paymentRequired =
                 limitation
                     ?.get("payment_required")
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toBooleanStrictOrNull(),
+                supportsSubgroups =
+                obj["nip29"]
+                    ?.jsonObject
+                    ?.get("subgroups")
                     ?.jsonPrimitive
                     ?.content
                     ?.toBooleanStrictOrNull(),

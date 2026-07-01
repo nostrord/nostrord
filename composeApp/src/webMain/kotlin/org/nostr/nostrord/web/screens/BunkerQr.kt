@@ -104,8 +104,7 @@ val BunkerQr =
                 uri == null ->
                     div {
                         className = ClassName("qr-placeholder")
-                        // Circular spinner instead of the previous "…" — reads as
-                        // "we're working on it" rather than a buffering hint.
+                        // Circular spinner reads as "working on it" rather than a buffering hint.
                         div { className = ClassName("qr-spinner") }
                     }
                 else ->
@@ -137,9 +136,9 @@ val BunkerQr =
             // URI + copy input (matches native OutlinedTextField with copy trailing icon).
             uri?.let { connectUri ->
                 div {
-                    className = ClassName("field-with-icon bunker-uri")
+                    className = ClassName("input-group bunker-uri")
                     input {
-                        className = ClassName("login-input")
+                        className = ClassName("input")
                         value = connectUri
                         readOnly = true
                         onChange = { /* read-only */ }
@@ -155,11 +154,11 @@ val BunkerQr =
 
             if (error != null) {
                 p {
-                    className = ClassName("login-error")
+                    className = ClassName("form-error")
                     +error
                 }
                 button {
-                    className = ClassName("login-primary")
+                    className = ClassName("btn-primary btn-lg btn-full login-submit")
                     onClick = { restartSession() }
                     icon(Ic.QrCode)
                     +"Try Again"
@@ -209,9 +208,9 @@ val BunkerQr =
                         }
                     }
                     div {
-                        className = ClassName("field-with-icon advanced-add")
+                        className = ClassName("input-group advanced-add")
                         input {
-                            className = ClassName("login-input")
+                            className = ClassName("input")
                             placeholder = "wss://relay.example.com"
                             value = newRelay
                             onChange = { event -> setNewRelay(event.currentTarget.value) }
@@ -231,7 +230,7 @@ val BunkerQr =
                         }
                     }
                     button {
-                        className = ClassName("login-primary advanced-apply")
+                        className = ClassName("btn-primary btn-lg btn-full advanced-apply")
                         disabled = !dirty || editable.isEmpty()
                         onClick = { applyRelays() }
                         icon(Ic.QrCode)

@@ -119,7 +119,7 @@ fun AddRelayModal(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Add a Relay",
-                                color = Color.White,
+                                color = NostrordColors.TextPrimary,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -160,7 +160,7 @@ fun AddRelayModal(
                         Tab(
                             selected = activeTab == 0,
                             onClick = { activeTab = 0 },
-                            selectedContentColor = Color.White,
+                            selectedContentColor = NostrordColors.TextPrimary,
                             unselectedContentColor = NostrordColors.TextMuted,
                         ) {
                             Text(
@@ -173,7 +173,7 @@ fun AddRelayModal(
                         Tab(
                             selected = activeTab == 1,
                             onClick = { activeTab = 1 },
-                            selectedContentColor = Color.White,
+                            selectedContentColor = NostrordColors.TextPrimary,
                             unselectedContentColor = NostrordColors.TextMuted,
                         ) {
                             Text(
@@ -280,7 +280,7 @@ private fun SuggestedRelayCard(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = name,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -446,7 +446,7 @@ private fun CustomUrlTab(
                     value = relayUrl,
                     onValueChange = { relayUrl = it },
                     singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    textStyle = TextStyle(color = NostrordColors.TextContent, fontSize = 13.sp),
                     cursorBrush = SolidColor(NostrordColors.Primary),
                     modifier = Modifier.fillMaxWidth(),
                 )

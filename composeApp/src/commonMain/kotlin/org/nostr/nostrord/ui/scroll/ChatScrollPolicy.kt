@@ -31,6 +31,21 @@ data class ChatScrollState(
      * the bottom tolerance is not spuriously re-pinned (the web's `wasNotAtBottom`).
      */
     val sawNotBottom: Boolean = false,
+    /**
+     * The entry alignment (divider vs bottom) has been decided once for this entry.
+     * Latches even when the group opens at the bottom with NO divider, so a divider
+     * that materialises later (an incoming message arriving while the user is reading
+     * history) does not re-trigger the one-shot alignment and yank the view down.
+     */
+    val entryResolved: Boolean = false,
+    /**
+     * Raw "is the newest message currently on screen" reading from layout. Drives the
+     * jump-to-bottom FAB independently of [atBottom]: when the last message is visible
+     * there is nothing to jump to, so the FAB hides even while the pin latch is still
+     * false (e.g. opened at a divider that sits within the bottom tolerance). Kept
+     * separate from [atBottom] so the pin / entry-suppression behaviour stays intact.
+     */
+    val lastItemVisible: Boolean = true,
 )
 
 /** Where the chat should position itself on group entry. */
@@ -50,21 +65,23 @@ object ChatScrollPolicy {
     fun onItemsReady(state: ChatScrollState): ChatScrollState = state.copy(restored = true)
 
     /**
-     * One-shot entry alignment. Returns [ScrollEntryTarget.Divider] exactly once,
-     * when a divider is present, we are not seeking a deep-link target, and we have
-     * not already aligned. On Divider it latches [ChatScrollState.openedAtDivider]
-     * and clears [ChatScrollState.atBottom] so later streaming chunks don't yank the
-     * view to the bottom. Returns a null target (and unchanged state) otherwise; the
-     * default `atBottom = true` then lets the pin decision open the group at bottom.
+     * One-shot entry alignment, latched by [ChatScrollState.entryResolved] so it runs
+     * exactly once per entry. With a divider present it returns [ScrollEntryTarget.Divider],
+     * latches [ChatScrollState.openedAtDivider], and clears [ChatScrollState.atBottom] so
+     * later streaming chunks don't yank the view to the bottom. With NO divider it still
+     * latches (target null, `atBottom` stays true), opening the group at the bottom AND
+     * preventing a divider that appears later from re-aligning the view. While seeking a
+     * deep-link target the decision is deferred (state unchanged) so the seek owns scrolling.
      */
     fun onItemsChanged(
         state: ChatScrollState,
         hasDivider: Boolean,
         isSeeking: Boolean,
     ): EntryDecision {
-        if (state.openedAtDivider || isSeeking || !hasDivider) return EntryDecision(state, null)
+        if (state.entryResolved || isSeeking) return EntryDecision(state, null)
+        if (!hasDivider) return EntryDecision(state.copy(entryResolved = true), null)
         return EntryDecision(
-            state.copy(openedAtDivider = true, atBottom = false),
+            state.copy(entryResolved = true, openedAtDivider = true, atBottom = false),
             ScrollEntryTarget.Divider,
         )
     }
@@ -89,13 +106,22 @@ object ChatScrollPolicy {
         reachedBottom: Boolean,
     ): ChatScrollState {
         if (!state.restored) return state
+        // lastItemVisible tracks the raw reading and drives the FAB; atBottom keeps its
+        // round-trip-gated latch semantics for the bottom-pin.
+        val s = state.copy(lastItemVisible = reachedBottom)
         return when {
-            !reachedBottom -> state.copy(sawNotBottom = true, atBottom = false)
-            state.sawNotBottom -> state.copy(atBottom = true)
-            else -> state
+            !reachedBottom -> s.copy(sawNotBottom = true, atBottom = false)
+            s.sawNotBottom -> s.copy(atBottom = true)
+            else -> s
         }
     }
 
-    /** Jump-to-bottom affordance (FAB) visibility. */
-    fun isScrolledAway(state: ChatScrollState): Boolean = !state.atBottom
+    /**
+     * Jump-to-bottom affordance (FAB) visibility. Driven by whether the newest message
+     * is on screen, NOT by the pin latch: opening at a divider that sits within the
+     * bottom tolerance leaves [ChatScrollState.atBottom] false (so streaming chunks
+     * don't yank the view) yet the newest message is visible, so there is nothing to
+     * jump to and the FAB stays hidden (#129).
+     */
+    fun isScrolledAway(state: ChatScrollState): Boolean = !state.lastItemVisible
 }

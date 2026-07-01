@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -8,13 +9,25 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DataObject
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.FormatStrikethrough
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -26,16 +39,19 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.launch
@@ -52,6 +68,7 @@ import org.nostr.nostrord.network.upload.ShareMediaEffect
 import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.rememberClipboardImageReader
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
@@ -75,6 +92,7 @@ import org.nostr.nostrord.utils.formatTimestamp
 @Composable
 fun MessageInput(
     isJoined: Boolean,
+    isGroupClosed: Boolean = false,
     isPendingApproval: Boolean = false,
     pendingRequestedAtSeconds: Long? = null,
     onCancelJoinRequest: () -> Unit = {},
@@ -112,6 +130,9 @@ fun MessageInput(
     var groupMentionQuery by remember { mutableStateOf("") }
     var groupMentionSelectedIndex by remember { mutableStateOf(0) }
     var showEmojiPicker by remember { mutableStateOf(false) }
+    // Keyboard-shortcuts hint, opened by typing "?" in an empty field or clicking the
+    // footer pill (web parity: ChatScreen showHints).
+    var showHints by remember { mutableStateOf(false) }
     val anyOverlayOpen = showMentionPopup || showGroupMentionPopup || showEmojiPicker
     val currentOnOverlayVisibilityChange by rememberUpdatedState(onOverlayVisibilityChange)
     LaunchedEffect(anyOverlayOpen) {
@@ -275,6 +296,14 @@ fun MessageInput(
             }
             return
         }
+        // "?" in an empty field opens the shortcuts hint instead of typing the glyph
+        // (web parity). Works across platforms since it keys off the resulting value,
+        // not a physical key code.
+        if (textFieldValue.text.isEmpty() && newValue.text == "?") {
+            showHints = true
+            return
+        }
+        if (showHints) showHints = false
         textFieldValue = newValue
         updateMentionState(newValue)
         updateGroupMentionState(newValue)
@@ -351,23 +380,27 @@ fun MessageInput(
 
     if (isPendingApproval) {
         Box(
+            // Inset rounded card matching the web .composer-join (16dp side + bottom margin,
+            // rounded, surface-variant) rather than a full-bleed bar.
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.lg)
+                .clip(NostrordShapes.shapeMedium)
                 .background(NostrordColors.SurfaceVariant)
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(
                     modifier = Modifier.weight(1f, fill = false),
-                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = "Your join request is pending admin approval",
-                        color = NostrordColors.TextMuted,
+                        color = NostrordColors.TextSecondary,
                         style = NostrordTypography.MessageBody,
                     )
                     if (pendingRequestedAtSeconds != null) {
@@ -379,12 +412,22 @@ fun MessageInput(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                TextButton(
-                    onClick = onCancelJoinRequest,
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary),
+                Spacer(modifier = Modifier.width(Spacing.md))
+                // Outlined button: contrasts with the SurfaceVariant bar (a filled secondary
+                // button would blend in), reads clearly as a button, stays understated.
+                Box(
+                    modifier =
+                    Modifier
+                        .clip(NostrordShapes.shapeMedium)
+                        .border(1.dp, NostrordColors.Divider, NostrordShapes.shapeMedium)
+                        .clickable(onClick = onCancelJoinRequest)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
                 ) {
-                    Text("Cancel request", style = NostrordTypography.Button)
+                    Text(
+                        "Cancel request",
+                        color = NostrordColors.TextSecondary,
+                        style = NostrordTypography.Button,
+                    )
                 }
             }
         }
@@ -393,33 +436,133 @@ fun MessageInput(
 
     if (!isJoined) {
         Box(
+            // Inset rounded card matching the web .composer-join (16dp side + bottom margin,
+            // rounded, surface-variant) rather than a full-bleed bar.
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.lg)
+                .clip(NostrordShapes.shapeMedium)
                 .background(NostrordColors.SurfaceVariant)
-                .padding(Spacing.lg),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "Join the group to send messages",
-                    color = NostrordColors.TextMuted,
+                    color = NostrordColors.TextSecondary,
                     style = NostrordTypography.MessageBody,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                TextButton(
+                Spacer(modifier = Modifier.width(Spacing.md))
+                // Filled primary button on the right (web .composer-join-btn): icon + label,
+                // "Request to Join" for closed groups, "Join Now" for open.
+                Button(
                     onClick = { onJoinGroup(null) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary),
+                    colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    shape = NostrordShapes.shapeMedium,
                 ) {
-                    Text("Join Now", style = NostrordTypography.Button)
+                    Icon(
+                        Icons.Default.PersonAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (isGroupClosed) "Request to Join" else "Join Now",
+                        style = NostrordTypography.Button,
+                    )
                 }
             }
         }
     } else {
         val textFieldInteractionSource = remember { MutableInteractionSource() }
         val isAndroid = remember { getPlatform().name.startsWith("Android") }
+        // Landscape on a phone has little vertical room, so the discoverability footer is
+        // dropped there (the "?" trigger still works); cross-platform via the window size.
+        val windowSize = LocalWindowInfo.current.containerSize
+        val isLandscape = windowSize.width > windowSize.height
+
+        // Markdown toolbar (prototype Composer, web parity): wraps the selection /
+        // toggles list markers on the TextFieldValue, keeping mention state in sync.
+        var toolbarOpen by remember { mutableStateOf(false) }
+
+        fun applyEdit(newValue: TextFieldValue) {
+            textFieldValue = newValue
+            updateMentionState(newValue)
+            updateGroupMentionState(newValue)
+            focusRequester.requestFocus()
+        }
+
+        // Wrap the current selection (or cursor) with markdown tokens; the caret
+        // lands inside, before the closing token.
+        fun wrapSelection(pre: String, post: String = pre) {
+            val v = textFieldValue
+            val start = v.selection.min
+            val end = v.selection.max
+            val sel = v.text.substring(start, end)
+            val newText = v.text.substring(0, start) + pre + sel + post + v.text.substring(end)
+            applyEdit(TextFieldValue(newText, TextRange(start + pre.length + sel.length)))
+        }
+
+        // List toolbar buttons: prefix the covered line(s) with a marker; clicking
+        // again toggles it off (prototype insertList).
+        fun insertListMarkers(ordered: Boolean) {
+            val v = textFieldValue
+            val text = v.text
+            val lineFrom = text.lastIndexOf('\n', (v.selection.min - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+            var lineTo = text.indexOf('\n', v.selection.max)
+            if (lineTo == -1) lineTo = text.length
+            val lines = text.substring(lineFrom, lineTo).split('\n')
+            val re = if (ordered) Regex("^\\d+\\.\\s") else Regex("^[-*+]\\s")
+            // Either list marker, so switching types replaces instead of stacking (the
+            // "1. - foo" bug). Toggle-off only when every line already has the requested type.
+            val anyMarker = Regex("^(?:\\d+\\.|[-*+])\\s")
+            val allListed = lines.all { it.isBlank() || re.containsMatchIn(it) }
+            val out =
+                lines.mapIndexed { i, ln ->
+                    if (allListed) {
+                        ln.replaceFirst(re, "")
+                    } else {
+                        (if (ordered) "${i + 1}. " else "- ") + ln.replaceFirst(anyMarker, "")
+                    }
+                }.joinToString("\n")
+            val newText = text.substring(0, lineFrom) + out + text.substring(lineTo)
+            applyEdit(TextFieldValue(newText, TextRange(lineFrom + out.length)))
+        }
+
+        // Enter inside a list: continue with the next marker; on an empty item, drop
+        // the marker (exit the list) instead — so a second Enter ends the list rather
+        // than sending the message (prototype continueList).
+        fun continueList(): Boolean {
+            val v = textFieldValue
+            if (!v.selection.collapsed) return false
+            val pos = v.selection.start
+            val text = v.text
+            val lineStart = text.lastIndexOf('\n', (pos - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+            val nextBreak = text.indexOf('\n', pos)
+            val lineEnd = if (nextBreak == -1) text.length else nextBreak
+            val line = text.substring(lineStart, lineEnd)
+            val ul = Regex("^(\\s*)([-*+])\\s+(.*)$").find(line)
+            val ol = Regex("^(\\s*)(\\d+)\\.\\s+(.*)$").find(line)
+            if (ul == null && ol == null) return false
+            val indent = (ul ?: ol)!!.groupValues[1]
+            val content = if (ul != null) ul.groupValues[3] else ol!!.groupValues[3]
+            if (content.isBlank()) {
+                // Empty item: remove the marker and exit the list.
+                val newText = text.substring(0, lineStart) + indent + text.substring(lineEnd)
+                applyEdit(TextFieldValue(newText, TextRange(lineStart + indent.length)))
+                return true
+            }
+            val marker = if (ul != null) indent + ul.groupValues[2] + " " else indent + (ol!!.groupValues[2].toInt() + 1) + ". "
+            val newText = text.substring(0, pos) + "\n" + marker + text.substring(pos)
+            applyEdit(TextFieldValue(newText, TextRange(pos + 1 + marker.length)))
+            return true
+        }
 
         // Keep a stable VisualTransformation instance: rebuilding it on every
         // recomposition restarts the Android IME input session, which drops the
@@ -499,276 +642,326 @@ fun MessageInput(
                 }
             }
 
-            Box(
-                // Inset the composer from the window edges and round it into a single
-                // surface "pill" (web .composer parity: margin 0 16px 16px, radius 8px).
+            Column(
+                // Inset the composer from the window side edges and round it into a single
+                // surface "pill". No bottom padding: the composer's baseline lines up with
+                // the account bar at the bottom of the sidebar (their centers match, both ~52dp).
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.lg)
-                    .padding(bottom = Spacing.lg),
+                    .padding(horizontal = Spacing.lg),
             ) {
-                Row(
+                // Shortcuts hint card, floating just above the pill (web .composer-hints).
+                if (showHints) {
+                    ComposerHints(isTouch = isAndroid)
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                }
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(NostrordShapes.inputShape)
-                        .background(NostrordColors.SurfaceVariant)
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .background(NostrordColors.SurfaceVariant),
                 ) {
-                    MessageUploadButton(
-                        externalBusy = isUploadingPaste,
-                        onUploadComplete = { uploadResult ->
-                            val url = uploadResult.url
-                            val current = textFieldValue.text
-                            val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
-                            val newText = current + separator + url
-                            textFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                            onMediaUploaded(uploadResult)
-                        },
-                    )
-
-                    BasicTextField(
-                        value = textFieldValue,
-                        onValueChange = { handleTextFieldValueChange(it) },
-                        // Typing is locked while a send is in flight inside
-                        // handleTextFieldValueChange, not via readOnly: toggling
-                        // readOnly restarts the Android IME (keyboard flicker) and
-                        // behaves inconsistently across platforms. The handler is
-                        // the single source of truth for the in-flight lock.
-                        interactionSource = textFieldInteractionSource,
-                        cursorBrush = SolidColor(Color.White),
+                    if (toolbarOpen) {
+                        ComposerToolbar(
+                            onWrap = { pre, post -> wrapSelection(pre, post) },
+                            onList = { ordered -> insertListMarkers(ordered) },
+                            onClose = { toolbarOpen = false },
+                        )
+                    }
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester)
-                            .onFocusChanged { focusState ->
-                                // On Android the focus transiently drops while the IME
-                                // composes; dismissing here would flicker the inline
-                                // suggestion list and break keyboard input. Let typing,
-                                // selection, or back-press close it instead.
-                                if (!isAndroid && !focusState.isFocused) {
-                                    showMentionPopup = false
-                                    showGroupMentionPopup = false
-                                }
-                            }
-                            .onPreviewKeyEvent { event ->
-                                val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
-                                val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
-                                when {
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Escape &&
-                                        showEmojiPicker -> {
-                                        showEmojiPicker = false
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Escape &&
-                                        showMentionPopup -> {
-                                        showMentionPopup = false
-                                        mentionStartIndex = -1
-                                        mentionQuery = ""
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Escape &&
-                                        showGroupMentionPopup -> {
-                                        showGroupMentionPopup = false
-                                        groupMentionStartIndex = -1
-                                        groupMentionQuery = ""
-                                        true
-                                    }
-                                    // Esc exits reply mode once no popup/picker is open (desktop).
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Escape &&
-                                        replyingToMessage != null -> {
-                                        onCancelReply()
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.DirectionUp &&
-                                        showMentionPopup &&
-                                        filteredMembers.isNotEmpty() -> {
-                                        mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.DirectionDown &&
-                                        showMentionPopup &&
-                                        filteredMembers.isNotEmpty() -> {
-                                        mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.DirectionUp &&
-                                        showGroupMentionPopup &&
-                                        filteredGroups.isNotEmpty() -> {
-                                        groupMentionSelectedIndex = (groupMentionSelectedIndex - 1).coerceAtLeast(0)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.DirectionDown &&
-                                        showGroupMentionPopup &&
-                                        filteredGroups.isNotEmpty() -> {
-                                        groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.V &&
-                                        event.isCtrlPressed &&
-                                        !isUploadingPaste -> {
-                                        val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
-                                        if (hasMedia) {
-                                            isUploadingPaste = true
-                                            scope.launch {
-                                                val image = try {
-                                                    clipboardReader.read()
-                                                } catch (e: FileTooLargeException) {
-                                                    isUploadingPaste = false
-                                                    pasteError = e.message
-                                                    return@launch
-                                                } catch (e: UnsupportedFileTypeException) {
-                                                    isUploadingPaste = false
-                                                    pasteError = e.message
-                                                    return@launch
-                                                }
-                                                if (image == null) {
-                                                    isUploadingPaste = false
-                                                    return@launch
-                                                }
-                                                handlePastedMedia(image.first, image.second)
-                                            }
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    }
-                                    // Shift+Enter: manually insert newline at cursor (Discord-style)
-                                    // Returning false here is unreliable in Compose Desktop — insert explicitly.
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Enter &&
-                                        event.isShiftPressed -> {
-                                        val sel = textFieldValue.selection
-                                        val text = textFieldValue.text
-                                        val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
-                                        val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
-                                        textFieldValue = newValue
-                                        updateMentionState(newValue)
-                                        updateGroupMentionState(newValue)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Enter &&
-                                        !event.isShiftPressed -> {
-                                        if (showMentionPopup && filteredMembers.isNotEmpty()) {
-                                            val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
-                                            if (selectedMember != null) handleMemberSelect(selectedMember)
-                                            true
-                                        } else if (showGroupMentionPopup && filteredGroups.isNotEmpty()) {
-                                            val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
-                                            if (selectedGroup != null) handleGroupSelect(selectedGroup)
-                                            true
-                                        } else if (textFieldValue.text.isNotBlank()) {
-                                            submit()
-                                            true
-                                        } else {
-                                            true
-                                        }
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Tab &&
-                                        showMentionPopup &&
-                                        filteredMembers.isNotEmpty() -> {
-                                        val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
-                                        if (selectedMember != null) handleMemberSelect(selectedMember)
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.Tab &&
-                                        showGroupMentionPopup &&
-                                        filteredGroups.isNotEmpty() -> {
-                                        val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
-                                        if (selectedGroup != null) handleGroupSelect(selectedGroup)
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            },
-                        textStyle = NostrordTypography.Input.copy(color = Color.White),
-                        singleLine = false,
-                        maxLines = 4,
-                        visualTransformation = mentionVisualTransformation,
-                        decorationBox = { innerTextField ->
-                            // BasicTextField has no built-in placeholder/container; show
-                            // the placeholder when empty and let the small vertical padding
-                            // drive a compact one-line height (web parity) instead of the
-                            // Material TextField's fixed ~56dp minimum.
-                            Box(
-                                contentAlignment = Alignment.CenterStart,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            ) {
-                                if (textFieldValue.text.isEmpty()) {
-                                    Text(
-                                        "Message ${groupName ?: selectedChannel}",
-                                        style = NostrordTypography.InputPlaceholder,
-                                        color = NostrordColors.TextMuted,
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
-                    )
-
-                    if (showEmojiButton) {
-                        val emojiInteraction = remember { MutableInteractionSource() }
-                        val emojiHovered by emojiInteraction.collectIsHoveredAsState()
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Markdown toolbar toggle (prototype: the leftmost composer button).
+                        // Buttons are sized close to the icon (web .composer-btn has padding:0)
+                        // so the row reads tight instead of spread across 32dp squares.
                         IconButton(
-                            onClick = {
-                                showEmojiPicker = !showEmojiPicker
-                                if (showEmojiPicker) showMentionPopup = false
-                            },
-                            interactionSource = emojiInteraction,
+                            onClick = { toolbarOpen = !toolbarOpen },
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(width = 26.dp, height = 32.dp)
                                 .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
-                                Icons.Outlined.EmojiEmotions,
-                                contentDescription = "Emoji picker",
-                                // Hover brightens to TextContent (web .composer-btn:hover).
-                                tint = when {
-                                    showEmojiPicker -> NostrordColors.Primary
-                                    emojiHovered -> NostrordColors.TextContent
-                                    else -> NostrordColors.TextMuted
-                                },
+                                Icons.Default.TextFields,
+                                contentDescription = "Text formatting",
+                                tint = if (toolbarOpen) NostrordColors.TextPrimary else NostrordColors.TextMuted,
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                    }
 
-                    IconButton(
-                        onClick = { submit() },
-                        // Disabled while a paste upload finishes (its URL must land in
-                        // the draft first), but the spinner now shows on the attach icon.
-                        enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        if (isSending) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = NostrordColors.Primary,
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send message",
-                                tint = if (textFieldValue.text.isNotBlank()) {
-                                    NostrordColors.Primary
-                                } else {
-                                    NostrordColors.TextMuted
+                        MessageUploadButton(
+                            externalBusy = isUploadingPaste,
+                            onUploadComplete = { uploadResult ->
+                                val url = uploadResult.url
+                                val current = textFieldValue.text
+                                val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
+                                val newText = current + separator + url
+                                textFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                                onMediaUploaded(uploadResult)
+                            },
+                        )
+
+                        BasicTextField(
+                            value = textFieldValue,
+                            onValueChange = { handleTextFieldValueChange(it) },
+                            // Typing is locked while a send is in flight inside
+                            // handleTextFieldValueChange, not via readOnly: toggling
+                            // readOnly restarts the Android IME (keyboard flicker) and
+                            // behaves inconsistently across platforms. The handler is
+                            // the single source of truth for the in-flight lock.
+                            interactionSource = textFieldInteractionSource,
+                            cursorBrush = SolidColor(NostrordColors.TextPrimary),
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { focusState ->
+                                    // On Android the focus transiently drops while the IME
+                                    // composes; dismissing here would flicker the inline
+                                    // suggestion list and break keyboard input. Let typing,
+                                    // selection, or back-press close it instead.
+                                    if (!isAndroid && !focusState.isFocused) {
+                                        showMentionPopup = false
+                                        showGroupMentionPopup = false
+                                    }
+                                }
+                                .onPreviewKeyEvent { event ->
+                                    val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
+                                    val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
+                                    when {
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            showEmojiPicker -> {
+                                            showEmojiPicker = false
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            showMentionPopup -> {
+                                            showMentionPopup = false
+                                            mentionStartIndex = -1
+                                            mentionQuery = ""
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            showGroupMentionPopup -> {
+                                            showGroupMentionPopup = false
+                                            groupMentionStartIndex = -1
+                                            groupMentionQuery = ""
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            toolbarOpen -> {
+                                            toolbarOpen = false
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            showHints -> {
+                                            showHints = false
+                                            true
+                                        }
+                                        // Esc exits reply mode once no popup/picker is open (desktop).
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            replyingToMessage != null -> {
+                                            onCancelReply()
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionUp &&
+                                            showMentionPopup &&
+                                            filteredMembers.isNotEmpty() -> {
+                                            mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionDown &&
+                                            showMentionPopup &&
+                                            filteredMembers.isNotEmpty() -> {
+                                            mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionUp &&
+                                            showGroupMentionPopup &&
+                                            filteredGroups.isNotEmpty() -> {
+                                            groupMentionSelectedIndex = (groupMentionSelectedIndex - 1).coerceAtLeast(0)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionDown &&
+                                            showGroupMentionPopup &&
+                                            filteredGroups.isNotEmpty() -> {
+                                            groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.V &&
+                                            event.isCtrlPressed &&
+                                            !isUploadingPaste -> {
+                                            val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
+                                            if (hasMedia) {
+                                                isUploadingPaste = true
+                                                scope.launch {
+                                                    val image = try {
+                                                        clipboardReader.read()
+                                                    } catch (e: FileTooLargeException) {
+                                                        isUploadingPaste = false
+                                                        pasteError = e.message
+                                                        return@launch
+                                                    } catch (e: UnsupportedFileTypeException) {
+                                                        isUploadingPaste = false
+                                                        pasteError = e.message
+                                                        return@launch
+                                                    }
+                                                    if (image == null) {
+                                                        isUploadingPaste = false
+                                                        return@launch
+                                                    }
+                                                    handlePastedMedia(image.first, image.second)
+                                                }
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                        // Shift+Enter: manually insert newline at cursor (Discord-style)
+                                        // Returning false here is unreliable in Compose Desktop — insert explicitly.
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Enter &&
+                                            event.isShiftPressed -> {
+                                            val sel = textFieldValue.selection
+                                            val text = textFieldValue.text
+                                            val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
+                                            val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
+                                            textFieldValue = newValue
+                                            updateMentionState(newValue)
+                                            updateGroupMentionState(newValue)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Enter &&
+                                            !event.isShiftPressed -> {
+                                            if (showMentionPopup && filteredMembers.isNotEmpty()) {
+                                                val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
+                                                if (selectedMember != null) handleMemberSelect(selectedMember)
+                                                true
+                                            } else if (showGroupMentionPopup && filteredGroups.isNotEmpty()) {
+                                                val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
+                                                if (selectedGroup != null) handleGroupSelect(selectedGroup)
+                                                true
+                                            } else if (continueList()) {
+                                                // Inside a list: continue / exit it, never send.
+                                                true
+                                            } else if (textFieldValue.text.isNotBlank()) {
+                                                submit()
+                                                true
+                                            } else {
+                                                true
+                                            }
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Tab &&
+                                            showMentionPopup &&
+                                            filteredMembers.isNotEmpty() -> {
+                                            val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
+                                            if (selectedMember != null) handleMemberSelect(selectedMember)
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Tab &&
+                                            showGroupMentionPopup &&
+                                            filteredGroups.isNotEmpty() -> {
+                                            val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
+                                            if (selectedGroup != null) handleGroupSelect(selectedGroup)
+                                            true
+                                        }
+                                        else -> false
+                                    }
                                 },
-                                modifier = Modifier.size(20.dp),
-                            )
+                            textStyle = NostrordTypography.Input.copy(color = NostrordColors.TextPrimary),
+                            singleLine = false,
+                            // ~7 visible lines before internal scroll (prototype max-h-40).
+                            maxLines = 7,
+                            visualTransformation = mentionVisualTransformation,
+                            decorationBox = { innerTextField ->
+                                // BasicTextField has no built-in placeholder/container; show
+                                // the placeholder when empty and let the small vertical padding
+                                // drive a compact one-line height (web parity) instead of the
+                                // Material TextField's fixed ~56dp minimum.
+                                Box(
+                                    contentAlignment = Alignment.CenterStart,
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                ) {
+                                    if (textFieldValue.text.isEmpty()) {
+                                        Text(
+                                            "Message ${groupName ?: selectedChannel}",
+                                            style = NostrordTypography.InputPlaceholder,
+                                            color = NostrordColors.TextMuted,
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            },
+                        )
+
+                        if (showEmojiButton) {
+                            val emojiInteraction = remember { MutableInteractionSource() }
+                            val emojiHovered by emojiInteraction.collectIsHoveredAsState()
+                            IconButton(
+                                onClick = {
+                                    showEmojiPicker = !showEmojiPicker
+                                    if (showEmojiPicker) showMentionPopup = false
+                                },
+                                interactionSource = emojiInteraction,
+                                modifier = Modifier
+                                    .size(width = 26.dp, height = 32.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.EmojiEmotions,
+                                    contentDescription = "Emoji picker",
+                                    // Hover brightens to TextContent (web .composer-btn:hover).
+                                    tint = when {
+                                        showEmojiPicker -> NostrordColors.Primary
+                                        emojiHovered -> NostrordColors.TextContent
+                                        else -> NostrordColors.TextMuted
+                                    },
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { submit() },
+                            // Disabled while a paste upload finishes (its URL must land in
+                            // the draft first), but the spinner now shows on the attach icon.
+                            enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
+                            modifier = Modifier.size(width = 26.dp, height = 32.dp),
+                        ) {
+                            if (isSending) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = NostrordColors.Primary,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send message",
+                                    tint = if (textFieldValue.text.isNotBlank()) {
+                                        NostrordColors.Primary
+                                    } else {
+                                        NostrordColors.TextMuted
+                                    },
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -901,6 +1094,15 @@ fun MessageInput(
                         }
                     }
                 }
+                // Footer pill below the composer: discoverability cue + click toggle
+                // (web .composer-hint-footer). Hidden on a phone in landscape to save the row.
+                if (!(isAndroid && isLandscape)) {
+                    ComposerHintFooter(
+                        showHints = showHints,
+                        isTouch = isAndroid,
+                        onToggle = { showHints = !showHints },
+                    )
+                }
             }
         }
 
@@ -925,13 +1127,102 @@ fun MessageInput(
         )
 
         pasteError?.let { error ->
-            AlertDialog(
-                onDismissRequest = { pasteError = null },
-                title = { Text("Upload Failed") },
-                text = { Text(error) },
-                confirmButton = {
-                    TextButton(onClick = { pasteError = null }) { Text("OK") }
-                },
+            ConfirmDialog(
+                title = "Upload Failed",
+                message = error,
+                confirmLabel = "OK",
+                cancelLabel = null,
+                onConfirm = { pasteError = null },
+                onDismiss = { pasteError = null },
+            )
+        }
+    }
+}
+
+/** A small monospace key cap, matching the web `kbd` chips in the composer hints. */
+@Composable
+private fun KbdChip(label: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(NostrordColors.BackgroundDark)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    ) {
+        Text(
+            label,
+            color = NostrordColors.TextSecondary,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
+}
+
+/**
+ * Shortcuts / mention-triggers card shown above the composer when "?" is typed in an
+ * empty field (web .composer-hints). Touch shows only the mention triggers (Enter is a
+ * newline there); desktop adds the Enter / Shift+Enter send shortcuts.
+ */
+@Composable
+private fun ComposerHints(isTouch: Boolean) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(NostrordShapes.shapeMedium)
+            .background(NostrordColors.Surface)
+            .border(1.dp, NostrordColors.Divider, NostrordShapes.shapeMedium)
+            .padding(Spacing.xs),
+    ) {
+        Text(
+            if (isTouch) "MENTIONS" else "SHORTCUTS",
+            color = NostrordColors.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
+        )
+        val rows = buildList {
+            if (!isTouch) {
+                add("Enter" to "send")
+                add("Shift + Enter" to "new line")
+            }
+            add("@" to "mention a person")
+            add("%" to "mention a group")
+        }
+        rows.forEach { (key, desc) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+            ) {
+                KbdChip(key)
+                Text(desc, color = NostrordColors.TextSecondary, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** "Type ? to see shortcuts" cue below the composer, clickable to toggle the hints. */
+@Composable
+private fun ComposerHintFooter(showHints: Boolean, isTouch: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = Spacing.xs)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onToggle)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = Spacing.xs, vertical = 2.dp),
+    ) {
+        if (showHints && !isTouch) {
+            Text("Press ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            KbdChip("Esc")
+            Text(" to close", color = NostrordColors.TextMuted, fontSize = 11.sp)
+        } else {
+            Text("Type ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            KbdChip("?")
+            Text(
+                if (isTouch) " to see mention triggers" else " to see shortcuts",
+                color = NostrordColors.TextMuted,
+                fontSize = 11.sp,
             )
         }
     }
@@ -1068,5 +1359,63 @@ private class MentionVisualTransformation(
         }
 
         return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
+    }
+}
+
+/**
+ * Markdown toolbar row (prototype Composer FmtBtns, web .composer-toolbar parity).
+ * Tokens match what the message renderer understands: *bold*, _italic_, `code`,
+ * ``` blocks; quote/lists are plain-text conventions. Strikethrough and spoiler
+ * wait on renderer support (rendered disabled).
+ */
+@Composable
+private fun ComposerToolbar(
+    onWrap: (pre: String, post: String) -> Unit,
+    onList: (ordered: Boolean) -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.sm, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        FmtIconButton(Icons.Default.FormatBold, "Bold") { onWrap("*", "*") }
+        FmtIconButton(Icons.Default.FormatItalic, "Italic") { onWrap("_", "_") }
+        FmtIconButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onWrap("~~", "~~") }
+        FmtIconButton(Icons.Default.Code, "Code") { onWrap("`", "`") }
+        FmtIconButton(Icons.Default.DataObject, "Code block") { onWrap("```\n", "\n```") }
+        FmtIconButton(Icons.Default.FormatQuote, "Quote") { onWrap("> ", "") }
+        FmtIconButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bulleted list") { onList(false) }
+        FmtIconButton(Icons.Default.FormatListNumbered, "Numbered list") { onList(true) }
+        FmtIconButton(Icons.Default.VisibilityOff, "Spoiler") { onWrap("||", "||") }
+        Spacer(modifier = Modifier.weight(1f))
+        FmtIconButton(Icons.Default.Close, "Close formatting (Esc)") { onClose() }
+    }
+    HorizontalDivider(color = NostrordColors.BackgroundFloating, thickness = 1.dp)
+}
+
+@Composable
+private fun FmtIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(28.dp)
+            .alpha(if (enabled) 1f else 0.45f)
+            .pointerHoverIcon(PointerIcon.Hand),
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = NostrordColors.TextSecondary,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }

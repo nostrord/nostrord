@@ -1,7 +1,6 @@
 package org.nostr.nostrord.ui.components.avatars
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,10 +22,9 @@ fun AvatarPlaceholder(
             .clip(CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Jdenticon(
-            value = pubkey,
+        UserGradientAvatar(
+            seed = pubkey,
             size = size,
-            modifier = Modifier.fillMaxSize(),
         )
     }
 }

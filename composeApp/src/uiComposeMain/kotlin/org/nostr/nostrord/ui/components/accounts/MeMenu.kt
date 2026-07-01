@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,9 +56,11 @@ import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.accountDisplayLabel
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
 private val DESKTOP_WIDTH_THRESHOLD = 912.dp
@@ -121,7 +121,14 @@ fun MeMenu(
             AppModule.accountManager.switchAccountAsync(account.id) { r ->
                 isBusy = false
                 if (r.isFailure) {
-                    pendingError = r.exceptionOrNull()?.message ?: "Switch failed"
+                    // A password-protected account can't be switched to directly: the
+                    // failed credential load raises the unlock dialog instead, so close
+                    // the menu quietly rather than surfacing a misleading error.
+                    if (AppModule.nostrRepository.pendingUnlockAccount.value?.pubkey == account.pubkey) {
+                        onDismiss()
+                    } else {
+                        pendingError = r.exceptionOrNull()?.message ?: "Switch failed"
+                    }
                 } else {
                     onDismiss()
                 }
@@ -217,17 +224,23 @@ fun MeMenu(
             }
         val fallbackLabel =
             fallback?.let { fb ->
-                userMetadata[fb.pubkey]?.displayName?.takeIf { it.isNotBlank() }
-                    ?: userMetadata[fb.pubkey]?.name?.takeIf { it.isNotBlank() }
-                    ?: fb.label
+                val label =
+                    userMetadata[fb.pubkey]?.displayName?.takeIf { it.isNotBlank() }
+                        ?: userMetadata[fb.pubkey]?.name?.takeIf { it.isNotBlank() }
+                        ?: fb.label
+                accountDisplayLabel(label, fb.pubkey)
             }
         // Resolve the same way the avatar/list rows do: kind:0 displayName,
         // then kind:0 name, falling back to the persisted "Account N" only when
-        // metadata is still unknown.
+        // metadata is still unknown. A bare npub fallback is shortened so it never
+        // blows up the dialog title.
         val targetLabel =
-            userMetadata[target.pubkey]?.displayName?.takeIf { it.isNotBlank() }
-                ?: userMetadata[target.pubkey]?.name?.takeIf { it.isNotBlank() }
-                ?: target.label
+            accountDisplayLabel(
+                userMetadata[target.pubkey]?.displayName?.takeIf { it.isNotBlank() }
+                    ?: userMetadata[target.pubkey]?.name?.takeIf { it.isNotBlank() }
+                    ?: target.label,
+                target.pubkey,
+            )
         RemoveAccountDialog(
             accountLabel = targetLabel,
             method = target.authMethod,
@@ -335,7 +348,7 @@ private fun MeHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 displayName,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -413,7 +426,7 @@ private fun AccountRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 displayName,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
@@ -451,7 +464,7 @@ private fun ActionRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
-    tint: Color = Color.White,
+    tint: Color = NostrordColors.TextPrimary,
 ) {
     Row(
         modifier =
@@ -484,27 +497,15 @@ private fun RemoveAccountDialog(
     val body = org.nostr.nostrord.auth.removeAccountDialogBody(isActive, accountLabel, fallbackLabel, method)
     val confirmLabel = org.nostr.nostrord.auth.removeAccountConfirmLabel(isActive)
     val busyLabel = org.nostr.nostrord.auth.removeAccountBusyLabel(isActive)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = NostrordColors.Surface,
-        titleContentColor = Color.White,
-        textContentColor = NostrordColors.TextSecondary,
-        title = { Text(title) },
-        text = { Text(body) },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !isBusy) {
-                Text(
-                    if (isBusy) busyLabel else confirmLabel,
-                    color = NostrordColors.Error,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isBusy) {
-                Text("Cancel", color = NostrordColors.TextSecondary)
-            }
-        },
+    ConfirmDialog(
+        title = title,
+        message = body,
+        confirmLabel = if (isBusy) busyLabel else confirmLabel,
+        destructive = true,
+        confirmEnabled = !isBusy,
+        cancelEnabled = !isBusy,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }
 

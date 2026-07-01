@@ -1,5 +1,12 @@
 package org.nostr.nostrord.nostr
 
+// Permissions requested up front on a NIP-46 connect (nostrconnect `perms=` and the connect
+// request's 3rd param). A signer like Amber shows ONE "remember/always allow" prompt for these, so
+// later nip44_decrypt RPCs (a whole DM backlog) are answered automatically instead of each one
+// firing an approval notification and otherwise timing out unanswered. Comma-separated per NIP-46.
+const val NIP46_REQUESTED_PERMS =
+    "sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt"
+
 expect class Nip46Client(
     existingPrivateKey: String? = null,
 ) {
@@ -62,6 +69,12 @@ expect class Nip46Client(
     suspend fun getPublicKey(): String
 
     suspend fun signEvent(eventJson: String): String
+
+    /** NIP-46 nip44_encrypt RPC: encrypt [plaintext] to [peerPubkey] with the remote signer's key. */
+    suspend fun nip44Encrypt(peerPubkey: String, plaintext: String): String
+
+    /** NIP-46 nip44_decrypt RPC: decrypt [ciphertext] from [peerPubkey] with the remote signer's key. */
+    suspend fun nip44Decrypt(peerPubkey: String, ciphertext: String): String
 
     fun disconnect()
 }

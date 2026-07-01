@@ -6,13 +6,9 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -24,6 +20,7 @@ import org.nostr.nostrord.network.upload.MediaAccept
 import org.nostr.nostrord.network.upload.NostrBuildUploader
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.rememberMediaPickerLauncher
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 
@@ -78,16 +75,13 @@ fun MessageUploadButton(
         }
 
     uploadError?.let { error ->
-        AlertDialog(
-            onDismissRequest = { uploadError = null },
-            title = { Text("Upload Failed") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(
-                    onClick = { uploadError = null },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary),
-                ) { Text("OK") }
-            },
+        ConfirmDialog(
+            title = "Upload Failed",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { uploadError = null },
+            onDismiss = { uploadError = null },
         )
     }
 
@@ -97,7 +91,9 @@ fun MessageUploadButton(
         interactionSource = interaction,
         modifier =
         modifier
-            .size(32.dp)
+            // Sized close to the icon (web .composer-btn padding:0) so the composer
+            // icons sit tight rather than spread across 32dp squares.
+            .size(width = 26.dp, height = 32.dp)
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
         if (busy) {

@@ -3,16 +3,6 @@ package org.nostr.nostrord.nostr
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-@Serializable
-private data class EventData(
-    val zero: Int,
-    val pubkey: String,
-    val createdAt: Long,
-    val kind: Int,
-    val tags: List<List<String>>,
-    val content: String,
-)
-
 /**
  * Nostr event with real cryptographic signing
  */

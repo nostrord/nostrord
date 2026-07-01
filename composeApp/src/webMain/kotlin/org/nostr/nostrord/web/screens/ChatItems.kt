@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.ui.screens.group.clampSystemEventsToLoadedWindow
 import org.nostr.nostrord.utils.getDateLabel
 import kotlin.math.abs
 
@@ -35,14 +36,6 @@ sealed class WebChatItem {
     ) : WebChatItem()
 }
 
-/** Stable React key per chat row so prepends/reorders never remount the wrong node. */
-fun chatItemKey(item: WebChatItem): String = when (item) {
-    is WebChatItem.DateSeparator -> "date-${item.date}"
-    WebChatItem.NewMessagesDivider -> "new-messages-divider"
-    is WebChatItem.SystemEvent -> "sys-${item.id}"
-    is WebChatItem.Message -> item.message.id
-}
-
 /**
  * Build the ordered chat-item list from raw messages — a faithful port of the native
  * `buildChatItems`: date separators per calendar day, kind-9 messages grouped by author within
@@ -59,20 +52,8 @@ fun buildWebChatItems(
     val items = mutableListOf<WebChatItem>()
     val sortedAll = messages.sortedBy { it.createdAt }
 
-    // Bound the rendered timeline to the loaded MESSAGE window. Join/leave + moderation
-    // events arrive in full from a dedicated subscription (no page limit), so the oldest
-    // one would become a false "top" far above the oldest paginated message — pagination
-    // then fills messages BELOW it instead of prepending at the real top, which looks
-    // wrong and stalls the scroll (first row never changes). Hide system events older
-    // than the oldest loaded message; they reveal as pagination lowers the frontier. With
-    // no messages yet, show everything (a fresh group is only join/leave).
-    val oldestMessageTs = sortedAll.filter { it.kind == 9 }.minOfOrNull { it.createdAt }
-    val sorted =
-        if (oldestMessageTs == null) {
-            sortedAll
-        } else {
-            sortedAll.filter { it.kind == 9 || it.createdAt >= oldestMessageTs }
-        }
+    // Bound the rendered timeline to the loaded message window (shared with the native list).
+    val sorted = clampSystemEventsToLoadedWindow(sortedAll)
 
     val leaveRequestTimestamps: Map<String, List<Long>> =
         sortedAll.filter { it.kind == 9022 }.groupBy({ it.pubkey }, { it.createdAt })

@@ -1,9 +1,10 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -18,13 +20,26 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.ActiveAccountManager
+import org.nostr.nostrord.auth.NostrSigner
+import org.nostr.nostrord.auth.parseSignedEventJson
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.ConnectionStats
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmManager
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
@@ -35,21 +50,46 @@ import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.Nip17
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.DM_CACHE_KIND
 import org.nostr.nostrord.storage.clearCurrentRelayUrlFor
+import org.nostr.nostrord.storage.clearDmMessages
 import org.nostr.nostrord.storage.getLastActiveAt
+import org.nostr.nostrord.storage.isDmCacheMigratedFor
 import org.nostr.nostrord.storage.isGroupFetchLazy
+import org.nostr.nostrord.storage.loadDmLastRead
+import org.nostr.nostrord.storage.loadDmMessages
+import org.nostr.nostrord.storage.loadDmProcessedWrapIds
+import org.nostr.nostrord.storage.loadDmSyncCursor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
+import org.nostr.nostrord.storage.saveDmLastRead
+import org.nostr.nostrord.storage.saveDmProcessedWrapIds
+import org.nostr.nostrord.storage.saveDmSyncCursor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveRelayListFor
+import org.nostr.nostrord.storage.setDmCacheMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.urlDecode
+import kotlin.concurrent.Volatile
+
+/**
+ * Curator whose public kind:10009 seeds the Recommended discovery tab. Mirrored here so the
+ * group-list fetch can include the curator's groups in its targeted (known-only) #d request,
+ * matching what the Recommended tab needs (HomePageViewModel uses the same pubkey).
+ */
+private const val DISCOVERY_CURATOR_PUBKEY = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+
+// NIP-59 backdates gift-wrap timestamps up to 2 days into the past, so the DM-inbox `since`
+// must reach back this far from the sync cursor or recent wraps would be missed on resync.
+private const val GIFT_WRAP_BACKDATE_SECONDS = 2L * 24 * 60 * 60
 
 /**
  * Repository for Nostr operations.
@@ -72,6 +112,9 @@ class NostrRepository(
     private val connStats: ConnectionStats = ConnectionStats(),
     private val notificationHistoryStore: org.nostr.nostrord.notifications.NotificationHistoryStore? = null,
     private val notificationSettings: org.nostr.nostrord.settings.NotificationSettings? = null,
+    // DM history is persisted here (IndexedDB on web, SQLDelight on native) instead of the
+    // size-limited SecureStorage KV. Defaults to in-memory so tests construct without a backend.
+    private val cacheStore: org.nostr.nostrord.storage.cache.CacheStore = org.nostr.nostrord.storage.cache.InMemoryCacheStore(),
     private val scope: CoroutineScope,
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -101,6 +144,110 @@ class NostrRepository(
      */
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
 
+    // Caps how many NIP-17 DM decryptions hit the signer at once. A cold load streams
+    // every unread kind:1059 (dozens, sometimes 80+), and with a remote signer (NIP-46
+    // bunker) each decrypt is a serialized round-trip. Launching them all flooded the
+    // signer queue so the group relays' NIP-42 AUTH signs were starved — the relay then
+    // closed the unauthenticated socket and private groups never loaded (the more DMs,
+    // the worse; absent on main, which has no NIP-17). Bounding the burst leaves the
+    // signer free to answer AUTH promptly while DMs decrypt steadily in the background.
+    // Bound concurrent gift-wrap decryption. A larger fan-out amortizes the signer's per-request
+    // latency (it answers nip44_decrypt in bursts), so the inbox drains faster, while still capping
+    // the load so a remote bunker isn't flooded. Paired with the in-flight dedup (one coroutine per
+    // wrap) so re-streams never multiply the in-flight count past this bound. Local / NIP-07 signers
+    // decrypt in-process and don't care about it.
+    private val dmDecryptSemaphore = Semaphore(6)
+
+    // A bunker decrypt PUBLISHES a kind:24133 request to the bunker relay. A full DM backlog (two
+    // publishes per gift wrap) bursts hundreds of events at once and trips the relay's publish rate
+    // limit ("you are noting too much"), which REJECTS them before the signer ever sees them. So the
+    // request publishes are spaced out by this gate. Crucially the gate is released BEFORE the await,
+    // not held across it: the signer answers nip44_decrypt in bursts, so we keep many requests
+    // in-flight for one burst to satisfy at once (serializing the await instead collapses throughput
+    // and every wrap hits the 90s timeout). Local / NIP-07 decrypt in-process (no publish), skip the
+    // gate, and keep the full semaphore concurrency above.
+    private val bunkerPublishGate = Mutex()
+    private val BUNKER_PUBLISH_INTERVAL_MS = 400L
+
+    // Cap one wrap's decryption. The signer RPC's own timeout is 120s; an intermittently
+    // unresponsive bunker would otherwise pin a decrypt permit for that long per stuck wrap. But too
+    // short a cap kills decrypts the signer answers in its NEXT burst (it replies in bursts with
+    // quiet gaps), wasting the work and stalling progress. 90s rides out a quiet gap while still
+    // freeing the permit for the periodic retry when the signer is genuinely gone.
+    private val DM_DECRYPT_TIMEOUT_MS = 90_000L
+
+    // Give up on a wrap after this many failed decrypt attempts (this session). Stops the retry
+    // loop from hammering wraps the signer never answers, or genuinely malformed ones.
+    private val DM_MAX_DECRYPT_ATTEMPTS = 4
+
+    // Durable per-wrap dedup so a re-streamed backlog skips wraps already decrypted (no repeat
+    // bunker round-trip). Loaded per account in startDmInbox; grows as wraps are handled.
+    // Copy-on-write + @Volatile: the relay pipeline thread reads it while the (serialized) decrypt
+    // coroutine appends, so snapshots stay safe without locking.
+    @kotlin.concurrent.Volatile
+    private var dmProcessedWrapIds: Set<String> = emptySet()
+
+    // This-session bookkeeping for latching the full-sync flag only once we are genuinely caught
+    // up: every gift-wrap id the inbox delivered, and whether the inbox sub has EOSEd.
+    @kotlin.concurrent.Volatile
+    private var dmReceivedWrapIds: Set<String> = emptySet()
+
+    // Gift-wrap ids with a decrypt coroutine currently in flight. A re-streamed inbox (relay change,
+    // reconnect, periodic retry) re-delivers the same wraps; without this guard each delivery spawns
+    // ANOTHER decrypt coroutine for the same wrap, and the duplicates hog the decrypt semaphore so
+    // only a handful of wraps ever make progress. One coroutine per wrap at a time.
+    @kotlin.concurrent.Volatile
+    private var dmInFlightWrapIds: Set<String> = emptySet()
+
+    // Per-wrap decrypt failure count, and wraps given up THIS session after too many failures. Kept
+    // in memory only (not persisted): a wrap abandoned because the signer was momentarily
+    // unresponsive is retried fresh next session, while within a session giving up stops the retry
+    // loop from re-streaming it forever (which otherwise spams EOSE and trips the relay's
+    // publish rate limit, "you are noting too much").
+    @kotlin.concurrent.Volatile
+    private var dmFailCounts: Map<String, Int> = emptyMap()
+
+    @kotlin.concurrent.Volatile
+    private var dmGivenUpWrapIds: Set<String> = emptySet()
+
+    // Which DM relays have EOSEd the inbox sub this session. The full-sync latch waits for ALL
+    // subscribed DM relays, so a relay that EOSEs early with an empty/partial set can't latch
+    // "synced" before the slower relays deliver the rest of the backlog.
+    @kotlin.concurrent.Volatile
+    private var dmInboxEosedRelays: Set<String> = emptySet()
+    private var dmProcessedSaveJob: kotlinx.coroutines.Job? = null
+
+    // Upper bound on how long a bunker account holds its DM gift-wrap backlog
+    // while the active relay signs its NIP-42 AUTH. awaitAuthOrTimeout returns
+    // the instant AUTH completes, so this only caps the wait for relays that
+    // turn out to need no AUTH (public). See the gift-wrap handler.
+    private val DM_INGEST_AUTH_GRACE_MS = 10_000L
+
+    // After an interactive bunker login, let finishLoginInit's own connect settle
+    // before the idempotent signer-ready recovery runs, so the two don't reconnect
+    // the focused at once. The recovery only acts if AUTH did not take.
+    private val BUNKER_LOGIN_RECOVERY_DELAY_MS = 2_500L
+
+    // NIP-42 AUTH sign budget for the PRIVATE-group data fetch only. A local key signs
+    // instantly; a remote (bunker / NIP-07) signer is a round-trip that can take several
+    // seconds, so the gate that holds the private-group #d REQ until AUTH lands must wait
+    // long enough or it races the sign and comes back CLOSED "auth-required". The PUBLIC
+    // group list is NOT gated on this — it uses the short awaitAuthOrTimeout so public
+    // groups load fast even while a slow bunker AUTH is still signing.
+    private val LOCAL_SIGNER_AUTH_BUDGET_MS = 2_000L
+    private val REMOTE_SIGNER_AUTH_BUDGET_MS = 12_000L
+
+    // Grace before auto-forgetting an orphan pin. Must exceed the remote AUTH budget plus a
+    // little, so a private group whose kind:39000 only arrives post-AUTH (after the public
+    // group-list EOSE flagged it as an orphan) has time to resolve and is not wrongly dropped.
+    private val ORPHAN_FORGET_SETTLE_MS = 15_000L
+
+    private fun signerAuthBudgetMs(): Long = if (ActiveAccountManager.session.value?.signer?.isRemote == true) {
+        REMOTE_SIGNER_AUTH_BUDGET_MS
+    } else {
+        LOCAL_SIGNER_AUTH_BUDGET_MS
+    }
+
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
      * session. resubscribeAfterAuth invalidates the (possibly pre-AUTH, empty-EOSE)
@@ -112,7 +259,7 @@ class NostrRepository(
 
     /**
      * Relays for which the UI requested the full OTHER GROUPS list while the
-     * corresponding client wasn't yet primary/connected/AUTHed. Drained by
+     * corresponding client wasn't yet focused/connected/AUTHed. Drained by
      * [drainFullFetchRequest] from connect()/switchRelay()/resubscribeAfterAuth
      * once the client is ready, so the user-triggered click is honoured
      * without a polling wait.
@@ -191,6 +338,9 @@ class NostrRepository(
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = groupManager.groupsByRelay
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
     override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = groupManager.messageStatus
+    override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadRoots
+    override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.threadReplies
+    override val threadsLoaded: StateFlow<Set<String>> = groupManager.threadsLoaded
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
@@ -199,6 +349,7 @@ class NostrRepository(
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> = groupManager.groupStates
+    override val groupsAwaitingAuthRead: StateFlow<Set<String>> = groupManager.groupsAwaitingAuthRead
 
     override suspend fun resetGroupLoadingState(groupId: String) {
         groupManager.resetLoadingForGroups(listOf(groupId))
@@ -208,17 +359,29 @@ class NostrRepository(
     // NIP-57 zap totals per zapped event id.
     override val zaps: StateFlow<Map<String, ZapManager.ZapInfo>> = zapManager.zaps
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
+    override val pendingApprovalSince: StateFlow<Map<String, Long>> = groupManager.pendingApprovalSince
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
     override val restrictedGroups: StateFlow<Map<String, String>> = groupManager.restrictedGroups
+    override val leftGroups: StateFlow<Set<String>> = groupManager.leftGroups
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
+
+    // Active account's pubkey, derived from the session swap so it changes on every
+    // account switch. Screens key their per-account loading state off this.
+    override val activePubkey: StateFlow<String?> =
+        ActiveAccountManager.session
+            .map { it?.pubkey }
+            .stateIn(scope, SharingStarted.Eagerly, ActiveAccountManager.currentPubkey)
     override val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
     override val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
     override val bunkerState: StateFlow<BunkerState> = sessionManager.bunkerState
     override val authUrl: StateFlow<String?> = sessionManager.authUrl
+    override val pendingUnlockAccount: StateFlow<Account?> = sessionManager.pendingUnlock
+
+    override fun clearPendingUnlock() = sessionManager.clearPendingUnlock()
 
     // Expose metadata state
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = metadataManager.userMetadata
@@ -258,8 +421,131 @@ class NostrRepository(
     // Expose NIP-11 relay metadata
     private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
+
+    // Relays we could not reach (normalized URLs): the WebSocket connect failed, or
+    // the NIP-11 HTTP fetch exhausted its retries, AND no socket is currently up. A
+    // relay whose socket connected is always reachable even if its NIP-11 is missing
+    // (many NIP-29 relays do not serve a NIP-11 document). Discovery surfaces hide
+    // groups hosted on these.
+    override val unreachableRelays: StateFlow<Set<String>> =
+        combine(
+            connectionManager.relayReachability,
+            _relayMetadataManager.failedRelays,
+        ) { reachability, nip11Failed ->
+            val socketOk = reachability.filterValues { it }.keys
+            val socketFailed = reachability.filterValues { !it }.keys.toSet()
+            val nip11Bad = nip11Failed.map { it.normalizeRelayUrl() }.toSet()
+            (socketFailed + (nip11Bad - socketOk)).toSet()
+        }.stateIn(scope, SharingStarted.Eagerly, emptySet())
     override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
     override val groupTagRelays: StateFlow<Set<String>> = outboxManager.groupTagRelays
+
+    // Public kind:10009 group lists of OTHER users (profile pages). Newest event
+    // wins per pubkey; the active account's own list never lands here.
+    private val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
+    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists.asStateFlow()
+
+    private val userGroupListsSerializer =
+        MapSerializer(String.serializer(), ListSerializer(UserGroupRef.serializer()))
+    private var userGroupListsPersistJob: Job? = null
+
+    /** Most recently-seen pubkeys to keep when snapshotting the kind:10009 cache to disk. */
+    private val userGroupListsCacheCap = 500
+
+    /** Hydrate other users' kind:10009 lists from disk so discovery tabs render from cache. */
+    private fun restoreUserGroupListsFromCache() {
+        try {
+            val cached = SecureStorage.getUserGroupListsCache()
+            if (cached.isNullOrBlank()) return
+            val map = json.decodeFromString(userGroupListsSerializer, cached)
+            if (map.isNotEmpty()) _userGroupLists.value = map
+        } catch (_: Exception) {
+            // Corrupted cache — start fresh.
+        }
+    }
+
+    /** Debounced snapshot of the (recency-capped) kind:10009 cache to the global on-disk store. */
+    private fun scheduleUserGroupListsPersist() {
+        userGroupListsPersistJob?.cancel()
+        userGroupListsPersistJob =
+            scope.launch {
+                delay(5_000)
+                val snapshot = _userGroupLists.value
+                val capped =
+                    if (snapshot.size <= userGroupListsCacheCap) {
+                        snapshot
+                    } else {
+                        snapshot.entries.toList().takeLast(userGroupListsCacheCap).associate { it.toPair() }
+                    }
+                if (capped.isEmpty()) return@launch
+                try {
+                    SecureStorage.saveUserGroupListsCache(json.encodeToString(userGroupListsSerializer, capped))
+                } catch (_: Exception) {
+                }
+            }
+    }
+    private val userGroupListCreatedAt = mutableMapOf<String, Long>()
+
+    // The active account's own NIP-02 contact list (kind:3). [following] is the set
+    // of "p"-tagged pubkeys; the raw tags + content are kept so follow/unfollow
+    // re-publish on top of the latest known list without dropping relay hints,
+    // petnames, or the (legacy) relay-JSON content.
+    private val _following = MutableStateFlow<Set<String>>(emptySet())
+    override val following: StateFlow<Set<String>> = _following.asStateFlow()
+
+    // True once the active account's kind:3 has actually loaded (arrived from a relay,
+    // been published by us, or the fetch resolved as "no list"). Lets the UI tell
+    // "still loading" apart from "follows nobody", so an empty [following] after the
+    // user unfollows everyone is shown as empty instead of falling back to a stale cache.
+    private val _contactListLoaded = MutableStateFlow(false)
+    override val contactListLoaded: StateFlow<Boolean> = _contactListLoaded.asStateFlow()
+    private var contactListCreatedAt = 0L
+    private var contactListContent = ""
+    private var contactListTags: List<List<String>> = emptyList()
+    private var contactListRequested = false
+    private val contactListMutex = Mutex()
+
+    // Retries the kind:3 REQ until a relay actually accepts it. On a cold-start login
+    // (especially bunker, whose connect is signer-gated and slow) the screen's one-shot
+    // requestContactList() can fire before any relay is up, send nothing, and leave the
+    // friends sidebar on "follows nobody" until the app is reopened. This loop self-heals
+    // that without a restart. Cancelled on account switch by resetContactListState.
+    private var contactListRetryJob: Job? = null
+
+    // Debounced kind:3 publisher. [following] holds the user's desired set (flipped
+    // optimistically on each tap); rapid taps coalesce into a single publish.
+    private var pendingContactListPublish: Job? = null
+    private var hasUnpublishedContactChanges = false
+    private val contactListPublishDebounceMs = 700L
+
+    private fun followsFrom(tags: List<List<String>>): Set<String> = tags
+        .filter { it.firstOrNull() == "p" }
+        .mapNotNull { it.getOrNull(1)?.takeIf { pk -> pk.isNotBlank() } }
+        .toSet()
+
+    private fun handleKind3Event(event: JsonObject) {
+        // Only the active account's own list drives [following]; other users' kind:3
+        // events (some relays gossip them) are ignored here.
+        val pubKey = sessionManager.getPublicKey() ?: return
+        val eventPubkey = event["pubkey"]?.jsonPrimitive?.contentOrNull ?: return
+        if (eventPubkey != pubKey) return
+        val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+        if (createdAt < contactListCreatedAt) return
+        val tags =
+            event["tags"]?.jsonArray.orEmpty().map { tag ->
+                tag.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+            }
+        contactListCreatedAt = createdAt
+        contactListContent = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
+        contactListTags = tags
+        contactListRequested = true
+        _contactListLoaded.value = true
+        // Keep the optimistic [following] when there are local taps not yet published,
+        // so a relay echo arriving mid-follow doesn't clobber a just-tapped follow.
+        if (!hasUnpublishedContactChanges) {
+            _following.value = followsFrom(tags)
+        }
+    }
 
     override fun forceInitialized() {
         _isInitialized.value = true
@@ -272,7 +558,7 @@ class NostrRepository(
         }
         connectionManager.onPoolRelayLost = { relayUrl ->
             // Only reconnect pool relays that were actively connected during this session
-            // (had been primary at some point). Lazy pool relays are not reconnected.
+            // (had been focused at some point). Lazy pool relays are not reconnected.
             if (relayUrl in connectedPoolRelays) {
                 relayReconnectScheduler.schedule(relayUrl)
             }
@@ -281,6 +567,7 @@ class NostrRepository(
             resubscribeAllGroups(client)
             pendingEventManager?.onConnectionRestored()
             reconnectDroppedNip29PoolRelays()
+            resubscribeDmInbox()
             scope.launch { refreshVisibleUserMetadata() }
         }
 
@@ -297,6 +584,59 @@ class NostrRepository(
                         groupManager.markRelayLoaded(relay)
                     }
                 }
+            }
+        }
+
+        // The set of groups we KNOW on the focused relay grows over time: friends'/curator
+        // kind:10009 lists arrive after connect, and joining/creating a group (incl. a subgroup)
+        // adds to joinedGroupsByRelay. When it grows, send a fresh targeted #d fetch so those
+        // groups' metadata loads (name/picture/parent) — we never pull the full directory.
+        scope.launch {
+            combine(_following, _userGroupLists, groupManager.joinedGroupsByRelay) { _, _, _ -> Unit }.collect {
+                val relay = connectionManager.currentRelayUrl.value
+                if (relay.isBlank()) return@collect
+                val client = connectionManager.getFocusedClient() ?: return@collect
+                val ids = knownGroupIdsForRelay(relay).toSet()
+                if (ids.isNotEmpty() && ids != sentKnownGroupFetch[relay.normalizeRelayUrl()]) {
+                    groupManager.markRelayLoading(relay)
+                    sendKnownGroupsFetch(client, relay)
+                }
+            }
+        }
+
+        // Open the NIP-17 DM inbox once we're logged in (cold-boot restore or a fresh login).
+        // startDmInbox() dedups; resetContactListState re-arms it on account switch.
+        scope.launch {
+            sessionManager.isLoggedIn.collect { loggedIn ->
+                if (loggedIn) startDmInbox()
+            }
+        }
+
+        // Auto-forget confirmed orphan pins. A joined group still missing its kind:39000
+        // after the hosting relay finished its group list (EOSE) was deleted, or was filed
+        // under the wrong relay — it can never resolve, shows as a broken "No description"
+        // card, and (being in storage) gets re-published into kind:10009 every time. Drop it
+        // from the joined list + storage and republish so it stays gone. The guards
+        // (recently-joined grace, relay-glitch protection) live in autoForgettableOrphans;
+        // forgetJoinedPin updates joined, which re-runs this collector until it converges.
+        scope.launch {
+            groupManager.orphanedJoinedByRelay.collect {
+                if (groupManager.autoForgettableOrphans().isEmpty()) return@collect
+                // Settle before acting: a private group's kind:39000 arrives via
+                // requestPrivateGroupData only AFTER AUTH, which can land after the public
+                // group-list EOSE that flags it as an orphan. Wait, then RE-CHECK, so a
+                // group that resolved during the window is never forgotten.
+                delay(ORPHAN_FORGET_SETTLE_MS)
+                val pubKey = sessionManager.getPublicKey() ?: return@collect
+                val toForget = groupManager.autoForgettableOrphans()
+                if (toForget.isEmpty()) return@collect
+                var changed = false
+                toForget.forEach { (relay, ids) ->
+                    ids.forEach { id ->
+                        if (groupManager.forgetJoinedPin(id, relay, pubKey)) changed = true
+                    }
+                }
+                if (changed) publishJoinedGroupsList()
             }
         }
 
@@ -320,27 +660,7 @@ class NostrRepository(
             ) { connected, verifying ->
                 connected && !verifying && sessionManager.isBunkerReady()
             }.collect { ready ->
-                if (ready && !wasReady) {
-                    try {
-                        // Skip the primary reconnect if it already AUTH'd this
-                        // session — a slow bunker can still complete signing
-                        // before the verifying flag flips, in which case the
-                        // socket is healthy and reconnecting throws away ~3.5 s
-                        // of setup + AUTH cost on every cold start. ensureJoined
-                        // is idempotent; pool relays whose AUTH genuinely failed
-                        // still get reconnected via their own onConnectionLost.
-                        val primary = connectionManager.getPrimaryClient()
-                        val primaryHealthy = primary != null &&
-                            primary.isConnected() &&
-                            primary.hasAuthSucceeded()
-                        if (!primaryHealthy) reconnect()
-                        ensureJoinedRelaysConnected(
-                            connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
-                        )
-                    } catch (e: Throwable) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                    }
-                }
+                if (ready && !wasReady) recoverBunkerGroupRelays()
                 wasReady = ready
             }
         }
@@ -365,6 +685,12 @@ class NostrRepository(
         // Now that the IDB cache is populated, prime the relay-metadata StateFlow so the sidebar
         // shows icons/names immediately instead of waiting for NIP-11 HTTP fetches.
         _relayMetadataManager.restoreFromCache()
+        // Same for kind:0 profiles: hydrate names/avatars from the global on-disk store so they
+        // show instantly on cold start instead of waiting for the network.
+        metadataManager.restoreFromCache()
+        // And friends'/curator's kind:10009 so the From friends / Recommended tabs render from
+        // cache before the network answers; loadFriendsGroups/loadRecommended revalidate.
+        restoreUserGroupListsFromCache()
 
         val restored = sessionManager.restoreSession()
         if (restored) {
@@ -374,7 +700,7 @@ class NostrRepository(
             // Now that the session is active, load the per-account current
             // relay pointer. Doing this earlier (before restoreSession) would
             // read with a null pubkey and force currentRelayUrl to blank,
-            // making the boot flow pick a different primary relay than the
+            // making the boot flow pick a different focused relay than the
             // one the user was on.
             connectionManager.loadSavedRelay()
             val pubkey = sessionManager.getPublicKey()
@@ -391,7 +717,7 @@ class NostrRepository(
 
             // No NIP-29 relays saved locally — fetch kind:10009 from bootstrap
             // relays so "r" tags can restore the user's relay list automatically.
-            // Once relays are discovered, connect to the first one as primary.
+            // Once relays are discovered, connect to the first one as focused.
             if (activeRelay.isBlank() && savedRelays.isEmpty() && deepLinkRelay == null) {
                 if (pubkey != null) {
                     unreadManager.initialize(pubkey)
@@ -406,19 +732,24 @@ class NostrRepository(
                         // If so, connect to the first one so the app doesn't stay in empty state.
                         val restoredRelays = SecureStorage.loadRelayListFor(pubkey)
                         if (restoredRelays.isNotEmpty()) {
-                            val primaryRelay = restoredRelays.first()
+                            val focusedRelay = restoredRelays.first()
                             // Persist and set as active so the UI picks it up immediately.
-                            SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+                            SecureStorage.saveCurrentRelayUrlFor(pubkey, focusedRelay)
                             connectionManager.loadSavedRelay()
 
                             groupManager.prePopulateRelayList(restoredRelays)
                             _relayMetadataManager.fetchAll(restoredRelays)
                             liveCursorStore?.loadAll(restoredRelays)
-                            groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+                            groupManager.loadJoinedGroupsFromStorage(pubkey, focusedRelay)
                             groupManager.loadAllJoinedGroupsFromStorage(pubkey, restoredRelays)
                             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, restoredRelays)
-                            connect(primaryRelay)
-                            scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
+                            groupManager.restoreGroupMembershipFromStorage(pubkey)
+                            groupManager.migrateMessageBlobsToCache(pubkey)
+                            // Arm catch-up right before connect (fresh TTL) so the
+                            // first mux refresh replays the closed-app backlog.
+                            applyCatchUpSinceFor(pubkey)
+                            connect(focusedRelay)
+                            scope.launch { ensureJoinedRelaysConnected(focusedRelay) }
                         }
                     }
                     requestUserMetadata(setOf(pubkey))
@@ -430,12 +761,12 @@ class NostrRepository(
             // Merge deep link relay into the visible list (not persisted until user confirms)
             val baseRelays = if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)
             val allRelays = (baseRelays + listOfNotNull(deepLinkRelay)).distinct()
-            // Deep link relay becomes primary; otherwise use the first saved relay
-            val primaryRelay = deepLinkRelay ?: allRelays.first()
+            // Deep link relay becomes focused; otherwise use the first saved relay
+            val focusedRelay = deepLinkRelay ?: allRelays.first()
             if (deepLinkRelay != null) {
                 // Only set as current relay for this session — don't save to relay list
                 if (pubkey != null) {
-                    SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+                    SecureStorage.saveCurrentRelayUrlFor(pubkey, focusedRelay)
                 }
                 connectionManager.loadSavedRelay()
                 // Signal UI to offer adding this relay if it's not already saved
@@ -448,20 +779,27 @@ class NostrRepository(
             _relayMetadataManager.fetchAll(allRelays)
 
             if (pubkey != null) {
-                groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+                groupManager.loadJoinedGroupsFromStorage(pubkey, focusedRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+                groupManager.restoreGroupMembershipFromStorage(pubkey)
+                groupManager.migrateMessageBlobsToCache(pubkey)
                 unreadManager.initialize(pubkey)
                 notificationSettings?.initialize(pubkey)
                 notificationHistoryStore?.initialize(pubkey)
+                // Arm catch-up so the first mux refresh after connect replays
+                // messages that arrived while the app was closed (notifications
+                // + unread). Must run after notificationHistoryStore.initialize
+                // so the newest-notification data point is loaded.
+                applyCatchUpSinceFor(pubkey)
             }
             initializeOutboxModel()
 
             // Local data loaded — show UI while connect() runs in the background
             _isInitialized.value = true
 
-            connect(primaryRelay)
-            scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
+            connect(focusedRelay)
+            scope.launch { ensureJoinedRelaysConnected(focusedRelay) }
             if (pubkey != null) {
                 requestUserMetadata(setOf(pubkey))
             }
@@ -486,14 +824,26 @@ class NostrRepository(
                 liveCursorStore?.persistAll()
             }
         }
+
+        // Low-frequency revalidation of the metadata on screen (open-group authors/members
+        // and the followed sidebar) so a long-running session picks up renamed profiles and
+        // new avatars without needing a reconnect. Only stale entries are refetched.
+        scope.launch {
+            while (true) {
+                delay(MetadataManager.STALE_THRESHOLD_MS)
+                if (connectionManager.connectionState.value is ConnectionManager.ConnectionState.Connected) {
+                    refreshVisibleUserMetadata()
+                }
+            }
+        }
     }
 
     /**
      * Connect a pool relay in the background and track it as actively connected.
-     * Only called for relays that were previously primary (demoted to pool) and need reconnection.
+     * Only called for relays that were previously focused (demoted to pool) and need reconnection.
      */
     private suspend fun connectToRelayBackground(relayUrl: String) {
-        if (connectionManager.getPrimaryClient()?.getRelayUrl() == relayUrl) return
+        if (connectionManager.getFocusedClient()?.getRelayUrl() == relayUrl) return
         try {
             connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
                 enqueueToRelayPipeline(msg, c)
@@ -502,12 +852,46 @@ class NostrRepository(
         } catch (_: Exception) {}
     }
 
+    // True only while finishLoginInit is wiring up a newly logged-in account.
+    // The bunker-ready collector reacts to _bunkerState turning Connected, which
+    // for the synchronous loginWithBunker path happens mid-swap, before the new
+    // account's relays exist; reconnecting then raced the swap's own reconnect
+    // and left the focused unauthenticated (the add-account-needs-restart bug).
+    @Volatile
+    private var bunkerLoginInProgress = false
+
+    /**
+     * Drive the active relay's NIP-42 AUTH once the bunker signer is reachable,
+     * so private groups that came back CLOSED "auth-required" while the signer
+     * was still connecting load without an app restart.
+     *
+     * Idempotent: skips the reconnect when the focused already AUTH'd this
+     * session (a slow bunker can finish signing before the verifying flag flips,
+     * and reconnecting would throw away ~3.5 s of setup + AUTH); ensureJoined is
+     * always safe to re-run. No-ops while a login swap is still in flight.
+     */
+    private suspend fun recoverBunkerGroupRelays() {
+        if (bunkerLoginInProgress) return
+        try {
+            val focused = connectionManager.getFocusedClient()
+            val focusedHealthy = focused != null &&
+                focused.isConnected() &&
+                focused.hasAuthSucceeded()
+            if (!focusedHealthy) reconnect()
+            ensureJoinedRelaysConnected(
+                connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
+            )
+        } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+        }
+    }
+
     /**
      * Open a WebSocket + send a mux chat REQ for every relay where the user has
      * joined groups, except [skipPrimary] (already connected). Idempotent; safe
      * to call from startup, on relay switch, or after a join.
      *
-     * Without this, only the primary relay delivers live kind:9 — joined groups
+     * Without this, only the focused relay delivers live kind:9 — joined groups
      * on other relays go silent. See plan: cosmic-beaming-eclipse.md.
      */
     private suspend fun ensureJoinedRelaysConnected(skipPrimary: String?) {
@@ -516,10 +900,22 @@ class NostrRepository(
         val restrictedNormalized = _restrictedRelays.value.keys
             .map { it.normalizeRelayUrl() }
             .toSet()
+        // Connect relays that host auth-gated (private / unknown-metadata) joined groups
+        // first. AUTH is one serialized round-trip per relay on a NIP-46 bunker, and those
+        // relays are the only ones that need it to reveal their kind:39000/39002 — spending
+        // the scarce signer on them before public relays makes private groups load first.
+        val joinedByRelay = groupManager.joinedGroupsByRelay.value
+        val metaByRelay = groupManager.groupsByRelay.value
+        fun authPendingCount(relay: String): Int {
+            val joined = joinedByRelay[relay].orEmpty()
+            val publicIds = metaByRelay[relay].orEmpty().filter { it.isPublic }.map { it.id }.toSet()
+            return joined.count { it !in publicIds }
+        }
         val targets = joinedRelays
             .map { it.normalizeRelayUrl() }
             .distinct()
             .filter { it.isNotBlank() && it != skipNormalized && it !in restrictedNormalized }
+            .sortedByDescending { authPendingCount(it) }
 
         for (relayUrl in targets) {
             // Skip if already connected — connectToRelayBackground is idempotent
@@ -527,6 +923,7 @@ class NostrRepository(
             val existing = connectionManager.getClientForRelay(relayUrl)
             if (existing != null && existing.isConnected() && relayUrl in connectedPoolRelays) {
                 groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+                scheduleMissingMetadataSweep(relayUrl)
                 delay(100)
                 continue
             }
@@ -536,9 +933,19 @@ class NostrRepository(
                 continue
             }
             try {
+                // Short grace only: a slow bunker sign must NOT block this sequential loop.
+                // Private-group data on this relay is covered by resubscribeAfterAuth (on a
+                // fresh AUTH challenge) and the mux refresh below; firing it here too flooded
+                // the relay with duplicate per-group REQs.
                 if (client.isConnected()) client.awaitAuthOrTimeout()
             } catch (_: Throwable) {}
             groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            // Per-group kind:39000 safety net for THIS secondary relay: the mux/meta batch above
+            // is all-or-nothing, so a public relay that loses the AUTH-vs-REQ race would strand
+            // every joined group on a truncated id + "No description" (auth-gated relays are
+            // covered by resubscribeAfterAuth on their fresh challenge). Idempotent + delayed, so
+            // it's a no-op once the batch lands.
+            scheduleMissingMetadataSweep(relayUrl)
             delay(100)
         }
     }
@@ -552,8 +959,24 @@ class NostrRepository(
         if (connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
-        finishLoginInit(previousPubkey, userPubkey)
+        // Suppress the reactive bunker-ready recovery while the swap wires up the
+        // new account: loginWithBunker flips _bunkerState to Connected mid-swap,
+        // which would otherwise fire a reconnect against the old account's relays.
+        bunkerLoginInProgress = true
+        val userPubkey = try {
+            val pk = sessionManager.loginWithBunker(bunkerUrl)
+            finishLoginInit(previousPubkey, pk)
+            pk
+        } finally {
+            bunkerLoginInProgress = false
+        }
+        // Now the new account's relays are wired up and the signer is connected,
+        // drive a correctly-timed, idempotent AUTH recovery so a first bunker add
+        // never needs an app restart to load private groups.
+        scope.launch {
+            delay(BUNKER_LOGIN_RECOVERY_DELAY_MS)
+            recoverBunkerGroupRelays()
+        }
         Result.Success(userPubkey)
     } catch (e: Exception) {
         Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
@@ -571,12 +994,22 @@ class NostrRepository(
         if (connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
-        finishLoginInit(previousPubkey, userPubkey)
+        bunkerLoginInProgress = true
+        val userPubkey = try {
+            val pk = sessionManager.completeNostrConnectLogin(client, relays)
+            finishLoginInit(previousPubkey, pk)
+            pk
+        } finally {
+            bunkerLoginInProgress = false
+        }
+        scope.launch {
+            delay(BUNKER_LOGIN_RECOVERY_DELAY_MS)
+            recoverBunkerGroupRelays()
+        }
         return userPubkey
     }
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String, isNewIdentity: Boolean): Result<Unit> = try {
+    override suspend fun loginSuspend(privKey: String, pubKey: String, isNewIdentity: Boolean, ncryptsec: String?): Result<Unit> = try {
         val previousPubkey = sessionManager.getPublicKey()
         // A freshly generated identity has nothing on the network yet — no
         // kind:10002, no kind:10009 — so don't bother flagging the relay
@@ -585,7 +1018,7 @@ class NostrRepository(
         if (!isNewIdentity && connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        sessionManager.loginWithPrivateKey(privKey, pubKey)
+        sessionManager.loginWithPrivateKey(privKey, pubKey, ncryptsec)
         finishLoginInit(previousPubkey, pubKey, isNewIdentity = isNewIdentity)
         Result.Success(Unit)
     } catch (e: Exception) {
@@ -671,8 +1104,8 @@ class NostrRepository(
             val activeRelay = connectionManager.currentRelayUrl.value
             val savedRelays = SecureStorage.loadRelayListFor(newPubkey)
             val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
-            val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
-            if (primaryRelay.isNotBlank()) {
+            val focusedRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+            if (focusedRelay.isNotBlank()) {
                 groupManager.prePopulateRelayList(allRelays)
                 // Mirror the rest of initialize()'s sibling bootstrap, not just the
                 // joined-group loaders: without loadAll the first mux subscription
@@ -680,13 +1113,20 @@ class NostrRepository(
                 // rail shows stale NIP-11 icons/names after re-login.
                 liveCursorStore?.loadAll(allRelays)
                 _relayMetadataManager.fetchAll(allRelays)
-                groupManager.loadJoinedGroupsFromStorage(newPubkey, primaryRelay)
+                groupManager.loadJoinedGroupsFromStorage(newPubkey, focusedRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(newPubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(newPubkey, allRelays)
+                groupManager.restoreGroupMembershipFromStorage(newPubkey)
+                groupManager.migrateMessageBlobsToCache(newPubkey)
             }
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
+            // Arm catch-up so the first mux refresh after connect() replays the
+            // backlog accumulated while this identity was logged out. A fresh
+            // identity has no backlog, so skip it there. Must run after
+            // notificationHistoryStore.initialize so the data point is loaded.
+            if (!isNewIdentity) applyCatchUpSinceFor(newPubkey)
             // Skip the outbox bootstrap for a freshly generated identity:
             // nothing has been published yet, so kind:10002 / kind:10009 fetches
             // would only delay landing the user on the onboarding screen.
@@ -695,19 +1135,34 @@ class NostrRepository(
             if (!isNewIdentity) initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
-            // Open sockets for joined groups that live on secondary (non-primary)
-            // relays too. connect() only handles the primary; without this those
+            // Open sockets for joined groups that live on secondary (non-focused)
+            // relays too. connect() only handles the focused; without this those
             // groups stay on "No messages yet" until the user manually switches to
-            // their relay — the same #88 symptom, confined to non-primary relays.
-            if (primaryRelay.isNotBlank()) {
-                scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
+            // their relay — the same #88 symptom, confined to non-focused relays.
+            if (focusedRelay.isNotBlank()) {
+                scope.launch { ensureJoinedRelaysConnected(focusedRelay) }
             }
+            // Fetch the contact list (kind:3) on cold-start login too. A logout -> re-login in a
+            // live process does NOT reconstruct the screen ViewModel (it's long-lived), and re-
+            // logging the SAME account never changes activePubkey (it maps to the pubkey, which is
+            // unchanged, so the StateFlow dedups and the VM's drop(1) re-arm never fires) — so
+            // nothing else requested it and the friends list stayed on "follows nobody" until a
+            // restart. The warm-swap path already requests it via reloadForActiveAccount; this is its
+            // cold-start counterpart. Idempotent (mutex + contactListRequested guard) and the
+            // self-healing retry covers relays still connecting.
+            scope.launch { requestContactList() }
         }
         scope.launch { requestUserMetadata(setOf(newPubkey)) }
     }
 
     override suspend fun logout() {
-        scope.coroutineContext.cancelChildren()
+        // Do NOT cancel appScope's children here: logout runs on a coroutine that
+        // is itself an appScope child (AccountManager.removeAccountAsync), so a
+        // scope-wide cancelChildren() would abort logout midway, leaving
+        // _isLoggedIn true and the sockets/legacy slots uncleared (the app then
+        // could not leave the last account and a restart re-migrated it). Per-
+        // account in-flight work lives on AccountSession.scope and is cancelled by
+        // ActiveAccountManager.clear() via applyActiveAccountChange(null).
 
         // Preserve persisted per-account state (relay list, joined groups,
         // current relay, last viewed group). Re-login with the same pubkey
@@ -730,43 +1185,451 @@ class NostrRepository(
         } catch (_: Exception) {}
         connectedPoolRelays.clear()
 
-        // Reset session-scoped in-memory dedup/scoping caches. These are NOT
-        // persisted state — they only make sense within a single login
-        // session. Leaving them populated meant a logout→re-login on the same
-        // process kept stale entries that made resubscribeAfterAuth and the
-        // mux/message refresh paths skip work for the new session, leaving
-        // every group stuck on "No messages yet" until the user restarted.
+        resetSessionScopedCaches()
+        resetContactListState()
+
+        sessionManager.logout()
+    }
+
+    /**
+     * Reset every session-scoped, relay-keyed in-memory cache. These are NOT persisted
+     * state; they only make sense within one account's session. The full-logout path and
+     * the warm-swap path (reloadForActiveAccount) must both run this so neither leaks the
+     * outgoing account's dedup/restriction state into the incoming account. Leaving any of
+     * these populated across a switch makes resubscribeAfterAuth / switchRelay / the mux
+     * refresh skip work for the new account: a relay A marked restricted stays hidden for B,
+     * an authed group-list already fetched under A is not re-fetched for B, and B's groups
+     * stay dark until an app restart. Single source of truth so the two paths cannot drift.
+     */
+    private suspend fun resetSessionScopedCaches() {
         lastRequestGroupsAt.clear()
         authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
         pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
         _closedGroupSubscriptions.value = emptySet()
         activeRelayUrl = null
-        // Per-relay AUTH-required / restricted markers from the previous
-        // session would otherwise short-circuit switchRelay on re-login (early
-        // return at the restriction check), so a relay that just had a
-        // transient AUTH timeout — common on bunker logins — would stay
-        // permanently "restricted" in the UI until process restart, even
-        // though the new session's signer can answer the challenge fine.
+        // Per-relay AUTH-required / restricted markers from the previous account would
+        // otherwise short-circuit switchRelay (early return at the restriction check) and
+        // make ensureJoinedRelaysConnected skip those relays, so a relay that just had a
+        // transient AUTH timeout stays permanently "restricted" for the new account.
         _restrictedRelays.value = emptyMap()
+        // Relay-keyed, not account-keyed: left intact it holds the previous account's
+        // fetched ids and the growth collector skips re-fetching kind:39000 for the new one.
+        sentKnownGroupFetch.clear()
+    }
 
-        sessionManager.logout()
+    // ===== Direct messages (NIP-17 over NIP-59 gift wraps) =====
+
+    private val dmManager = DmManager(scope)
+
+    /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
+    override val dmConversations: StateFlow<List<DmConversation>> get() = dmManager.conversations
+
+    /** Decrypted DM messages keyed by peer pubkey. */
+    override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> get() = dmManager.messagesByPeer
+
+    /** Unread DM count per peer (incoming messages newer than the read high-water). */
+    override val dmUnreadByPeer: StateFlow<Map<String, Int>> get() = dmManager.unreadByPeer
+
+    /** Total unread DMs across all conversations, for the nav badge. */
+    override val totalDmUnread: StateFlow<Int> get() = dmManager.totalUnread
+
+    // Our own effective DM relays (kind:10050, or the defaults until we publish one). Drives the
+    // Settings editor; kept in sync on inbox open, on our own kind:10050, and on publish.
+    private val _myDmRelays = MutableStateFlow<List<String>>(emptyList())
+    override val myDmRelays: StateFlow<List<String>> = _myDmRelays.asStateFlow()
+
+    // Fallback DM relays for users (and us) without a published kind:10050.
+    private val defaultDmRelays =
+        listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://auth.nostr1.com")
+
+    private var dmInboxStarted = false
+    private var dmPersistenceWired = false
+    private val dmPersistenceJobs = mutableListOf<kotlinx.coroutines.Job>()
+
+    /** Mark a DM conversation read up to its newest message (clears its unread badge). */
+    override suspend fun markDmRead(peerPubkey: String) {
+        dmManager.markRead(peerPubkey)
+    }
+
+    private fun dmRelaysFor(pubkey: String): List<String> = dmManager.dmRelaysFor(pubkey).map { it.normalizeRelayUrl() }.ifEmpty { defaultDmRelays }
+
+    /**
+     * Send a NIP-17 direct message: build the rumor, seal + gift-wrap it for the recipient and a
+     * self-copy for us, and publish each to its side's DM relays. The seal's NIP-44 encrypt and
+     * signature run through the active signer, so local, bunker, and NIP-07 accounts all work.
+     */
+    override suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> {
+        val signer =
+            ActiveAccountManager.session.value?.signer
+                ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        val myPub = sessionManager.getPublicKey() ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return try {
+            val rumor = Nip17.buildRumor(myPub, recipientPubkey, content)
+            val recipientWrap = Nip17.wrap(rumor, recipientPubkey, signer)
+            val selfWrap = Nip17.wrap(rumor, myPub, signer)
+            dmManager.addOptimistic(rumor, recipientPubkey, myPub)
+            publishEventToRelays(dmRelaysFor(recipientPubkey), recipientWrap)
+            publishEventToRelays(dmRelaysFor(myPub), selfWrap)
+            Result.Success(Unit)
+        } catch (e: NostrSigner.SigningException) {
+            Result.Error(AppError.Unknown("Your signer could not encrypt this message (NIP-44). It may not support direct messages."))
+        } catch (e: Throwable) {
+            Result.Error(AppError.Unknown(e.message ?: "Failed to send the message"))
+        }
+    }
+
+    private suspend fun publishEventToRelays(relays: List<String>, event: Event) {
+        val json =
+            buildJsonArray {
+                add("EVENT")
+                add(event.toJsonObject())
+            }.toString()
+        relays.distinct().forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(json)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Connect to our DM relays and subscribe to the kind:1059 inbox so DMs arrive in real time. */
+    suspend fun startDmInbox() {
+        if (dmInboxStarted) return
+        val myPub = sessionManager.getPublicKey() ?: return
+        dmInboxStarted = true
+
+        // Hydrate from the CacheStore before the inbox streams so old conversations render instantly
+        // and already-seen gift wraps are never re-decrypted.
+        hydrateDmCache(myPub)
+        wireDmPersistence(myPub)
+
+        // Resume per-wrap decrypt progress, and reset the this-session sync bookkeeping.
+        dmProcessedWrapIds = SecureStorage.loadDmProcessedWrapIds(myPub)
+        dmReceivedWrapIds = emptySet()
+        dmInFlightWrapIds = emptySet()
+        dmFailCounts = emptyMap()
+        dmGivenUpWrapIds = emptySet()
+        dmInboxEosedRelays = emptySet()
+
+        _myDmRelays.value = dmRelaysFor(myPub)
+        fetchDmRelays(myPub)
+        resendDmInboxReq(myPub)
+        // The sync cursor + full-sync flag advance on the dm_inbox EOSE (handleUnifiedMessage),
+        // not here: advancing unconditionally on open skipped the whole undecrypted backlog on a
+        // device that had never synced it. The EOSE means the relay actually delivered everything.
+
+        // Make ourselves reachable: publish a default kind:10050 only if the account truly has none.
+        // Gate on the fetch landing an event (our pubkey appearing in dmRelaysByPubkey), not a fixed
+        // delay - the old 4s fired before the fetch finished and overwrote existing lists with the
+        // defaults.
+        scope.launch {
+            val found = withTimeoutOrNull(12_000) { dmManager.dmRelaysByPubkey.first { myPub in it } } != null
+            if (found) {
+                _myDmRelays.value = dmRelaysFor(myPub)
+            } else {
+                publishDmRelayList(defaultDmRelays)
+            }
+        }
+
+        // Retry undecrypted wraps as the (flaky) bunker signer recovers: a timed-out nip44_decrypt
+        // leaves its wrap un-acked, so periodically re-stream the inbox window. The persisted dedup
+        // skips wraps already decrypted, so each pass only re-attempts the ones still missing.
+        // Registered as a dmPersistenceJob so it's cancelled on logout / account switch.
+        dmPersistenceJobs +=
+            scope.launch {
+                while (true) {
+                    delay(120_000)
+                    val pub = sessionManager.getPublicKey() ?: break
+                    val pending = dmReceivedWrapIds.count { it !in dmProcessedWrapIds && it !in dmGivenUpWrapIds }
+                    if (pending > 0) {
+                        resendDmInboxReq(pub)
+                    }
+                }
+            }
+    }
+
+    // Ids already written to the CacheStore, so the persistence collector upserts only new DMs
+    // instead of rewriting the whole history on every change. Seeded by hydrateDmCache.
+    private var dmPersistedIds: Set<String> = emptySet()
+
+    private fun DmMessage.toCachedMsg(): org.nostr.nostrord.storage.cache.CachedMsg = org.nostr.nostrord.storage.cache.CachedMsg(
+        id = id,
+        groupId = peerPubkey,
+        pubkey = senderPubkey,
+        createdAt = createdAt,
+        kind = DM_CACHE_KIND,
+        content = content,
+        tagsJson = "[]",
+    )
+
+    private fun org.nostr.nostrord.storage.cache.CachedMsg.toDmMessage(myPubkey: String): DmMessage = DmMessage(
+        id = id,
+        peerPubkey = groupId,
+        senderPubkey = pubkey,
+        content = content,
+        createdAt = createdAt,
+        mine = pubkey == myPubkey,
+    )
+
+    /**
+     * Load DM history from the CacheStore (migrating the legacy SecureStorage blob the first time).
+     * DMs are stored in the message cache as kind:14 keyed by peer pubkey, so one query rebuilds
+     * every conversation without knowing the peers up front.
+     */
+    private suspend fun hydrateDmCache(myPub: String) {
+        if (!SecureStorage.isDmCacheMigratedFor(myPub)) {
+            val legacy = SecureStorage.loadDmMessages(myPub)
+            val migrated =
+                try {
+                    legacy.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                        cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                    }
+                    true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
+                }
+            // Only retire the legacy blob once it is safely in the cache; a failed migration retries
+            // next launch instead of losing history.
+            if (migrated) {
+                SecureStorage.setDmCacheMigratedFor(myPub)
+                SecureStorage.clearDmMessages(myPub)
+            }
+        }
+        val cached =
+            try {
+                cacheStore.loadByKind(myPub, DM_CACHE_KIND)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+        dmPersistedIds = cached.mapTo(HashSet()) { it.id }
+        dmManager.hydrate(cached.map { it.toDmMessage(myPub) }, SecureStorage.loadDmLastRead(myPub))
+    }
+
+    /** Persist decrypted messages + read state whenever they change (one collector per session). */
+    private fun wireDmPersistence(myPub: String) {
+        if (dmPersistenceWired) return
+        dmPersistenceWired = true
+        dmPersistenceJobs +=
+            scope.launch {
+                dmManager.messagesByPeer.drop(1).collect { byPeer ->
+                    // Upsert only messages not yet cached; never rewrite the whole history.
+                    val fresh = byPeer.values.flatten().filter { it.id !in dmPersistedIds }
+                    if (fresh.isNotEmpty()) {
+                        try {
+                            fresh.groupBy { it.peerPubkey }.forEach { (peer, msgs) ->
+                                cacheStore.upsertMessages(myPub, peer, msgs.map { it.toCachedMsg() })
+                            }
+                            dmPersistedIds = dmPersistedIds + fresh.map { it.id }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // A transient cache write error (e.g. SQLITE_BUSY while group writes hit
+                            // the same db) must NOT kill the collector: leave these ids unpersisted
+                            // so the next emission retries them, instead of stranding DMs at the
+                            // migrated count until restart.
+                        }
+                    }
+                }
+            }
+        dmPersistenceJobs +=
+            scope.launch {
+                dmManager.lastReadByPeer.drop(1).collect { reads ->
+                    SecureStorage.saveDmLastRead(myPub, reads)
+                }
+            }
+    }
+
+    /** (Re)subscribe to the kind:1059 inbox on all DM relays. Idempotent; also run on reconnect. */
+    // v2: the v1 flag was latched on bare EOSE (before decryption finished), so it could be stuck
+    // true with an incomplete backlog. v2 latches only when every delivered wrap is processed.
+    private fun dmFullSyncKey(pubkey: String) = "dm_full_synced_v2_$pubkey"
+
+    // Persist decrypt progress, debounced so a streaming backlog doesn't hammer storage.
+    private fun scheduleSaveProcessedWrapIds(myPub: String) {
+        dmProcessedSaveJob?.cancel()
+        dmProcessedSaveJob = scope.launch {
+            delay(2_000)
+            SecureStorage.saveDmProcessedWrapIds(myPub, dmProcessedWrapIds)
+        }
+    }
+
+    // Latch the persisted "full sync done" flag + advance the cursor ONLY once the inbox has
+    // EOSEd and every wrap it delivered this session is processed. Until then resendDmInboxReq
+    // keeps `since = 0`, so a slow/interrupted bunker backfill resumes next session (skipping the
+    // wraps already in dmProcessedWrapIds) instead of stranding the undecrypted ones.
+    private fun maybeLatchDmFullSync(myPub: String) {
+        if (SecureStorage.getBooleanPref(dmFullSyncKey(myPub), false)) return
+        // Every subscribed DM relay must have EOSEd. Otherwise a fast relay that returns nothing (or
+        // a subset) latches "synced" while another relay still holds the bulk of the backlog, which
+        // freezes `since` at now so the next launch's incremental REQ excludes the older wraps and
+        // they are never re-requested (the inbox stalls partway through across restarts).
+        val subscribed = dmInboxSubscribedRelays
+        if (subscribed.isEmpty() || !dmInboxEosedRelays.containsAll(subscribed)) return
+        if (!dmProcessedWrapIds.containsAll(dmReceivedWrapIds)) return
+        SecureStorage.saveDmProcessedWrapIds(myPub, dmProcessedWrapIds)
+        SecureStorage.saveBooleanPref(dmFullSyncKey(myPub), true)
+        SecureStorage.saveDmSyncCursor(myPub, epochSeconds())
+    }
+
+    // DM relays the inbox sub is currently subscribed on, so a re-derived (but unchanged)
+    // relay list doesn't re-issue the REQ and re-stream the whole backlog at the bunker.
+    private var dmInboxSubscribedRelays: Set<String> = emptySet()
+
+    private suspend fun resendDmInboxReq(myPub: String) {
+        // Sync the whole inbox until it has EOSEd with every delivered wrap decrypted (dmFullSyncKey),
+        // then go incremental from the saved cursor. Streaming everything is safe: the in-flight
+        // dedup plus the bounded decrypt semaphore cap the load on the signer regardless of how many
+        // wraps arrive, so the relay window doesn't need to be limited.
+        val fullSynced = SecureStorage.getBooleanPref(dmFullSyncKey(myPub), default = false)
+        val since = if (!fullSynced) 0L else SecureStorage.loadDmSyncCursor(myPub)
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(Nip17.KIND_GIFT_WRAP) }
+                putJsonArray("#p") { add(myPub) }
+                if (since > 0L) put("since", since - GIFT_WRAP_BACKDATE_SECONDS)
+            }
+        val req =
+            buildJsonArray {
+                add("REQ")
+                add("dm_inbox")
+                add(filter)
+            }.toString()
+        val urls = dmRelaysFor(myPub).distinct()
+        dmInboxSubscribedRelays = urls.toSet()
+        // Keep DM relays alive: register them with the reconnect scheduler so a dropped DM
+        // socket is revived (and re-subscribed via resubscribePoolRelay) rather than going
+        // silent until the next app start. They host no NIP-29 groups, so group-resubscribe
+        // on them is a harmless no-op.
+        connectedPoolRelays.addAll(urls)
+        urls.forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(req)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Re-arm the DM inbox after a relay reconnect so real-time receive survives drops. */
+    private fun resubscribeDmInbox() {
+        if (!dmInboxStarted) return
+        val myPub = sessionManager.getPublicKey() ?: return
+        scope.launch { resendDmInboxReq(myPub) }
+    }
+
+    /**
+     * Publish our NIP-17 DM relay list (kind:10050) so other clients know where to send our DMs.
+     * Replaceable event with a `relay` tag per URL. Published to general relays + the DM relays.
+     */
+    override suspend fun publishDmRelayList(relays: List<String>): Result<Unit> {
+        val myPub = sessionManager.getPublicKey() ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        val clean = relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.distinct()
+        if (clean.isEmpty()) return Result.Error(AppError.Unknown("No DM relays to publish"))
+        return try {
+            val event =
+                Event(
+                    pubkey = myPub,
+                    createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                    kind = Nip17.KIND_DM_RELAYS,
+                    tags = clean.map { listOf("relay", it) },
+                    content = "",
+                )
+            val signed = sessionManager.signEvent(event)
+            dmManager.ingestDmRelays(signed)
+            _myDmRelays.value = clean
+            val targets = (clean + outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
+            publishEventToRelays(targets, signed)
+            Result.Success(Unit)
+        } catch (e: NostrSigner.SigningException) {
+            Result.Error(AppError.Unknown("Your signer rejected publishing the DM relay list."))
+        } catch (e: Throwable) {
+            Result.Error(AppError.Unknown(e.message ?: "Failed to publish DM relays"))
+        }
+    }
+
+    /**
+     * One-shot fetch of [pubkey]'s kind:10050 DM relay list. Queries the user's NIP-65 write relays
+     * and bootstrap relays (where the replaceable list is published, see publishDmRelayList) plus the
+     * defaults, so an existing list is actually found instead of falsely read as absent.
+     */
+    private suspend fun fetchDmRelays(pubkey: String) {
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(Nip17.KIND_DM_RELAYS) }
+                putJsonArray("authors") { add(pubkey) }
+            }
+        val req =
+            buildJsonArray {
+                add("REQ")
+                add("dmrelays_${pubkey.take(8)}")
+                add(filter)
+            }.toString()
+        val fetchFrom = (defaultDmRelays + outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
+        fetchFrom.forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(req)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Drops the previous account's kind:3 state so [following] never leaks across accounts. */
+    private fun resetContactListState() {
+        contactListCreatedAt = 0L
+        contactListContent = ""
+        contactListTags = emptyList()
+        contactListRequested = false
+        // Stop any background retry from the previous account; the new account re-arms it.
+        contactListRetryJob?.cancel()
+        contactListRetryJob = null
+        // Cancel any in-flight debounced publish and clear the loaded flag, so the new
+        // account starts "not loaded" (UI shows its cache, not a false "follows nobody")
+        // and a pending publish never targets the wrong account.
+        pendingContactListPublish?.cancel()
+        pendingContactListPublish = null
+        hasUnpublishedContactChanges = false
+        _contactListLoaded.value = false
+        _following.value = emptySet()
+        dmPersistenceJobs.forEach { it.cancel() }
+        dmPersistenceJobs.clear()
+        dmManager.clear()
+        _myDmRelays.value = emptyList()
+        dmInboxStarted = false
+        dmPersistenceWired = false
     }
 
     override fun forgetBunkerConnection() {
         sessionManager.forgetBunkerConnection()
     }
 
-    override suspend fun reloadForActiveAccount() {
-        val pubkey = sessionManager.getPublicKey() ?: return
-        val activeRelay = connectionManager.currentRelayUrl.value
-        val savedRelays = SecureStorage.loadRelayListFor(pubkey)
-
-        // Compute a one-shot catch-up `since` for the upcoming mux refresh:
-        // earliest of the account's last-active timestamp and the newest
-        // notification it already has, minus a small overlap. Skipped when
-        // this account has never been active before (no data point exists,
-        // so the default per-group windowing in LiveCursorStore is correct).
+    /**
+     * Arm a one-shot catch-up `since` for the upcoming mux refresh so the first
+     * subscription after connect replays everything that arrived for [pubkey]
+     * while it was inactive (account switched away, or the app was closed).
+     *
+     * The window starts at the earliest of the account's last-active heartbeat
+     * and the newest notification it already has, minus a small overlap. When
+     * the account has never been active before (no data point exists) the
+     * default per-group windowing in LiveCursorStore is left in charge.
+     *
+     * Used on both warm account swaps ([reloadForActiveAccount]) and cold start
+     * ([initialize] / cold-start [finishLoginInit]) — without it, a real
+     * close+reopen would only surface realtime events, never the missed backlog.
+     */
+    private fun applyCatchUpSinceFor(pubkey: String) {
         val lastActiveAt = SecureStorage.getLastActiveAt(pubkey)
         val newestNotif = notificationHistoryStore?.entries?.value?.firstOrNull()?.createdAt ?: 0L
         if (lastActiveAt > 0L || newestNotif > 0L) {
@@ -786,6 +1649,20 @@ class NostrRepository(
             groupManager.setCatchUpSince(null)
             unreadManager.setCatchUpAnchor(null)
         }
+    }
+
+    override suspend fun reloadForActiveAccount() {
+        val pubkey = sessionManager.getPublicKey() ?: return
+        // The contact list is per-account; drop the prior account's before the swap.
+        resetContactListState()
+        // Same session-cache teardown the full-logout path runs, so a warm swap does not
+        // leak account A's restricted-relay / dedup state into account B (which otherwise
+        // left B's groups dark until an app restart). Runs BEFORE B's re-derive below.
+        resetSessionScopedCaches()
+        val activeRelay = connectionManager.currentRelayUrl.value
+        val savedRelays = SecureStorage.loadRelayListFor(pubkey)
+
+        applyCatchUpSinceFor(pubkey)
 
         // Pre-fill the rail for the new account before the kind:10009 fetch
         // returns; without this the sidebar would show empty until the network
@@ -795,31 +1672,33 @@ class NostrRepository(
         // Mirror initialize()/finishLoginInit's full relay+group bootstrap so a
         // warm account swap establishes the SAME state as a cold start. The swap
         // previously loaded joined groups but skipped prePopulateRelayList / the
-        // cursor + NIP-11 metadata bootstrap, and elected no primary when the new
+        // cursor + NIP-11 metadata bootstrap, and elected no focused when the new
         // account had a blank current-relay slot — leaving it on empty groups /
         // a one-relay rail / stale icons until the app was restarted.
         val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
-        val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
-        if (primaryRelay.isNotBlank()) {
+        val focusedRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+        if (focusedRelay.isNotBlank()) {
             groupManager.prePopulateRelayList(allRelays)
             liveCursorStore?.loadAll(allRelays)
             _relayMetadataManager.fetchAll(allRelays)
-            groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+            groupManager.loadJoinedGroupsFromStorage(pubkey, focusedRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+            groupManager.restoreGroupMembershipFromStorage(pubkey)
+            groupManager.migrateMessageBlobsToCache(pubkey)
             groupManager.loadRestrictedGroupsFromStorage(pubkey, allRelays)
-            // Point GroupManager's current-relay flow at the new primary so the
+            // Point GroupManager's current-relay flow at the new focused so the
             // derived joinedGroups (My Groups — sidebar AND homescreen) reflects
             // this account immediately. applyActiveAccountChange.clear() nulled it,
             // and the warm-swap path only re-sets it if reconnect() actually runs
             // (non-blank relay + a live message handler) via resubscribeAllGroups
             // — so without this, My Groups stayed empty after an account switch.
-            groupManager.restoreGroupsForRelay(primaryRelay)
+            groupManager.restoreGroupsForRelay(focusedRelay)
             // The account had no persisted current relay — elect one so the
-            // primary actually connects (and its cache-hit mux is set up) instead
+            // focused actually connects (and its cache-hit mux is set up) instead
             // of relying on a reconnect that no-ops against a blank current relay.
             if (activeRelay.isBlank()) {
-                SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+                SecureStorage.saveCurrentRelayUrlFor(pubkey, focusedRelay)
                 connectionManager.loadSavedRelay()
             }
         }
@@ -838,18 +1717,65 @@ class NostrRepository(
         // until the next AUTH challenge; clear their mux tracker and reconnect
         // them so the new identity's AUTH runs before subs go out (matches
         // [ensureJoinedRelaysConnected] in the boot path).
-        if (primaryRelay.isNotBlank()) {
+        if (focusedRelay.isNotBlank()) {
             triggerReconnect()
         }
         scope.launch {
+            // Force a fresh socket per secondary joined relay so it re-runs NIP-42 AUTH as
+            // the NEW account. Warm swaps leave these sockets open and AUTH'd as the PREVIOUS
+            // account, and ensureJoinedRelaysConnected short-circuits any relay that is still
+            // connected — so no fresh challenge fires and an auth-gated relay withholds the new
+            // account's group metadata AND membership (total blackout, e.g. chat.wisp.talk)
+            // until an app restart. NIP-42 is reactive: only a fresh socket triggers the
+            // challenge the signer answers with the new identity. Drop from connectedPoolRelays
+            // first so the pool-lost reconnect scheduler doesn't race the reopen below. Cost
+            // matches a cold boot (one AUTH per relay), and the focused is reconnected above.
             try {
-                ensureJoinedRelaysConnected(primaryRelay.takeIf { it.isNotBlank() })
+                val focusedNorm = focusedRelay.normalizeRelayUrl()
+                for (relayUrl in groupManager.joinedGroupsByRelay.value.keys.toList()) {
+                    val norm = relayUrl.normalizeRelayUrl()
+                    if (norm.isBlank() || norm == focusedNorm) continue
+                    connectedPoolRelays.remove(norm)
+                    connectionManager.disconnectRelay(norm)
+                }
+            } catch (_: Exception) {}
+            try {
+                ensureJoinedRelaysConnected(focusedRelay.takeIf { it.isNotBlank() })
             } catch (_: Exception) {}
             // Safety net for the active relay and any joined relay not covered
             // above: applies the catch-up `since` set earlier so events missed
             // while inactive arrive across every relay.
             try {
                 groupManager.refreshLiveSubscriptions()
+            } catch (_: Exception) {}
+            // Re-fetch kind:39000 metadata across EVERY joined relay. A warm swap reuses
+            // already-open secondary-relay sockets, so no fresh AUTH fires and
+            // resubscribeAfterAuth (the only reconnect path that runs requestPrivateGroupData)
+            // never re-fetches their groups' metadata — leaving the new account's group cards
+            // on "No description" + a fallback avatar until a restart forces a cold boot. Mirror
+            // connect()'s post-EOSE fetch here so the new account's metadata fills in immediately.
+            try {
+                for (relayUrl in groupManager.joinedGroupsByRelay.value.keys.toList()) {
+                    val client = connectionManager.getClientForRelay(relayUrl) ?: continue
+                    if (!client.isConnected()) continue
+                    requestGroupsForRelay(client, relayUrl)
+                    groupManager.requestPrivateGroupData(relayUrl)
+                    groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+                    scheduleMissingMetadataSweep(relayUrl)
+                }
+            } catch (_: Exception) {}
+            // Re-fetch the new account's kind:3 so [following] (and the friends list)
+            // repopulate: resetContactListState() cleared the prior account's, and a warm
+            // swap does not reconstruct the screen ViewModel that requests it on cold boot.
+            try {
+                requestContactList()
+            } catch (_: Exception) {}
+            // Re-open the DM inbox for the new account. resetContactListState() cleared the
+            // DM state and set dmInboxStarted=false, but the isLoggedIn collector that runs
+            // startDmInbox() on cold boot never re-fires on a warm swap (it stays logged in),
+            // so without this the new account shows no DMs until the app restarts.
+            try {
+                startDmInbox()
             } catch (_: Exception) {}
         }
     }
@@ -882,7 +1808,7 @@ class NostrRepository(
 
     override suspend fun reconnect(): Boolean {
         // Explicitly notify GroupManager that all in-flight loading is dead.
-        // connectionManager.reconnect() calls primaryClient.disconnect() which
+        // connectionManager.reconnect() calls focusedClient.disconnect() which
         // closes the old socket — but the `onConnectionLost` callback that
         // would normally cascade into GroupManager.handleConnectionLost() may
         // not fire in time (explicit disconnect doesn't always trigger the
@@ -894,7 +1820,7 @@ class NostrRepository(
         groupManager.handleConnectionLost()
         val connected = connectionManager.reconnect()
         if (connected) {
-            val client = connectionManager.getPrimaryClient()
+            val client = connectionManager.getFocusedClient()
             if (client != null) {
                 resubscribeAllGroups(client)
                 pendingEventManager?.onConnectionRestored()
@@ -906,7 +1832,7 @@ class NostrRepository(
 
     /**
      * Called when the app returns to the foreground.
-     * - If the primary relay is disconnected or errored: triggers a full reconnect.
+     * - If the focused relay is disconnected or errored: triggers a full reconnect.
      * - If already connected: refreshes all live mux subscriptions and pool relays.
      */
     override fun onForeground() {
@@ -953,7 +1879,7 @@ class NostrRepository(
         scope.launch {
             liveCursorStore?.persistAll()
             groupManager.saveAllMessagesToStorage()
-            connectionManager.disconnectPrimary()
+            connectionManager.disconnectFocused()
         }
     }
 
@@ -1002,7 +1928,6 @@ class NostrRepository(
             }
 
             if (gapDetected) {
-                val gapSec = lastKnown - (latestInMemory ?: 0)
                 scope.launch {
                     try {
                         groupManager.requestGroupMessages(groupId)
@@ -1013,44 +1938,72 @@ class NostrRepository(
     }
 
     /**
-     * Send the appropriate group-list REQ depending on the relay's fetch mode and whether
-     * the "OTHER GROUPS" section is currently expanded.
-     *
-     * Decision table:
-     * - EAGER mode → always full fetch (mark pending, send requestGroups())
-     * - LAZY mode + OTHER GROUPS open → full fetch (mark pending, send requestGroups())
-     * - LAZY mode + OTHER GROUPS closed + joined IDs present → partial fetch (joined only)
-     * - LAZY mode + OTHER GROUPS closed + no joined IDs → full fetch (relay would be silent)
+     * Group ids we know on [relayUrl] WITHOUT listing the relay's full directory: our own joined
+     * groups plus the groups in the kind:10009 lists of people we follow (and the discovery
+     * curator). Restricted groups are excluded — the relay CLOSEs the whole batch if any single
+     * id is denied.
+     */
+    private fun knownGroupIdsForRelay(relayUrl: String): List<String> {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val restricted = groupManager.restrictedGroups.value.keys
+        val ids = LinkedHashSet<String>()
+        groupManager.joinedGroupsByRelay.value[normalized].orEmpty().forEach { ids.add(it) }
+        val lists = _userGroupLists.value
+        (_following.value + DISCOVERY_CURATOR_PUBKEY).forEach { pk ->
+            lists[pk].orEmpty().forEach { ref ->
+                if (ref.relayUrl.normalizeRelayUrl() == normalized) ids.add(ref.groupId)
+            }
+        }
+        return ids.filter { it !in restricted }
+    }
+
+    // Group ids already requested (targeted #d) per normalized relay this session, so the
+    // friends/curator re-fetch only fires when the known set actually grows.
+    private val sentKnownGroupFetch = mutableMapOf<String, Set<String>>()
+
+    /**
+     * Fetch kind:39000 for ONLY the groups we know on [relayUrl] (see [knownGroupIdsForRelay]),
+     * via a targeted #d REQ — the relay's full group directory is never downloaded. When nothing
+     * is known yet, marks the relay loaded and wires the mux directly (no EOSE would arrive).
+     */
+    private suspend fun sendKnownGroupsFetch(client: NostrGroupClient, relayUrl: String) {
+        groupManager.cancelPendingFullFetch(relayUrl)
+        val ids = knownGroupIdsForRelay(relayUrl)
+        if (ids.isEmpty()) {
+            groupManager.markRelayLoaded(relayUrl)
+            groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            return
+        }
+        sentKnownGroupFetch[relayUrl.normalizeRelayUrl()] = ids.toSet()
+        client.requestGroupsForIds(ids)
+    }
+
+    /**
+     * Send the group-list REQ for a relay. Always targeted to the groups we know (joined +
+     * friends' / curator lists); we deliberately never pull the relay's full group directory.
      */
     private suspend fun requestGroupsForRelay(client: NostrGroupClient, relayUrl: String) {
-        if (SecureStorage.isGroupFetchLazy(relayUrl)) {
-            val otherGroupsOpen = SecureStorage.getBooleanPref(
-                "sidebar_other_expanded_$relayUrl",
-                default = true,
-            )
-            if (!otherGroupsOpen) {
-                // OTHER GROUPS is closed — only fetch joined group metadata.
-                // Exclude groups already known to be restricted (the relay would
-                // CLOSE the entire batch if any single ID is denied).
-                val restricted = groupManager.restrictedGroups.value.keys
-                val joinedIds = groupManager.joinedGroupsByRelay.value[relayUrl.normalizeRelayUrl()]
-                    .orEmpty()
-                    .filter { it !in restricted }
-                    .toList()
-                if (joinedIds.isNotEmpty()) {
-                    // Ensure any stale pending-full-fetch marker is cleared so EOSE for this
-                    // partial REQ doesn't incorrectly mark the relay as having a full list.
-                    groupManager.cancelPendingFullFetch(relayUrl)
-                    client.requestGroupsForIds(joinedIds)
-                    return
-                }
-                // No (non-restricted) joined groups — fall through to full fetch so OTHER GROUPS populates
+        sendKnownGroupsFetch(client, relayUrl)
+    }
+
+    /**
+     * Schedule the timing-robust kind:39000 safety net a few seconds after a relay is ready.
+     * The batched mux/meta REQ that normally carries group metadata is all-or-nothing and the
+     * JVM WebSocket engine loses the AUTH-vs-REQ race far more than the browser engine, so on
+     * desktop cold boot many groups stay on a truncated id + "No description" until a restart.
+     * The delay lets the batch/mux land first; [requestMissingGroupMetadata] then per-group
+     * fetches only what is still missing, so this is a no-op on the happy path (web, and desktop
+     * when the race is won).
+     */
+    private fun scheduleMissingMetadataSweep(relayUrl: String) {
+        scope.launch {
+            delay(3_000)
+            try {
+                groupManager.requestMissingGroupMetadata(relayUrl)
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
             }
-            // OTHER GROUPS is open (or no joined groups) — full fetch
         }
-        // EAGER mode or LAZY with OTHER GROUPS open: full unfiltered fetch
-        groupManager.markPendingFullFetch(relayUrl)
-        client.requestGroups()
     }
 
     private suspend fun connect(relayUrl: String) {
@@ -1062,16 +2015,18 @@ class NostrRepository(
         // initialize() clears this if the connection fails (Error/Reconnecting).
         groupManager.markRelayLoading(relayUrl)
 
-        val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
+        val connected = connectionManager.connectFocused(relayUrl) { msg, client ->
             enqueueToRelayPipeline(msg, client)
         }
 
         if (connected) {
-            val client = connectionManager.getPrimaryClient()
+            val client = connectionManager.getFocusedClient()
             if (client != null) {
-                // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
-                // Relays like meta.spaces.coracle.social require auth first; sending
-                // REQ before AUTH results in CLOSED "auth-required".
+                // Public group list: only a short AUTH grace, so public groups load fast.
+                // Most NIP-29 relays serve public kind:39000 without AUTH; firing the list
+                // here (pre-AUTH on a slow bunker) loads them immediately, and the few groups
+                // gated behind AUTH recover via resubscribeAfterAuth + the private fetch below.
+                // Waiting the full bunker sign budget here would stall PUBLIC groups too.
                 val authHandled = client.awaitAuthOrTimeout()
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
@@ -1094,59 +2049,57 @@ class NostrRepository(
                     // a stale persisted timestamp (or a previous session's full fetch) would
                     // otherwise satisfy that guard while the cache holds only joined groups,
                     // leaving OTHER GROUPS empty until a manual fetch.
-                    groupManager.markPendingFullFetch(relayUrl)
                     groupManager.markRelayLoading(relayUrl)
-                    client.requestGroups()
+                    sendKnownGroupsFetch(client, relayUrl)
                 } else {
                     // Cache hit — no EOSE will arrive, so clear the early loading mark.
                     groupManager.markRelayLoaded(relayUrl)
                     // No group-list REQ was sent, so the EOSE-driven mux setup
                     // (handleEoseSuspend -> refreshMuxSubscriptionsForRelay) never
                     // fires. Set up the live chat + metadata mux now, otherwise the
-                    // primary relay's groups show "No messages yet" and "Members 0"
+                    // focused relay's groups show "No messages yet" and "Members 0"
                     // until a re-AUTH or the 5-min periodic refresh. This path is hit
                     // whenever login hydrates joined groups from storage (#88), which
                     // makes the relay a cache hit and skips the group-list fetch.
                     groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
                 }
                 drainFullFetchRequest(client, relayUrl)
-                // After AUTH (or if no AUTH needed), request metadata for private
-                // groups that are in the joined list (kind 10009) but not in the
-                // group cache. The general kind 39000 listing omits private groups.
-                // Also request metadata for the active group if the user navigated
-                // directly via URL (e.g. invite link) and the group isn't known yet.
+                // After the public group-list EOSE, request metadata for private groups that
+                // are in the joined list but not in the cache (omitted from the public
+                // listing), and for the active group if navigated via URL. One launch only —
+                // firing these from several paths flooded the relay with duplicate subs.
                 scope.launch {
-                    // Wait for the group-list EOSE so we only request kind:39000 for
-                    // groups genuinely missing from the public listing. Bounded fallback
-                    // keeps slow relays from blocking the targeted fetches indefinitely.
                     groupManager.awaitGroupListEose(relayUrl)
                     groupManager.requestPrivateGroupData(relayUrl)
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
+                scheduleMissingMetadataSweep(relayUrl)
             }
         }
     }
 
     private suspend fun autoConnectFirstRelay(relays: List<String>) {
         if (relays.isEmpty()) return
-        if (connectionManager.getPrimaryClient() != null) return
+        if (connectionManager.getFocusedClient() != null) return
         if (connectionManager.currentRelayUrl.value.isNotBlank()) return
 
-        val primaryRelay = relays.first()
+        val focusedRelay = relays.first()
         _isDiscoveringRelays.value = false
         val pubkey = sessionManager.getPublicKey()
         if (pubkey != null) {
-            SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+            SecureStorage.saveCurrentRelayUrlFor(pubkey, focusedRelay)
         }
         connectionManager.loadSavedRelay()
         liveCursorStore?.loadAll(relays)
         if (pubkey != null) {
-            groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+            groupManager.loadJoinedGroupsFromStorage(pubkey, focusedRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, relays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, relays)
+            groupManager.restoreGroupMembershipFromStorage(pubkey)
+            groupManager.migrateMessageBlobsToCache(pubkey)
             groupManager.loadRestrictedGroupsFromStorage(pubkey, relays)
         }
-        connect(primaryRelay)
+        connect(focusedRelay)
     }
 
     override suspend fun switchRelay(newRelayUrl: String) {
@@ -1155,14 +2108,14 @@ class NostrRepository(
         // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
         // Also skip if a connect to the same relay is in flight: deep-link cold-start
         // fires repo.switchRelay() from AppShell's useEffectOnce after initialize()
-        // has already kicked off connect(primaryRelay) but before primaryClient is set.
-        // Without this guard, switchRelay nulls the in-flight primaryClient and opens
+        // has already kicked off connect(focusedRelay) but before focusedClient is set.
+        // Without this guard, switchRelay nulls the in-flight focusedClient and opens
         // a duplicate socket on the same URL — observed as a doomed second WebSocket
         // attempt to groups.0xchat.com (handshake fails, ~1.7 s lost to backoff).
         val sameRelay = newRelayUrl == connectionManager.currentRelayUrl.value
         if (sameRelay) {
             val state = connectionManager.connectionState.value
-            val healthy = connectionManager.getPrimaryClient()?.isConnected() == true
+            val healthy = connectionManager.getFocusedClient()?.isConnected() == true
             val connectInFlight = state is ConnectionManager.ConnectionState.Connecting ||
                 state is ConnectionManager.ConnectionState.Reconnecting
             if (healthy || connectInFlight) return
@@ -1208,19 +2161,23 @@ class NostrRepository(
         if (cachedJoined.isNotEmpty()) {
             groupManager.setJoinedGroups(cachedJoined)
         } else {
-            groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+            // Off-Main: this reads the persisted joined-group set (EncryptedSharedPreferences
+            // decrypt + JSON parse) — blocking it on the caller's thread stalled the rail switch.
+            withContext(Dispatchers.Default) {
+                groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+            }
         }
 
-        val client = connectionManager.getPrimaryClient()
+        val client = connectionManager.getFocusedClient()
         if (client != null) {
-            // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
+            // Short AUTH grace so the public group list loads fast.
             val authHandled = client.awaitAuthOrTimeout()
             if (_targetSwitchRelayUrl.value != newRelayUrl) return
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
                 // Always request groups here. Even if AUTH was already handled
                 // (authHandled == true), resubscribeAfterAuth only calls
-                // requestGroups() for the primary client — if this client was
+                // requestGroups() for the focused client — if this client was
                 // promoted from the pool (e.g. connected by a link preview),
                 // AUTH happened while it was a pool client and requestGroups()
                 // was never sent.
@@ -1237,28 +2194,28 @@ class NostrRepository(
                 // equivalent branch in connect(). We check the in-memory session
                 // set rather than hasFullGroupListBeenFetched so a stale persisted
                 // timestamp can't suppress the auto-fetch on switching to a relay.
-                groupManager.markPendingFullFetch(newRelayUrl)
                 groupManager.markRelayLoading(newRelayUrl)
-                client.requestGroups()
+                sendKnownGroupsFetch(client, newRelayUrl)
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
                 // As in connect(): a cache hit sends no group-list REQ, so the
                 // EOSE-driven mux setup won't fire. Refresh the chat + metadata mux
-                // for the new primary now so messages/members load instead of
+                // for the new focused now so messages/members load instead of
                 // showing "No messages yet" / "Members 0".
                 groupManager.refreshMuxSubscriptionsForRelay(newRelayUrl)
             }
             drainFullFetchRequest(client, newRelayUrl)
-            // Request metadata for private groups not in the cache (kind 10009 joined
-            // but not returned by the general kind 39000 listing), and for the active
-            // group if navigated via URL before the relay was connected.
+            // After the group-list EOSE, request metadata for private groups not in the
+            // cache, and for the active group if navigated via URL. One launch only.
             scope.launch {
-                // Wait for the group-list EOSE before requesting per-group metadata —
-                // see the equivalent block in connect() for rationale.
                 groupManager.awaitGroupListEose(newRelayUrl)
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
+                scheduleMissingMetadataSweep(newRelayUrl)
+                // The active group's controller was reset to Idle by clearForRelaySwitch and the
+                // bulk re-subscribe skips it; reload it here so it can paginate (race fix).
+                groupManager.requestActiveGroupMessagesIfNeeded(newRelayUrl)
             }
         } else if (groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
             // No connection yet but cache was restored — unmark loading.
@@ -1317,7 +2274,7 @@ class NostrRepository(
     }
 
     override suspend fun disconnect() {
-        connectionManager.disconnectPrimary()
+        connectionManager.disconnectFocused()
         groupManager.clear()
     }
 
@@ -1330,6 +2287,9 @@ class NostrRepository(
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> =
         groupManager.fullGroupListFetchedRelays
 
+    override val completeGroupLoadRelays: StateFlow<Set<String>> =
+        groupManager.completeGroupLoadRelays
+
     override suspend fun requestFullGroupListForRelay(relayUrl: String) {
         // Only guard against in-flight duplicates — hasFullGroupListBeenFetched is intentionally
         // NOT checked here: a stale persisted timestamp can make it return true when the current
@@ -1338,10 +2298,10 @@ class NostrRepository(
 
         val normalizedTarget = relayUrl.normalizeRelayUrl()
 
-        // We must NOT fall back to the current primary: the sidebar triggers this
+        // We must NOT fall back to the current focused: the sidebar triggers this
         // right after selectedRelayUrl changes, BEFORE switchRelay() has made the
-        // new relay primary. Falling back would send requestGroups() on the old
-        // primary's WebSocket, polluting that relay's _groupsByRelay cache with
+        // new relay focused. Falling back would send requestGroups() on the old
+        // focused's WebSocket, polluting that relay's _groupsByRelay cache with
         // unrelated kind:39000 events — surfacing as OTHER GROUPS auto-populating
         // on a collapsed relay the next time the user switches back to it.
         //
@@ -1363,9 +2323,8 @@ class NostrRepository(
             return
         }
 
-        groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
-        client!!.requestGroups()
+        sendKnownGroupsFetch(client!!, relayUrl)
     }
 
     /**
@@ -1383,9 +2342,8 @@ class NostrRepository(
         if (groupManager.hasPendingFullFetch(relayUrl)) return
         if (!client.isConnected()) return
         if (client.getRelayUrl().normalizeRelayUrl() != normalized) return
-        groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
-        client.requestGroups()
+        sendKnownGroupsFetch(client, relayUrl)
     }
 
     override suspend fun addRelay(url: String) {
@@ -1436,11 +2394,15 @@ class NostrRepository(
         if (result is Result.Success) {
             // Joining a group may have introduced a new joined relay — ensure it's
             // connected with a chat sub so notifications fire even when the user is
-            // browsing a different primary.
+            // browsing a different focused.
             scope.launch { ensureJoinedRelaysConnected(connectionManager.currentRelayUrl.value) }
         }
         return result
     }
+
+    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean = groupManager.markOptimisticJoin(relayUrl, groupId)
+
+    override fun revertOptimisticJoin(relayUrl: String, groupId: String) = groupManager.revertOptimisticJoin(relayUrl, groupId)
 
     override suspend fun createGroup(
         name: String,
@@ -1448,6 +2410,8 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> {
@@ -1462,6 +2426,8 @@ class NostrRepository(
             picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
+            isRestricted = isRestricted,
+            isHidden = isHidden,
             customGroupId = customGroupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
@@ -1481,10 +2447,12 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> {
-        val created = createGroup(name, about, relayUrl, isPrivate, isClosed, picture, customGroupId)
+        val created = createGroup(name, about, relayUrl, isPrivate, isClosed, isRestricted, isHidden, picture, customGroupId)
         if (created !is Result.Success) return created
         // Attach to parent via kind:9002.
         val topology = updateGroupTopology(
@@ -1523,14 +2491,14 @@ class NostrRepository(
     override fun isGroupJoined(groupId: String): Boolean = groupManager.isGroupJoined(groupId)
 
     override suspend fun requestGroupMessages(groupId: String, channel: String?) {
-        if (connectionManager.getPrimaryClient() == null) {
+        if (connectionManager.getFocusedClient() == null) {
             connect()
         }
         groupManager.requestGroupMessages(groupId, channel)
         // Also request group metadata (kind 39000), members (kind 39002) and admins (kind 39001)
         val relayUrl = groupManager.getRelayForGroup(groupId)
         val metaClient = if (relayUrl != null) connectionManager.getClientForRelay(relayUrl) else null
-        (metaClient ?: connectionManager.getPrimaryClient())?.requestGroupMetadata(groupId)
+        (metaClient ?: connectionManager.getFocusedClient())?.requestGroupMetadata(groupId)
         groupManager.requestGroupMembers(groupId)
         groupManager.requestGroupAdmins(groupId)
         groupManager.requestGroupRoles(groupId)
@@ -1540,7 +2508,7 @@ class NostrRepository(
      * Request group members (kind 39002) for a specific group.
      */
     override suspend fun requestGroupMembers(groupId: String) {
-        if (connectionManager.getPrimaryClient() == null) {
+        if (connectionManager.getFocusedClient() == null) {
             connect()
         }
         groupManager.requestGroupMembers(groupId)
@@ -1550,7 +2518,7 @@ class NostrRepository(
      * Request group admins (kind 39001) for a specific group.
      */
     override suspend fun requestGroupAdmins(groupId: String) {
-        if (connectionManager.getPrimaryClient() == null) {
+        if (connectionManager.getFocusedClient() == null) {
             connect()
         }
         groupManager.requestGroupAdmins(groupId)
@@ -1561,7 +2529,7 @@ class NostrRepository(
      * use case — the standard chat REQ misses old 9021s in active groups.
      */
     override suspend fun requestPendingJoinRequests(groupId: String) {
-        if (connectionManager.getPrimaryClient() == null) {
+        if (connectionManager.getFocusedClient() == null) {
             connect()
         }
         groupManager.requestPendingJoinRequests(groupId)
@@ -1579,7 +2547,7 @@ class NostrRepository(
      * Request group roles (kind 39003) for a specific group.
      */
     suspend fun requestGroupRoles(groupId: String) {
-        if (connectionManager.getPrimaryClient() == null) {
+        if (connectionManager.getFocusedClient() == null) {
             connect()
         }
         groupManager.requestGroupRoles(groupId)
@@ -1591,7 +2559,7 @@ class NostrRepository(
     override suspend fun refreshGroupMetadata(groupId: String) {
         val relayUrl = groupManager.getRelayForGroup(groupId)
         val client = (if (relayUrl != null) connectionManager.getClientForRelay(relayUrl) else null)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return
         client.requestGroupMetadata(groupId)
         client.requestGroupAdmins(groupId)
@@ -1611,12 +2579,54 @@ class NostrRepository(
         } catch (_: Exception) {}
     }
 
+    override suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>) {
+        // Skip groups whose metadata we already have a name for.
+        val known = groupManager.groupsByRelay.value.values.flatten()
+            .filter { it.name != null }
+            .map { it.id }
+            .toSet()
+        // Fan out per relay concurrently. A friend's groups often span many relays, and
+        // connecting to them sequentially (each up to the connect timeout) made discovery
+        // metadata trickle in slowly, worst on the onboarding "Find your group" step.
+        // getOrConnectRelay is a pooled singleflight per URL, so concurrent callers never
+        // open duplicate sockets; launching on [scope] returns from here immediately and
+        // lets every relay's kind:39000 arrive in parallel via the pipeline.
+        relayToGroups.forEach { (relayUrl, groupIds) ->
+            if (relayUrl.isBlank()) return@forEach
+            val missing = groupIds.filter { it !in known }
+            if (missing.isEmpty()) return@forEach
+            scope.launch {
+                try {
+                    val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                        enqueueToRelayPipeline(msg, c)
+                    } ?: return@launch
+                    connectedPoolRelays.add(relayUrl)
+                    // Send immediately: relays that don't gate reads behind NIP-42 serve
+                    // this with no added latency (the common case).
+                    client.requestGroupsMetadata(missing)
+                    // AUTH-gated relays (e.g. chat.wisp.talk, nos.lol) reject the pre-AUTH
+                    // REQ above with CLOSED "auth-required", and resubscribeAfterAuth replays
+                    // only group/mux subs, never one-shot discovery REQs. Re-send once AUTH is
+                    // signed so the discovery card fills in its kind:39000 name/about instead of
+                    // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
+                    // returns true only when a challenge was actually answered, so non-auth
+                    // relays don't pay a redundant re-send.
+                    if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupsMetadata(missing)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+            }
+        }
+    }
+
     override suspend fun editGroup(
         groupId: String,
         name: String,
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         parentOp: GroupManager.ParentOp?,
         childrenEdit: GroupManager.ChildrenEdit?,
@@ -1630,6 +2640,8 @@ class NostrRepository(
             picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
+            isRestricted = isRestricted,
+            isHidden = isHidden,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
@@ -1705,9 +2717,45 @@ class NostrRepository(
         )
     }
 
-    override fun retrySend(eventId: String) = groupManager.retrySend(eventId)
+    override fun retrySend(eventId: String) = groupManager.retrySend(eventId) { sessionManager.signEvent(it) }
 
     override fun dismissFailed(groupId: String, eventId: String) = groupManager.dismissFailed(groupId, eventId)
+
+    override suspend fun requestGroupThreads(groupId: String): Boolean = groupManager.requestGroupThreads(groupId)
+
+    override fun closeThreadSubscriptions(groupId: String) = groupManager.closeThreadSubscriptions(groupId)
+
+    override suspend fun fetchThread(groupId: String, rootId: String) = groupManager.fetchThread(groupId, rootId)
+
+    override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.createThread(
+            groupId = groupId,
+            title = title,
+            content = content,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
+
+    override suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.sendThreadReply(
+            groupId = groupId,
+            root = root,
+            parent = parent,
+            content = content,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
 
     override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
@@ -1875,8 +2923,220 @@ class NostrRepository(
         handleRelayMessage(msg, client)
     }
 
-    override suspend fun requestUserMetadata(pubkeys: Set<String>) {
-        metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler)
+    override suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean) {
+        metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler, forceStale)
+    }
+
+    override suspend fun requestUserGroupList(pubkey: String) {
+        // Own list flows through the joined-groups state; nothing to fetch here.
+        if (pubkey.isBlank() || pubkey == sessionManager.getPublicKey()) return
+        // kind:10009 lives on general-purpose relays (author outbox + bootstrap).
+        // Connect on demand: when a discovery tab opens, those may not be connected
+        // yet, and a connected-only filter would silently send nothing.
+        val targets = outboxManager.selectOutboxRelays(authors = listOf(pubkey))
+        targets.forEach { relayUrl ->
+            runCatching {
+                val client = connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                    ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)
+                client?.takeIf { it.isConnected() }?.requestUserGroupList(pubkey)
+            }
+        }
+        // The focused NIP-29 relay often hosts members' lists too.
+        val focused = connectionManager.getFocusedClient()
+        if (focused != null && focused.isConnected()) {
+            runCatching { focused.requestUserGroupList(pubkey) }
+        }
+    }
+
+    // Serialize check-and-set: the Home and Profile view models both fire this on
+    // startup, and without the lock both pass the `contactListRequested` guard
+    // before either latches it (the guard is set only after the suspending relay
+    // send), doubling the kind:3 REQ to every relay.
+    override suspend fun requestContactList() {
+        contactListMutex.withLock { requestContactListLocked() }
+        // If no relay was connected yet (cold-start / slow bunker connect), the REQ went
+        // nowhere and contactListRequested stayed false. Keep retrying in the background
+        // until a relay accepts it (or the list lands), so a slow connect self-heals
+        // instead of stranding the friends sidebar on "follows nobody" until a reopen.
+        //
+        // Only while logged in: on logout the screen VM (long-lived) fires requestContactList()
+        // once for the activePubkey -> null emission. With no pubkey that arms a retry that can
+        // never send, and because scheduleContactListRetry() no-ops while one is already active,
+        // it would BLOCK the real retry the subsequent re-login schedules — stranding the friends
+        // list on "follows nobody" after a logout -> re-login in a live process (cold-start re-login
+        // does not resetContactListState, so nothing cancels the dead retry). Guarding on a present
+        // pubkey keeps the logged-out call inert, so re-login always arms a fresh full-budget retry.
+        if (sessionManager.getPublicKey() != null && !contactListRequested && !contactListLoaded.value) {
+            scheduleContactListRetry()
+        }
+        // contactListLoaded is flipped by the kind:3 ingestion handler the moment this
+        // account's contact list lands (even an empty one), never on a timeout here. On a
+        // warm account switch the general-purpose relays that serve kind:3 are still
+        // reconnecting, so a blind flip would surface a false "follows nobody" and collapse
+        // the friends sidebar for an account that does have follows. An account that
+        // genuinely has no kind:3 is resolved by the screen's own loading cap instead, so
+        // the skeleton never hangs on a contact list that will never arrive.
+    }
+
+    /** Body of [requestContactList]; caller must hold [contactListMutex]. */
+    private suspend fun requestContactListLocked() {
+        val pubKey = sessionManager.getPublicKey() ?: return
+        if (contactListRequested) return
+
+        // kind:3 lives on general-purpose relays, never the NIP-29 group relay
+        // (NIP-29 relays don't serve kind:0/3), so exclude them and the focused.
+        val nip29Relays = outboxManager.kind10009Relays.value + connectionManager.currentRelayUrl.value
+        val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays)
+            .distinct()
+            .filter { it !in nip29Relays }
+
+        // Connect bootstrap relays on demand: at cold start they are not yet up, so
+        // a connected-only filter would send nothing. We only latch the request once
+        // at least one relay actually received the REQ — otherwise the one-shot VM
+        // call would permanently suppress the fetch after a restart.
+        var sent = 0
+        targets.forEach { relayUrl ->
+            runCatching {
+                val client = connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                    ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)
+                if (client != null && client.isConnected()) {
+                    client.requestContactList(pubKey)
+                    sent++
+                }
+            }
+        }
+        if (sent > 0) contactListRequested = true
+    }
+
+    /**
+     * Background retry for [requestContactList] when the first attempt found no connected
+     * relay. Runs on the app scope so it outlives the screen that triggered it; exits as
+     * soon as the REQ lands (contactListRequested) or the list arrives (contactListLoaded).
+     */
+    private fun scheduleContactListRetry() {
+        if (contactListRetryJob?.isActive == true) return
+        contactListRetryJob =
+            scope.launch {
+                repeat(30) {
+                    delay(1_000)
+                    if (contactListRequested || contactListLoaded.value) return@launch
+                    contactListMutex.withLock { requestContactListLocked() }
+                }
+            }
+    }
+
+    override suspend fun followUser(pubkey: String): Result<Unit> {
+        if (pubkey.isNotBlank()) applyFollowingChange { it + pubkey }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun unfollowUser(pubkey: String): Result<Unit> {
+        applyFollowingChange { it - pubkey }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun followUsers(pubkeys: Set<String>): Result<Unit> {
+        val clean = pubkeys.filter { it.isNotBlank() }.toSet()
+        if (clean.isNotEmpty()) applyFollowingChange { it + clean }
+        return Result.Success(Unit)
+    }
+
+    /**
+     * Flips [following] to the new desired set immediately (no relay round-trip, so
+     * rapid sequential follow taps never block on each other) and schedules a single
+     * debounced kind:3 publish. [following] is the source of truth for the user's
+     * intent; the publish rebuilds the list from it.
+     */
+    private fun applyFollowingChange(transform: (Set<String>) -> Set<String>) {
+        _following.value = transform(_following.value)
+        hasUnpublishedContactChanges = true
+        schedulePublishContactList()
+    }
+
+    /**
+     * Coalesces rapid follow/unfollow taps into one publish: each tap cancels the
+     * previous pending job and restarts the debounce, so N taps in a row produce a
+     * single kind:3 instead of N racing events. Runs on the app scope so it outlives
+     * the screen that triggered it (navigating away never loses a follow).
+     */
+    private fun schedulePublishContactList() {
+        pendingContactListPublish?.cancel()
+        pendingContactListPublish =
+            scope.launch {
+                delay(contactListPublishDebounceMs)
+                publishContactList()
+            }
+    }
+
+    /**
+     * Builds, signs and publishes a fresh kind:3 from the current [following] set,
+     * preserving non-"p" tags (relay hints, petnames) and content from the last known
+     * list. Serialized by [contactListMutex]. On the first run it best-effort fetches
+     * the existing list so we don't replace a list built on another client.
+     */
+    private suspend fun publishContactList(): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return contactListMutex.withLock {
+            if (!contactListRequested) {
+                requestContactListLocked() // already holding contactListMutex
+                // Wait briefly for a relay to return the existing list before we
+                // overwrite it; absence is treated as "no prior list" after this.
+                withTimeoutOrNull(3_000L) { following.first { contactListCreatedAt > 0L } }
+            }
+
+            // Rebuild "p" tags from the desired set; keep any other tags + content.
+            val newTags = contactListTags.filterNot { it.firstOrNull() == "p" } +
+                _following.value.map { listOf("p", it) }
+            try {
+                val event = org.nostr.nostrord.nostr.Event(
+                    pubkey = pubKey,
+                    createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                    kind = 3,
+                    tags = newTags,
+                    content = contactListContent,
+                )
+                val signedEvent = sessionManager.signEvent(event)
+                val eventId = signedEvent.id
+                    ?: return@withLock Result.Error(AppError.Unknown("Event has no id after signing", null))
+                val message = buildJsonArray {
+                    add("EVENT")
+                    add(signedEvent.toJsonObject())
+                }.toString()
+
+                // Publish kind:3 only to general-purpose relays (write + bootstrap),
+                // never the NIP-29 group relay: it doesn't serve kind:3 back, so a
+                // list written only there would read as empty on the next start.
+                val nip29Relays = outboxManager.kind10009Relays.value + connectionManager.currentRelayUrl.value
+                val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays)
+                    .distinct()
+                    .filter { it !in nip29Relays }
+                val clients = targets.mapNotNull { relayUrl ->
+                    connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                        ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)?.takeIf { it.isConnected() }
+                }
+                if (clients.isEmpty()) {
+                    return@withLock Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+                }
+                val results = clients.map { client ->
+                    scope.async { client.sendAndAwaitOkOrError(message, eventId) }
+                }.awaitAll()
+                if (results.none { it is PublishResult.Success }) {
+                    return@withLock Result.Error(AppError.Network.PublishRejected(results.summarizeFailures()))
+                }
+
+                contactListCreatedAt = signedEvent.createdAt
+                contactListContent = signedEvent.content
+                contactListTags = newTags
+                contactListRequested = true
+                _contactListLoaded.value = true
+                // The desired set is now on the relays; later relay echoes may adopt freely.
+                hasUnpublishedContactChanges = false
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(AppError.Unknown(e.message ?: "Failed to update contact list", e))
+            }
+        }
     }
 
     private suspend fun refreshVisibleUserMetadata() {
@@ -1885,13 +3145,16 @@ class NostrRepository(
         delay(3_000)
 
         val openedGroups = groupManager.getOpenedGroupIds()
-        if (openedGroups.isEmpty()) return
-        val pubkeys = openedGroups.flatMap { groupId ->
+        val groupPubkeys = openedGroups.flatMap { groupId ->
             val messagePubkeys = groupManager.messages.value[groupId]
                 ?.takeLast(50)?.map { it.pubkey } ?: emptyList()
             val memberPubkeys = groupManager.getMembersForGroup(groupId)
             messagePubkeys + memberPubkeys
-        }.toSet().filter { metadataManager.isStale(it) }.toSet()
+        }
+        // Also revalidate the followed users shown in the home sidebar so a friend's new
+        // name/avatar appears without having to open a group. Only stale entries are
+        // refetched (forceStale), and the request batches them into one REQ per relay.
+        val pubkeys = (groupPubkeys + _following.value).toSet().filter { metadataManager.isStale(it) }.toSet()
         if (pubkeys.isNotEmpty()) {
             metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler, forceStale = true)
         }
@@ -1996,7 +3259,7 @@ class NostrRepository(
             val clients = targets.mapNotNull { relayUrl ->
                 connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
             }.ifEmpty {
-                listOfNotNull(connectionManager.getPrimaryClient())
+                listOfNotNull(connectionManager.getFocusedClient())
             }
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
@@ -2050,7 +3313,7 @@ class NostrRepository(
             val clients = targets.mapNotNull { relayUrl ->
                 connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
             }.ifEmpty {
-                listOfNotNull(connectionManager.getPrimaryClient())
+                listOfNotNull(connectionManager.getFocusedClient())
             }
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
@@ -2091,14 +3354,14 @@ class NostrRepository(
     }
 
     /**
-     * Request a quoted event from the primary relay.
+     * Request a quoted event from the focused relay.
      * Used for q tags in group messages where the quoted event is on the same relay.
      */
     override suspend fun requestQuotedEvent(eventId: String) {
         // Skip if already cached
         if (metadataManager.hasCachedEvent(eventId)) return
 
-        val client = connectionManager.getPrimaryClient() ?: return
+        val client = connectionManager.getFocusedClient() ?: return
         client.requestEventById(eventId)
     }
 
@@ -2135,7 +3398,21 @@ class NostrRepository(
         pubKey: String,
         nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList(),
     ): Result<Unit> {
-        val perRelay = groupManager.joinedGroupsByRelay.value
+        // The in-memory map can be partial early in a session (the storage restore and
+        // the kind:10009 fetch are async). An event published from a partial map drops
+        // the missing groups FOR GOOD: on restart the persisted timestamp guard ignores
+        // our own event, leaving only the (then clobbered) storage slots. Merge memory
+        // with the persisted per-relay slots so the published list is always a
+        // superset; removals stay correct because leave/removeRelay update storage
+        // before publishing.
+        val memory = groupManager.joinedGroupsByRelay.value
+        val storedRelays = SecureStorage.loadRelayListFor(pubKey).map { it.normalizeRelayUrl() }
+        val relays = (storedRelays + memory.keys.map { it.normalizeRelayUrl() }).distinct()
+        val perRelay =
+            relays
+                .associateWith { relay ->
+                    SecureStorage.getJoinedGroupsForRelay(pubKey, relay) + memory[relay].orEmpty()
+                }.filterValues { it.isNotEmpty() }
         return outboxManager.publishJoinedGroupsList(
             pubKey = pubKey,
             joinedGroupsByRelay = perRelay,
@@ -2153,13 +3430,12 @@ class NostrRepository(
     // Message IDs collected per msg_ subscription, used to fetch reactions after EOSE.
     private val pendingReactionFetch = mutableMapOf<String, MutableList<String>>()
 
-    // Pool relay URLs that have been actively connected during this session (were primary at
+    // Pool relay URLs that have been actively connected during this session (were focused at
     // some point or were reconnected). Only these are eligible for reconnection on drop.
     private val connectedPoolRelays = mutableSetOf<String>()
 
     // Per-relay debug counters: relayUrl -> event count since last connect
     private val relayEventCounts = mutableMapOf<String, Int>()
-    private val relayEoseReceived = mutableSetOf<String>()
 
     /**
      * Unified message handler for all relay pool connections.
@@ -2216,7 +3492,17 @@ class NostrRepository(
             if (subId.startsWith("mux_chat_")) {
                 relayEventCounts.remove(url)
             }
-            outboxManager.handleEose(subId)
+            if (subId == "dm_inbox") {
+                // This relay finished delivering its share of the backlog (decryption may still be
+                // draining). Record WHICH relay EOSEd so maybeLatchDmFullSync only latches "synced"
+                // once EVERY subscribed DM relay is done and every delivered wrap is processed; until
+                // then resendDmInboxReq keeps `since = 0` and resumes next session instead of stranding.
+                val myPub = sessionManager.getPublicKey()
+                if (myPub != null) {
+                    dmInboxEosedRelays = dmInboxEosedRelays + url.normalizeRelayUrl()
+                    maybeLatchDmFullSync(myPub)
+                }
+            }
             // Fall through — handleMessage also needs EOSE for group pagination
         }
 
@@ -2229,6 +3515,28 @@ class NostrRepository(
             connStats.onEventReceived(url)
             if (kind == 10009) {
                 val pubKey = sessionManager.getPublicKey() ?: ""
+                val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
+                if (eventPubkey != null && eventPubkey != pubKey) {
+                    // Another user's public group list (profile page fetch).
+                    val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+                    if (createdAt >= (userGroupListCreatedAt[eventPubkey] ?: 0L)) {
+                        userGroupListCreatedAt[eventPubkey] = createdAt
+                        val refs =
+                            event["tags"]?.jsonArray.orEmpty().mapNotNull { tag ->
+                                val t = tag.jsonArray
+                                if (t.getOrNull(0)?.jsonPrimitive?.content != "group") return@mapNotNull null
+                                val gid = t.getOrNull(1)?.jsonPrimitive?.content ?: return@mapNotNull null
+                                val relay =
+                                    (t.getOrNull(2)?.jsonPrimitive?.content ?: "")
+                                        .normalizeRelayUrl()
+                                        .ifBlank { connectionManager.currentRelayUrl.value }
+                                UserGroupRef(relayUrl = relay, groupId = gid)
+                            }.distinct()
+                        _userGroupLists.value = _userGroupLists.value + (eventPubkey to refs)
+                        scheduleUserGroupListsPersist()
+                    }
+                    return
+                }
                 scope.launch {
                     outboxManager.handleKind10009Event(
                         event = event,
@@ -2252,12 +3560,110 @@ class NostrRepository(
                             }
                         },
                         messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
+                        isGroupDropped = { groupManager.isLocallyDropped(it) },
                     )
                 }
                 return
             }
             if (kind == 10002) {
                 outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
+                return
+            }
+            if (kind == 3) {
+                handleKind3Event(event)
+                return
+            }
+            // NIP-17 DM gift wrap addressed to us: decrypt with the active signer.
+            if (kind == Nip17.KIND_GIFT_WRAP) {
+                val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
+                val myPub = sessionManager.getPublicKey() ?: return
+                val signer = ActiveAccountManager.session.value?.signer ?: return
+                val wrapId = giftWrap.id
+                if (wrapId != null) {
+                    if (wrapId !in dmReceivedWrapIds) dmReceivedWrapIds = dmReceivedWrapIds + wrapId
+                    // Already decrypted, or given up this session: skip the (expensive) round-trip.
+                    if (wrapId in dmProcessedWrapIds || wrapId in dmGivenUpWrapIds) {
+                        maybeLatchDmFullSync(myPub)
+                        return
+                    }
+                    // Already being decrypted by an in-flight coroutine: don't spawn a duplicate.
+                    if (wrapId in dmInFlightWrapIds) return
+                    dmInFlightWrapIds = dmInFlightWrapIds + wrapId
+                }
+                scope.launch {
+                    try {
+                        // A bunker signer pays a remote round-trip per NIP-44 decrypt, and a gift
+                        // wrap needs two (wrap then seal). A cold start with a large DM backlog
+                        // would flood the single signer connection and starve the kind:22242 AUTH
+                        // sign that private NIP-29 relays need, leaving private groups stuck on
+                        // "auth-required". Hold the backlog until the active relay's AUTH is signed
+                        // (awaitAuthOrTimeout returns the moment AUTH completes, or after the grace
+                        // when the relay needs no AUTH). Local/NIP-07 decrypt in-process and skip it.
+                        if (signer is NostrSigner.Bunker) {
+                            connectionManager.getFocusedClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
+                        }
+                        // This wrap captured myPub/signer when it arrived; the AUTH grace and the gate
+                        // below can take seconds (bunker round-trips), so the active account may have
+                        // switched meanwhile. A previous account's wrap must never land in (and then get
+                        // persisted under) the new account's inbox, so drop it once the active pubkey no
+                        // longer matches.
+                        val decrypt: suspend () -> Boolean = {
+                            if (sessionManager.getPublicKey() != myPub) {
+                                false
+                            } else {
+                                kotlinx.coroutines.withTimeoutOrNull(DM_DECRYPT_TIMEOUT_MS) {
+                                    dmManager.ingestGiftWrap(giftWrap, myPub, signer)
+                                } ?: false
+                            }
+                        }
+                        val handled =
+                            if (signer is NostrSigner.Bunker) {
+                                // Space out the publish, then release the gate before awaiting so many
+                                // requests stay in-flight for the signer's next response burst.
+                                bunkerPublishGate.withLock { delay(BUNKER_PUBLISH_INTERVAL_MS) }
+                                decrypt()
+                            } else {
+                                dmDecryptSemaphore.withPermit { decrypt() }
+                            }
+                        if (handled && wrapId != null && wrapId !in dmProcessedWrapIds) {
+                            dmProcessedWrapIds = dmProcessedWrapIds + wrapId
+                            dmFailCounts = dmFailCounts - wrapId
+                            scheduleSaveProcessedWrapIds(myPub)
+                            maybeLatchDmFullSync(myPub)
+                        } else if (!handled && wrapId != null) {
+                            // Transient failure (signer timeout/unresponsive, or a malformed wrap).
+                            // Count it; after the cap, give up for this session so the retry loop
+                            // stops re-streaming it (relay rate limit / EOSE spam). Retried fresh
+                            // next session, where the signer may be reachable again.
+                            val fails = (dmFailCounts[wrapId] ?: 0) + 1
+                            dmFailCounts = dmFailCounts + (wrapId to fails)
+                            if (fails >= DM_MAX_DECRYPT_ATTEMPTS) {
+                                dmGivenUpWrapIds = dmGivenUpWrapIds + wrapId
+                            }
+                        }
+                    } finally {
+                        if (wrapId != null) dmInFlightWrapIds = dmInFlightWrapIds - wrapId
+                    }
+                }
+                return
+            }
+            // A user's NIP-17 DM relay list (kind:10050).
+            if (kind == Nip17.KIND_DM_RELAYS) {
+                runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let {
+                    dmManager.ingestDmRelays(it)
+                    if (it.pubkey == sessionManager.getPublicKey()) {
+                        _myDmRelays.value = dmRelaysFor(it.pubkey)
+                        // Our own DM relay list resolved: the inbox was subscribed on the default
+                        // relays at boot, so re-subscribe on the now-known relays or DMs sent only
+                        // to them are never requested. Only when the set actually CHANGED, so the
+                        // same kind:10050 arriving from several relays doesn't re-stream the whole
+                        // gift-wrap backlog and flood the bunker signer.
+                        val newRelays = dmRelaysFor(it.pubkey).distinct().toSet()
+                        if (newRelays != dmInboxSubscribedRelays) {
+                            scope.launch { resendDmInboxReq(it.pubkey) }
+                        }
+                    }
+                }
                 return
             }
         }
@@ -2307,7 +3713,17 @@ class NostrRepository(
                 val sourceRelayUrl = client.getRelayUrl()
                 scope.launch {
                     yield()
-                    groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    // A msg_ initial load that EOSEs while the relay still needs AUTH (some
+                    // relays empty-EOSE instead of CLOSED auth-required) is not a real empty
+                    // result: hold it in InitialLoading so the UI keeps skeletons until
+                    // resubscribeAfterAuth replays it post-AUTH, instead of flashing empty.
+                    val authBlocked = client.requiresAuth() && !client.hasAuthSucceeded()
+                    val held = authBlocked &&
+                        subId.startsWith("msg_") &&
+                        groupManager.holdInitialLoadForReauth(subId)
+                    if (!held) {
+                        groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    }
                     // Wake any pending batchFetch waiting on EOSE for this metadata sub.
                     metadataManager.notifyMetadataEose(subId, sourceRelayUrl)
                     // After the mux chat subscription delivers its backlog, detect any gaps
@@ -2331,21 +3747,12 @@ class NostrRepository(
                             fetchZapReceiptsFromGeneralRelays(messageIds)
                         }
                     }
-                    // Close one-shot subs after EOSE so the relay slot is freed.
-                    if (subId.startsWith("meta_") ||
-                        subId.startsWith("admins_") ||
-                        subId.startsWith("members_") ||
-                        subId.startsWith("metadata_") ||
-                        subId.startsWith("e_") ||
-                        subId.startsWith("a_") ||
-                        subId.startsWith("reactions_") ||
-                        subId.startsWith("zaps_") ||
-                        subId.startsWith("event_")
-                    ) {
-                        try {
-                            client.send("""["CLOSE","$subId"]""")
-                        } catch (_: Exception) {}
+                    // The forum thread-roots sub (threads_<groupId>) reached EOSE: stored threads
+                    // are in, so the list can settle (show "No threads yet" only now, not on a timer).
+                    if (subId.startsWith("threads_")) {
+                        groupManager.markThreadsLoaded(subId.removePrefix("threads_"))
                     }
+                    closeOneShotSubAfterEose(subId, client)
                 }
             }
 
@@ -2353,7 +3760,18 @@ class NostrRepository(
                 if (arr.size < 2) return
                 val subId = arr[1].jsonPrimitive.content
                 val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
-                val isRestricted = reason.contains("restricted")
+                // communities.nos.social caps subscriptions at 50 and rejects the overflow
+                // with "restricted: Subscription quota exceeded: 50/50" — a rate limit, NOT
+                // NIP-29 access control. Treating it as a private-group restriction marked the
+                // group private and PERSISTED it for 7 days, so the group rendered the "Private
+                // group" placeholder for groups the user belongs to (the relay where this bites
+                // is the one with the most joined groups, i.e. the user's busiest). Exclude
+                // quota/rate-limit reasons; that sub just needs reopening when a slot frees.
+                val isQuotaOrRateLimit = reason.contains("quota", ignoreCase = true) ||
+                    reason.contains("rate-limit", ignoreCase = true) ||
+                    reason.contains("rate limit", ignoreCase = true) ||
+                    reason.contains("too many", ignoreCase = true)
+                val isRestricted = reason.contains("restricted") && !isQuotaOrRateLimit
                 val isAuthRequired = reason.contains("auth-required")
 
                 // "restricted" on the group-list subscription: distinguish between
@@ -2419,9 +3837,20 @@ class NostrRepository(
                     }
                 }
 
-                // Unblock any pending state-machine load (transitions InitialLoading → Exhausted)
+                // Unblock any pending state-machine load (transitions InitialLoading → Exhausted).
+                // Exception: a pre-AUTH auth-required CLOSE on a msg_ initial load is not a real
+                // "no results" — resubscribeAfterAuth replays the read once AUTH completes. Hold
+                // the load in InitialLoading (skeletons) instead of settling it to a false empty
+                // state, which is the "open a private group from the homepage" flicker.
                 val sourceRelayUrl = client.getRelayUrl()
-                scope.launch { groupManager.handleEoseSuspend(subId, sourceRelayUrl) }
+                scope.launch {
+                    val held = isAuthRequired &&
+                        subId.startsWith("msg_") &&
+                        groupManager.holdInitialLoadForReauth(subId)
+                    if (!held) {
+                        groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    }
+                }
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
@@ -2479,7 +3908,13 @@ class NostrRepository(
                         val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
                         if (pubkeysNeedingMetadata.isNotEmpty()) {
                             scope.launch {
-                                requestUserMetadata(pubkeysNeedingMetadata.toSet())
+                                // forceStale bypasses the 5-minute negative cache: a member
+                                // whose kind:0 we failed to fetch on first open (slow relay,
+                                // EOSE timeout) would otherwise stay blank until the cache
+                                // expires, even when the user switches back to the group. A
+                                // fresh 39002 is the signal to retry those profiles; already
+                                // cached ones stay filtered, so this does not refetch them.
+                                requestUserMetadata(pubkeysNeedingMetadata.toSet(), forceStale = true)
                             }
                         }
                     }
@@ -2568,6 +4003,33 @@ class NostrRepository(
         }
     }
 
+    /**
+     * CLOSE one-shot subscriptions once their EOSE arrives so the relay frees the
+     * slot. Live subscriptions (mux_*, group-list) are intentionally absent and
+     * stay open. Shared by both message handlers so the light metadata/outbox
+     * handler ([handleRelayMessage]) cleans up the same way the full one does.
+     */
+    private fun closeOneShotSubAfterEose(subId: String, client: NostrGroupClient) {
+        if (subId.startsWith("meta_") ||
+            subId.startsWith("admins_") ||
+            subId.startsWith("members_") ||
+            subId.startsWith("metadata_") ||
+            subId.startsWith("msg_") ||
+            subId.startsWith("e_") ||
+            subId.startsWith("a_") ||
+            subId.startsWith("reactions_") ||
+            subId.startsWith("zaps_") ||
+            subId.startsWith("threadfocus_") ||
+            subId.startsWith("event_")
+        ) {
+            scope.launch {
+                try {
+                    client.send("""["CLOSE","$subId"]""")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun handleRelayMessage(msg: String, client: NostrGroupClient) {
         try {
             val arr = json.parseToJsonElement(msg).jsonArray
@@ -2575,7 +4037,10 @@ class NostrRepository(
             // Handle EOSE
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
-                outboxManager.handleEose(subId)
+                // Relays connected via the metadata/outbox path route here and
+                // would otherwise never close their one-shot fetches (observed:
+                // zap-receipt subs leaking on nos.lol/damus).
+                closeOneShotSubAfterEose(subId, client)
                 return
             }
 
@@ -2621,7 +4086,7 @@ class NostrRepository(
                             onRelaysRestored = { newRelays ->
                                 groupManager.prePopulateRelayList(newRelays)
                                 _relayMetadataManager.fetchAll(newRelays)
-                                // Auto-connect to the first relay if no primary is connected yet
+                                // Auto-connect to the first relay if no focused is connected yet
                                 autoConnectFirstRelay(newRelays)
                             },
                             onRelayGroupsUpdated = { relayGroups ->
@@ -2633,6 +4098,7 @@ class NostrRepository(
                                 }
                             },
                             messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
+                            isGroupDropped = { groupManager.isLocallyDropped(it) },
                         )
                     }
                     return
@@ -2641,6 +4107,12 @@ class NostrRepository(
                 // Handle kind:10002 (NIP-65 relay list)
                 if (kind == 10002) {
                     outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
+                    return
+                }
+
+                // Handle kind:3 (NIP-02 contact list) for the active account
+                if (kind == 3) {
+                    handleKind3Event(event)
                     return
                 }
             }
@@ -2676,19 +4148,25 @@ class NostrRepository(
         // Mux subs cover all kinds: 39000/39001/39002 (metadata/members/admins) +
         // chat/reactions for opened groups.
         groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+
+        // If this revived relay is one of our DM relays, re-arm the gift-wrap inbox on it.
+        if (relayUrl.normalizeRelayUrl() in _myDmRelays.value) resubscribeDmInbox()
     }
 
     /**
-     * Revive NIP-29 pool relays that were previously connected (had been primary at some point)
+     * Revive NIP-29 pool relays that were previously connected (had been focused at some point)
      * and dropped during an internet outage.
      *
      * Only reconnects relays in [connectedPoolRelays] — relays that were never selected by
      * the user remain dormant (lazy connection model).
      */
     private fun reconnectDroppedNip29PoolRelays() {
-        val primaryUrl = connectionManager.currentRelayUrl.value
+        val focusedUrl = connectionManager.currentRelayUrl.value
         for (relayUrl in connectedPoolRelays.toList()) {
-            if (relayUrl == primaryUrl) continue
+            // Skip a blank (or platform-null) entry that leaked into the pool from a relay list,
+            // so it is never normalized or scheduled (the non-null receiver check would crash this
+            // worker coroutine).
+            if (relayUrl.isNullOrBlank() || relayUrl == focusedUrl) continue
             scope.launch {
                 val existing = connectionManager.getClientForRelay(relayUrl)
                 if (existing == null) {
@@ -2718,11 +4196,9 @@ class NostrRepository(
         val relayUrl = connectionManager.currentRelayUrl.value
         // Restore cache so the UI shows groups immediately while the re-fetch is in flight.
         groupManager.restoreGroupsForRelay(relayUrl)
-        // Wait for the relay's NIP-42 AUTH challenge to complete before sending REQs;
-        // otherwise the group-list races ahead and is rejected with auth-required
-        // CLOSED. Then always re-fetch (mirroring switchRelay) — resubscribeAfterAuth's
-        // 10s guard would otherwise suppress this call when the previous identity's
-        // timestamp on this relay is still fresh (warm-swap between accounts).
+        // Short AUTH grace before the re-fetch: public groups load fast, and the few groups
+        // gated behind AUTH recover via resubscribeAfterAuth + requestPrivateGroupData. The
+        // full bunker sign budget is not spent here, so it doesn't stall the public list.
         client.awaitAuthOrTimeout()
         // Always re-fetch on reconnect. restoreGroupsForRelay already populated the UI;
         // the fresh EOSE will prune any stale groups the relay no longer serves
@@ -2776,7 +4252,7 @@ class NostrRepository(
         val relayUrl = client.getRelayUrl()
         if (!client.isConnected()) return
 
-        if (connectionManager.getPrimaryClient() === client) {
+        if (connectionManager.getFocusedClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
             val normalized = relayUrl.normalizeRelayUrl()
@@ -2829,14 +4305,18 @@ class NostrRepository(
         val joinedOnRelay = groupManager.getGroupIdsForMux(relayUrl)
 
         val groupIds = (openedOnRelay + closedOnRelay + joinedOnRelay).distinct()
-        if (groupIds.isNotEmpty()) {
-            // PRESERVE pagination cursors: a periodic AUTH re-challenge (0xchat does this)
-            // must not reset an actively-scrolled group to Idle. Doing so re-fired the
-            // initial load below with `until = oldest - 1`, which jumps to the floor,
-            // injects ancient events at the top (visible scroll shift) and marks the group
-            // Exhausted, dropping all un-paginated middle history. Groups that never
-            // paginated (page 0) still fall back to Idle and re-init via the loop below.
-            groupManager.resetLoadingForGroupsPreservingCursor(groupIds)
+        // Re-load history ONLY for groups that have NO messages yet (their initial read was
+        // CLOSED auth-required / never landed). Re-loading a group that already has its
+        // messages on a periodic AUTH re-challenge (0xchat issues one every ~75s) reset the
+        // active group's loading controller — wiping its HasMore state so scroll-up could no
+        // longer paginate, showing only the first page — and fired an all-joined-groups msg
+        // storm that hammered the relay. The live mux (refreshed below) keeps already-loaded
+        // groups current; their in-memory history and pagination cursor stay untouched.
+        val needHistory = groupIds.filter { groupManager.messages.value[it].isNullOrEmpty() }
+        if (needHistory.isNotEmpty()) {
+            // Cursor-preserving, though these are empty groups (page 0) so they reset to Idle
+            // and the loop below re-inits them; a group that somehow has a live cursor is kept.
+            groupManager.resetLoadingForGroupsPreservingCursor(needHistory)
         }
 
         // Force-clear the mux tracker so the refresh always re-sends subscriptions.
@@ -2852,13 +4332,29 @@ class NostrRepository(
         // Also fetch metadata for the active group if the user navigated via URL
         // and the group isn't in the cache yet (e.g. invite link to a private group).
         groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+        // Timing-robust net: after AUTH the batched mux/meta REQ may still have lost the race
+        // (JVM engine), so per-group fetch any joined group whose 39000 never landed.
+        scheduleMissingMetadataSweep(relayUrl)
 
         // Re-request historical messages for groups that were CLOSED with
         // auth-required. The mux only delivers live messages (since cursor),
         // so without this the chat stays empty after AUTH completes.
+        // AUTH just succeeded: clear any "restricted" marker (from a pre-AUTH CLOSED or a
+        // persisted one) on every group so the chat unblocks instead of staying stuck on the
+        // "Private group" placeholder. If the relay still denies a group post-AUTH, the fresh
+        // CLOSED re-marks it.
         for (groupId in groupIds) {
+            groupManager.clearGroupRestricted(groupId)
+        }
+        // Re-request history ONLY for the empty groups (see needHistory above). An already
+        // -loaded group keeps its messages + pagination state; requesting it here would reset
+        // its controller and break scroll-back on every periodic AUTH re-challenge.
+        for (groupId in needHistory) {
             groupManager.requestGroupMessages(groupId)
         }
+        // Re-fire forum thread subscriptions: a private group's pre-AUTH thread REQ was CLOSED
+        // auth-required, and the threads pane has no mux to refresh it post-AUTH.
+        groupManager.resubscribeOpenThreadsAfterAuth(relayUrl)
     }
 }
 

@@ -22,6 +22,10 @@ data class GroupMetadata(
     val picture: String?,
     val isPublic: Boolean,
     val isOpen: Boolean,
+    /** NIP-29 `restricted`: only members can write. Absence = anyone can post. */
+    val isRestricted: Boolean = false,
+    /** NIP-29 `hidden`: relays hide metadata from non-members (not discoverable). */
+    val isHidden: Boolean = false,
     /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
     val parent: String? = null,
     /**
@@ -96,12 +100,14 @@ data class GroupRoles(
     val roles: List<RoleDefinition>,
 )
 
+@Serializable
 @Immutable
 data class RoleDefinition(
     val name: String,
     val description: String = "",
 )
 
+@Serializable
 @Immutable
 data class UserMetadata(
     val pubkey: String,
@@ -358,8 +364,14 @@ class NostrGroupClient(
     // it must await re-AUTH before firing a REQ. Public relays never set this.
     private var authChallengeSeen = false
 
+    // Completes the first time this socket sees an AUTH challenge. Lets awaitAuthSigned wait
+    // for "the relay asked for auth" separately from "the (possibly remote/slow) sign
+    // finished", so a long sign budget is only spent on relays that actually gate reads.
+    private val authChallengeArrived = CompletableDeferred<Unit>()
+
     fun markAuthChallengeSeen() {
         authChallengeSeen = true
+        authChallengeArrived.complete(Unit)
     }
 
     fun requiresAuth(): Boolean = authChallengeSeen
@@ -373,6 +385,27 @@ class NostrGroupClient(
         authCompleted.await()
         true
     } ?: false
+
+    /**
+     * Two-phase AUTH wait tuned for slow remote (bunker) signers. First wait
+     * [challengeGraceMs] for the relay to issue a challenge — if none arrives the relay
+     * does not gate reads, so return false fast (no stall on public relays). Once a
+     * challenge is (or was already) seen, give the signer up to [signBudgetMs] to finish
+     * signing + sending the AUTH response. This stops a 2s budget from racing a bunker
+     * round-trip and firing the first private-group REQ before AUTH lands.
+     */
+    suspend fun awaitAuthSigned(signBudgetMs: Long, challengeGraceMs: Long = 2_000): Boolean {
+        val gated = authChallengeSeen ||
+            withTimeoutOrNull(challengeGraceMs) {
+                authChallengeArrived.await()
+                true
+            } == true
+        if (!gated) return false
+        return withTimeoutOrNull(signBudgetMs) {
+            authCompleted.await()
+            true
+        } ?: false
+    }
 
     /** Called after the AUTH response has been sent to the relay. */
     fun notifyAuthCompleted() {
@@ -484,7 +517,6 @@ class NostrGroupClient(
      * Completes any pending deferred for this event ID.
      */
     suspend fun handleOkResponse(eventId: String, success: Boolean, message: String?) {
-        // Notify callback
         onOkResponse?.invoke(eventId, success, message)
 
         // Complete pending deferred
@@ -724,6 +756,65 @@ class NostrGroupClient(
         return subId
     }
 
+    /**
+     * Batched kind:39000 metadata fetch for several groups in one REQ (friends-group
+     * discovery). Uses its own sub id so it never disturbs the relay's group-list
+     * subscription, unlike [requestGroupsForIds].
+     */
+    suspend fun requestGroupsMetadata(groupIds: List<String>): String {
+        val subId = "meta_batch_${groupIds.sorted().joinToString(",").hashCode().toUInt()}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39000) }
+                    putJsonArray("#d") { groupIds.forEach { add(it) } }
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /** One-shot REQ for a user's public NIP-29 group list (kind:10009). */
+    suspend fun requestUserGroupList(pubkey: String): String {
+        val subId = "ugroups_${pubkey.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(10009) }
+                    putJsonArray("authors") { add(pubkey) }
+                    put("limit", 1)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    suspend fun requestContactList(pubkey: String): String {
+        val subId = "contacts_${pubkey.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(3) }
+                    putJsonArray("authors") { add(pubkey) }
+                    put("limit", 1)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
     suspend fun requestGroupMessages(
         groupId: String,
         channel: String? = null,
@@ -777,6 +868,103 @@ class NostrGroupClient(
 
         send(subscription) // may throw — caller (GroupManager) catches and handles via state machine
         return subId
+    }
+
+    /**
+     * Subscribe to a group's forum thread roots (kind:11). The subscription stays open after EOSE
+     * so new threads stream in live; the caller CLOSEs it on leaving the threads pane. Sends
+     * CLOSE before REQ so re-entry with the same id is idempotent.
+     */
+    suspend fun requestGroupThreadRoots(
+        groupId: String,
+        until: Long? = null,
+        limit: Int = 50,
+        subscriptionId: String,
+    ): String {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+        val req = buildJsonArray {
+            add("REQ")
+            add(subscriptionId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(11) } // NIP-29 forum thread root
+                    put("#h", buildJsonArray { add(groupId) })
+                    if (until != null) put("until", until)
+                    put("limit", limit)
+                },
+            )
+        }.toString()
+        send(req)
+        return subscriptionId
+    }
+
+    /**
+     * Subscribe to NIP-22 replies (kind:1111) for a group's threads. With [rootId] null this is
+     * the batched group-wide reply feed used to derive per-thread counts and previews; with a
+     * [rootId] it focuses a single thread (#E = root). Stays open after EOSE for live updates;
+     * sends CLOSE before REQ for idempotency.
+     */
+    suspend fun requestThreadReplies(
+        groupId: String,
+        rootId: String? = null,
+        until: Long? = null,
+        limit: Int = 500,
+        subscriptionId: String,
+    ): String {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+        val req = buildJsonArray {
+            add("REQ")
+            add(subscriptionId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(1111) } // NIP-22 comment = thread reply
+                    put("#h", buildJsonArray { add(groupId) })
+                    // Match by the uppercase root-scope kind (K), present on every reply; the
+                    // lowercase k (parent) is omitted on top-level replies to save indexable tags.
+                    put("#K", buildJsonArray { add("11") })
+                    if (rootId != null) put("#E", buildJsonArray { add(rootId) })
+                    if (until != null) put("until", until)
+                    put("limit", limit)
+                },
+            )
+        }.toString()
+        send(req)
+        return subscriptionId
+    }
+
+    /** CLOSE a subscription by id (no-op on the relay if it is not open). */
+    suspend fun closeSubscription(subscriptionId: String) {
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subscriptionId)
+            }.toString(),
+        )
+    }
+
+    /**
+     * CLOSE every live subscription on this socket. Called on account switch so the previous
+     * account's still-open mux chat/meta and dm_inbox REQs (none of which are pubkey-filtered)
+     * stop delivering that account's events into the newly-installed account's state. The
+     * socket stays connected; the new account re-subscribes. Snapshot first: send() mutates
+     * openSubscriptions on each CLOSE.
+     */
+    suspend fun closeAllSubscriptions() {
+        for (subId in openSubscriptions.toList()) {
+            try {
+                closeSubscription(subId)
+            } catch (_: Exception) {}
+        }
     }
 
 /**
@@ -1139,6 +1327,8 @@ class NostrGroupClient(
                 picture = tagMap["picture"],
                 isPublic = !tagNames.contains("private"),
                 isOpen = !tagNames.contains("closed"),
+                isRestricted = tagNames.contains("restricted"),
+                isHidden = tagNames.contains("hidden"),
                 parent = parent,
                 parentAttestation = parentAttestation,
                 children = children,

@@ -52,6 +52,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.zap.ZapBadge
@@ -60,6 +61,8 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
+import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.shortNpub
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -101,7 +104,10 @@ fun MessageItem(
     onDeleteMessage: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
+    // Relay that hosts this message's group (its kind:39000 home), embedded in the copied nevent
+    // so readers fetch the event from its real relay, not the one we happen to be viewing through.
+    neventRelayHint: String? = null,
     isHighlighted: Boolean = false,
     // A search hit (query matches this message) gets a light tint; the current hit a stronger one.
     isSearchHit: Boolean = false,
@@ -116,6 +122,7 @@ fun MessageItem(
     onDismissFailed: () -> Unit = {},
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
+    val copyToClipboard = rememberClipboardWriter()
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnReactionClick by rememberUpdatedState(onReactionClick)
@@ -130,7 +137,7 @@ fun MessageItem(
     // Memoize display name calculation
     val displayName =
         remember(metadata?.displayName, metadata?.name, message.pubkey) {
-            metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
+            metadata?.displayName ?: metadata?.name ?: shortNpub(message.pubkey)
         }
 
     // Check if this message is a reply and find the parent message
@@ -249,7 +256,7 @@ fun MessageItem(
         if (!isFirstInGroup) {
             androidx.compose.material3.HorizontalDivider(
                 thickness = Spacing.dividerThickness,
-                color = Color.White.copy(alpha = 0.05f),
+                color = NostrordColors.Divider,
                 modifier =
                 Modifier.padding(
                     start = Spacing.avatarColumnWidth,
@@ -395,7 +402,7 @@ fun MessageItem(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = displayName,
-                                color = Color.White,
+                                color = NostrordColors.TextPrimary,
                                 style = NostrordTypography.Username,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -462,7 +469,6 @@ fun MessageItem(
                         )
                     }
 
-                    // Zap total badge
                     if (zapInfo != null && zapInfo.totalMsats > 0) {
                         ZapBadge(
                             totalMsats = zapInfo.totalMsats,
@@ -489,6 +495,17 @@ fun MessageItem(
                         MessageContextAction.CopyText -> currentOnCopyText()
                         MessageContextAction.CopyMessageLink -> currentOnCopyLink()
                         MessageContextAction.ShareMessageLink -> currentOnShareLink()
+                        // The message carries id + author + kind; the group relay rides as the
+                        // relay hint so the nevent is fetchable.
+                        MessageContextAction.CopyNevent ->
+                            copyToClipboard(
+                                Nip19.encodeNevent(
+                                    message.id,
+                                    relays = listOfNotNull(neventRelayHint ?: currentRelayUrl),
+                                    authorHex = message.pubkey,
+                                    kind = message.kind,
+                                ),
+                            )
                         MessageContextAction.CopyEventJson -> currentOnCopyJson()
                         MessageContextAction.PinMessage -> currentOnPinMessage()
                         MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
@@ -503,50 +520,4 @@ fun MessageItem(
     }
 }
 
-/**
- * Optimistic-send status row shown under the author's own message.
- * Sending: a muted "Sending..." hint. Failed: the reason plus Retry / Dismiss.
- */
-@Composable
-private fun MessageStatusIndicator(
-    status: GroupManager.MessageStatus,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    when (status) {
-        is GroupManager.MessageStatus.Sending -> {
-            Text(
-                text = "Sending...",
-                color = NostrordColors.TextMuted,
-                style = NostrordTypography.Timestamp,
-                modifier = Modifier.padding(top = Spacing.xxs),
-            )
-        }
-        is GroupManager.MessageStatus.Failed -> {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = Spacing.xxs),
-            ) {
-                Text(
-                    text = "Not delivered",
-                    color = NostrordColors.Error,
-                    style = NostrordTypography.Timestamp,
-                )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    text = "Retry",
-                    color = NostrordColors.Error,
-                    style = NostrordTypography.Timestamp,
-                    modifier = Modifier.clickable { onRetry() },
-                )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    text = "Dismiss",
-                    color = NostrordColors.TextMuted,
-                    style = NostrordTypography.Timestamp,
-                    modifier = Modifier.clickable { onDismiss() },
-                )
-            }
-        }
-    }
-}
+// MessageStatusIndicator lives in its own file now (shared by chat + threads).

@@ -66,7 +66,7 @@ fun GroupSidebar(
             Text(
                 text = groupName ?: "Unknown Group",
                 style = NostrordTypography.ServerHeader,
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -183,7 +183,6 @@ private fun ChannelItem(
             .padding(horizontal = Spacing.channelItemPaddingH),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Hash symbol
         Text(
             text = "#",
             style = NostrordTypography.ChannelHash,
@@ -192,7 +191,6 @@ private fun ChannelItem(
 
         Spacer(modifier = Modifier.width(Spacing.xs))
 
-        // Channel name
         Text(
             text = name,
             style = textStyle,
@@ -202,7 +200,6 @@ private fun ChannelItem(
             modifier = Modifier.weight(1f),
         )
 
-        // Unread badge
         if (hasUnread && unreadCount > 0 && !isSelected) {
             UnreadBadge(count = unreadCount)
         }

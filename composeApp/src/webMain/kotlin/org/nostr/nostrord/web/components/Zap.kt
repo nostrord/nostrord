@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import react.ChildrenBuilder
@@ -76,7 +77,7 @@ private val ZapModal =
         val recipientName =
             metadata?.displayName?.ifBlank { null }
                 ?: metadata?.name?.ifBlank { null }
-                ?: (props.recipientPubkey.take(8) + "…")
+                ?: shortNpub(props.recipientPubkey)
 
         val (amountText, setAmountText) = useState { "21" }
         val (comment, setComment) = useState { "" }

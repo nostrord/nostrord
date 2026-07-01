@@ -1,7 +1,9 @@
 package org.nostr.nostrord.auth
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.nostr.KeyPair
@@ -143,6 +145,20 @@ class AccountManager(
      *
      * Returns the account the user is now active as (or null if logged out).
      */
+    /**
+     * [removeAccount] on the manager's long-lived scope, so a sign-out triggered
+     * from UI that unmounts mid-flight (the account bar menu) cannot be cancelled
+     * between the credential wipe and the fallback switch.
+     */
+    fun removeAccountAsync(
+        accountId: String,
+        onResult: (Account?) -> Unit = {},
+    ) {
+        scope.launch {
+            onResult(removeAccount(accountId))
+        }
+    }
+
     suspend fun removeAccount(accountId: String): Account? {
         val account = accountStore.get(accountId) ?: return accountStore.active
         val wasActive = accountStore.activeId.value == accountId
@@ -184,8 +200,23 @@ class AccountManager(
             }
         if (winner != null) return winner
 
-        authManager.logout()
-        AppModule.applyActiveAccountChange(null)
+        // No fallback account: this is a full logout. Route through the
+        // repository logout so the relay connections (primary + pool + DM relays)
+        // are actually closed. Calling only authManager.logout() left every
+        // socket open until a page reload, eventually exhausting the browser's
+        // WebSocket limit so a fresh login/QR connect failed (see
+        // docs/ws-connection-leak-plan.md). repo.logout() also runs
+        // sessionManager.logout() -> authManager.logout().
+        //
+        // NonCancellable so the teardown finishes even if this coroutine (an
+        // appScope child) is cancelled mid-flight: a half-done logout would
+        // leave _isLoggedIn true, sockets open, and the legacy credential slots
+        // populated, so the app could not leave the last account and a restart
+        // would re-migrate it back in.
+        withContext(NonCancellable) {
+            AppModule.nostrRepository.logout()
+            AppModule.applyActiveAccountChange(null)
+        }
         return null
     }
 

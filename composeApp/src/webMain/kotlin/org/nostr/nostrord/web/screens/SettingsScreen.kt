@@ -5,11 +5,17 @@ import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
+import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.ui.Identifier
+import org.nostr.nostrord.ui.screens.backup.BackupViewModel
+import org.nostr.nostrord.ui.screens.backup.MIN_BACKUP_PASSWORD
+import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
+import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
+import org.nostr.nostrord.ui.screens.settings.SecurityViewModel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
@@ -17,10 +23,11 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
-import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -34,6 +41,7 @@ import react.useState
 import web.cssom.ClassName
 import web.html.InputType
 import web.html.checkbox
+import web.html.password
 
 external interface SettingsScreenProps : Props {
     var onClose: () -> Unit
@@ -47,7 +55,7 @@ external interface SettingsScreenProps : Props {
 }
 
 private val sections =
-    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Media", "Notifications", "Security", "Experimental")
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Direct Messages", "Appearance", "Media", "Notifications", "Security")
 
 /**
  * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
@@ -69,6 +77,9 @@ val SettingsScreen =
             accounts.firstOrNull { it.id == activeAccountId }?.authMethod ?: AuthMethod.LOCAL
         // Mobile: false = section list, true = selected panel (with a back button). Ignored on desktop.
         val (mobilePanel, setMobilePanel) = useState { false }
+        // Esc closes the settings overlay (parity with native's Escape handler). While the
+        // Log Out confirm dialog is open it owns Esc, so closing it doesn't also drop settings.
+        useEscClose { if (logoutConfirmOpen) setLogoutConfirmOpen(false) else props.onClose() }
 
         div {
             className = ClassName(if (mobilePanel) "settings-overlay show-panel" else "settings-overlay")
@@ -137,10 +148,11 @@ val SettingsScreen =
                     "Profile" -> ProfilePanel()
                     "Backup Keys" -> BackupPanel()
                     "Relays (NIP-65)" -> RelaysPanel()
+                    "Direct Messages" -> DmRelaysPanel()
+                    "Appearance" -> AppearancePanel()
                     "Media" -> MediaPanel()
                     "Notifications" -> NotificationsPanel()
                     "Security" -> SecurityPanel()
-                    "Experimental" -> ExperimentalPanel()
                 }
             }
 
@@ -152,10 +164,6 @@ val SettingsScreen =
                     span {
                         className = ClassName("settings-close-x")
                         icon(Ic.Close)
-                    }
-                    span {
-                        className = ClassName("settings-close-esc")
-                        +"ESC"
                     }
                 }
             }
@@ -294,75 +302,135 @@ private val ProfilePanel =
 
 private val BackupPanel =
     FC<Props> {
-        val repo = AppModule.nostrRepository
-        val pubkey = repo.getPublicKey()
-        val npub = pubkey?.let { Nip19.encodeNpub(it) } ?: ""
-        val isLocal = AppModule.accountStore.active?.authMethod == AuthMethod.LOCAL
-        val (revealed, setRevealed) = useState { false }
-        val nsec =
-            if (revealed && isLocal) {
-                repo.getPrivateKey()?.let { Nip19.encodeNsec(it) } ?: ""
-            } else {
-                "nsec1••••••••••••••••••••••••••••••••••••"
-            }
+        val vm = useViewModel { BackupViewModel() }
+        val revealed = useStateFlow(vm.revealed)
+        val passphrase = useStateFlow(vm.passphrase)
+        val ncryptsec = useStateFlow(vm.ncryptsec)
+        val encrypting = useStateFlow(vm.encrypting)
+        val error = useStateFlow(vm.error)
 
+        // Public key: non-sensitive, shown immediately, cycles npub / nprofile / hex with a QR.
         div {
             className = ClassName("settings-card")
             div {
                 className = ClassName("field-label")
-                +"Public Key (npub)"
+                +"Public key"
             }
-            div {
-                className = ClassName("settings-key")
-                +npub
-            }
-            button {
-                className = ClassName("settings-outline-btn")
-                onClick = { copyToClipboard(npub) }
-                +"Copy Public Key"
+            IdentifierRow {
+                ids = vm.publicIds
+                showQr = true
             }
         }
-        if (isLocal) {
+
+        // Private key: LOCAL accounts only, reveal-gated. Bunker / NIP-07 hold no local key.
+        if (vm.canExportPrivate) {
+            div {
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("field-label danger")
+                    +"Private key"
+                }
+                if (!revealed) {
+                    div {
+                        className = ClassName("settings-key danger")
+                        +"nsec1••••••••••••••••••••••••••••••••••••"
+                    }
+                    button {
+                        className = ClassName("settings-outline-btn danger")
+                        onClick = { vm.reveal() }
+                        +"Reveal private key"
+                    }
+                } else {
+                    IdentifierRow { ids = vm.privateDirectIds() }
+
+                    // ncryptsec: a password-encrypted export, safe to store and to move between devices.
+                    div {
+                        className = ClassName("backup-subsection")
+                        div {
+                            className = ClassName("field-label")
+                            +"Encrypted backup (ncryptsec)"
+                        }
+                        if (ncryptsec == null) {
+                            div {
+                                className = ClassName("backup-encrypt-row")
+                                input {
+                                    className = ClassName("modal-input")
+                                    type = InputType.password
+                                    placeholder = "Choose a password"
+                                    value = passphrase
+                                    onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
+                                    onKeyDown = { event ->
+                                        if (event.key == "Enter" && passphrase.length >= MIN_BACKUP_PASSWORD && !encrypting) {
+                                            vm.encrypt()
+                                        }
+                                    }
+                                }
+                                button {
+                                    className = ClassName("btn-primary")
+                                    disabled = encrypting || passphrase.length < MIN_BACKUP_PASSWORD
+                                    onClick = { vm.encrypt() }
+                                    +(if (encrypting) "Encrypting…" else "Encrypt")
+                                }
+                            }
+                            error?.let {
+                                div {
+                                    className = ClassName("settings-error")
+                                    +it
+                                }
+                            }
+                            div {
+                                className = ClassName("settings-tip")
+                                +"Keep this password safe. Without it the encrypted backup cannot be recovered."
+                            }
+                        } else {
+                            IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
+                            button {
+                                className = ClassName("btn-text backup-link")
+                                onClick = { vm.setPassphrase("") }
+                                +"Use a different password"
+                            }
+                        }
+                    }
+
+                    div {
+                        className = ClassName("backup-footer")
+                        button {
+                            className = ClassName("btn-text")
+                            onClick = { vm.hide() }
+                            +"Hide private key"
+                        }
+                    }
+                }
+            }
+        } else {
             div {
                 className = ClassName("settings-card")
                 div {
                     className = ClassName("field-label")
-                    +"Private Key (nsec)"
+                    +"Private key"
                 }
                 div {
-                    className = ClassName("settings-key danger")
-                    +nsec
-                }
-                button {
-                    className = ClassName("settings-outline-btn danger")
-                    onClick = {
-                        if (!revealed) {
-                            setRevealed(true)
-                        } else {
-                            repo.getPrivateKey()?.let { copyToClipboard(Nip19.encodeNsec(it)) }
-                        }
+                    className = ClassName("settings-tip")
+                    +when (vm.authMethod) {
+                        AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
+                        AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
+                        else -> "No private key is available for this account."
                     }
-                    +(if (revealed) "Copy Private Key" else "Reveal Private Key")
                 }
             }
         }
+
         div {
             className = ClassName("settings-card warning")
             div {
                 className = ClassName("settings-section-head")
                 +"SECURITY TIPS"
             }
-            div {
-                className = ClassName("settings-tip")
-                +"• Never share your private key (nsec) with anyone."
-            }
-            div {
-                className = ClassName("settings-tip")
-                +"• Store it in a password manager or write it down offline."
-            }
-            div {
-                className = ClassName("settings-tip")
-                +"• Anyone with your nsec has full control of your identity."
+            backupSecurityTips.forEach { tip ->
+                div {
+                    className = ClassName("settings-tip")
+                    +"• $tip"
+                }
             }
         }
     }
@@ -549,6 +617,114 @@ private val RelaysPanel =
         }
     }
 
+// ── Direct message relays (NIP-17 kind:10050) ────────────────────────────────
+
+private val DmRelaysPanel =
+    FC<Props> {
+        val dmVm = useViewModel { DmRelaySettingsViewModel(AppModule.nostrRepository) }
+        val published = useStateFlow(dmVm.relays)
+        val saving = useStateFlow(dmVm.saving)
+        val error = useStateFlow(dmVm.error)
+
+        // Editable draft; reseeds when the published list first populates (or changes).
+        val (relays, setRelays) = useState { published }
+        useEffect(published) { setRelays(published) }
+
+        val (newUrl, setNewUrl) = useState { "" }
+        val normalizedNewUrl = newUrl.trim().toRelayUrl()
+        val canAdd = isValidRelayUrl(normalizedNewUrl) && relays.none { it == normalizedNewUrl }
+
+        fun addRelay() {
+            if (!canAdd) return
+            setRelays(relays + normalizedNewUrl)
+            setNewUrl("")
+        }
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-info-text")
+                +(
+                    "NIP-17 DM relays (kind 10050) tell other clients where to deliver your private " +
+                        "direct messages. Pick a few reliable relays. They can be the same as your NIP-65 " +
+                        "relays or dedicated ones. Until you publish a list, sensible defaults are used."
+                    )
+            }
+        }
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"YOUR DM RELAYS"
+            }
+            if (relays.isEmpty()) {
+                div {
+                    className = ClassName("relay-warn")
+                    +"No DM relays. Others won't be able to reach you. Add at least one."
+                }
+            }
+            relays.forEachIndexed { i, url ->
+                div {
+                    key = url
+                    className = ClassName("relay-row")
+                    span {
+                        className = ClassName("relay-row-url")
+                        +url.removePrefix("wss://").removePrefix("ws://")
+                    }
+                    button {
+                        className = ClassName("relay-row-remove")
+                        onClick = { setRelays(relays.filterIndexed { j, _ -> j != i }) }
+                        icon(Ic.Close)
+                    }
+                }
+            }
+
+            div {
+                className = ClassName("settings-section-head relay-add-head")
+                +"ADD RELAY"
+            }
+            input {
+                className = ClassName("modal-input")
+                placeholder = "relay.example.com"
+                value = newUrl
+                onChange = { event -> setNewUrl(event.currentTarget.value) }
+                onKeyDown = { event ->
+                    if (event.key == "Enter") {
+                        event.preventDefault()
+                        addRelay()
+                    }
+                }
+            }
+            div {
+                className = ClassName("relay-add-row")
+                button {
+                    className = ClassName("relay-add-btn")
+                    disabled = !canAdd
+                    onClick = { addRelay() }
+                    icon(Ic.Add)
+                    +"Add"
+                }
+            }
+        }
+
+        div {
+            className = ClassName("relay-save-row")
+            error?.let {
+                span {
+                    className = ClassName("relay-save-status")
+                    +it
+                }
+            }
+            button {
+                className = ClassName("settings-save")
+                disabled = saving
+                onClick = { dmVm.publish(relays) }
+                +(if (saving) "Publishing…" else "Save & Publish")
+            }
+        }
+    }
+
 private fun react.ChildrenBuilder.relayChip(label: String, active: Boolean, onToggle: () -> Unit) {
     button {
         className = ClassName(if (active) "relay-chip on" else "relay-chip")
@@ -632,6 +808,50 @@ private val NotificationsPanel =
         }
     }
 
+// ── Appearance ───────────────────────────────────────────────────────────────
+
+private val AppearancePanel =
+    FC<Props> {
+        val appearance = AppModule.appearanceSettings
+        val theme = useStateFlow(appearance.theme)
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"THEME"
+            }
+            div {
+                className = ClassName("theme-grid")
+                themeCard("Dark", AppTheme.DARK, theme) { appearance.setTheme(it) }
+                themeCard("Light", AppTheme.LIGHT, theme) { appearance.setTheme(it) }
+                themeCard("System", AppTheme.SYSTEM, theme) { appearance.setTheme(it) }
+            }
+        }
+    }
+
+private fun react.ChildrenBuilder.themeCard(
+    label: String,
+    theme: AppTheme,
+    selected: AppTheme,
+    onSelect: (AppTheme) -> Unit,
+) {
+    button {
+        className = ClassName(if (theme == selected) "theme-card selected" else "theme-card")
+        onClick = { onSelect(theme) }
+        div {
+            className = ClassName("theme-preview ${theme.name.lowercase()}")
+            div { className = ClassName("theme-preview-pill brand") }
+            div { className = ClassName("theme-preview-pill line") }
+        }
+        div {
+            className = ClassName("theme-card-label")
+            if (theme == selected) icon(Ic.Check)
+            +label
+        }
+    }
+}
+
 // ── Media ────────────────────────────────────────────────────────────────────
 
 private val MediaPanel =
@@ -652,38 +872,83 @@ private val MediaPanel =
 
 private val SecurityPanel =
     FC<Props> {
-        div {
-            className = ClassName("settings-card")
+        val vm = useViewModel { SecurityViewModel() }
+        val current = useStateFlow(vm.current)
+        val newPassword = useStateFlow(vm.new)
+        val confirm = useStateFlow(vm.confirm)
+        val busy = useStateFlow(vm.busy)
+        val error = useStateFlow(vm.error)
+        val success = useStateFlow(vm.success)
+
+        if (vm.isPasswordProtected) {
+            // The active account is unlocked per session from a stored ncryptsec; let the user
+            // rotate that password (the key itself is unchanged).
             div {
-                className = ClassName("settings-section-head")
-                +"APP SECURITY"
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("settings-section-head")
+                    +"ACCOUNT PASSWORD"
+                }
+                div {
+                    className = ClassName("settings-tip")
+                    +"Your private key is encrypted with this password (NIP-49). It cannot be recovered if you forget it."
+                }
+                passwordField("Current password", current) { vm.setCurrent(it) }
+                passwordField("New password", newPassword) { vm.setNew(it) }
+                passwordField("Confirm new password", confirm) { vm.setConfirm(it) }
+                error?.let {
+                    div {
+                        className = ClassName("settings-error")
+                        +it
+                    }
+                }
+                if (success) {
+                    div {
+                        className = ClassName("settings-success")
+                        +"Password changed."
+                    }
+                }
+                button {
+                    className = ClassName("settings-outline-btn")
+                    disabled = busy || current.isEmpty() || newPassword.isEmpty() || confirm.isEmpty()
+                    onClick = { vm.changePassword() }
+                    +(if (busy) "Saving…" else "Change password")
+                }
             }
+        } else {
             div {
-                className = ClassName("settings-status-line")
-                +"No app passphrase on the web. Your key is managed by the browser. Use Backup Keys to save it."
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("settings-section-head")
+                    +"APP SECURITY"
+                }
+                div {
+                    className = ClassName("settings-status-line")
+                    +"No app passphrase on the web. Your key is managed by the browser. Use Backup Keys to save it."
+                }
             }
         }
     }
 
-// ── Experimental ─────────────────────────────────────────────────────────────
-
-private val ExperimentalPanel =
-    FC<Props> {
-        val flags = AppModule.featureFlags
-        val subgroups = useStateFlow(flags.subgroupsEnabled)
+private fun react.ChildrenBuilder.passwordField(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    div {
+        className = ClassName("settings-field")
         div {
-            className = ClassName("settings-card")
-            div {
-                className = ClassName("settings-section-head")
-                +"DRAFT PROTOCOL FEATURES"
-            }
-            settingsToggle(
-                "NIP-29 Subgroups (draft)",
-                "Enable nested subgroups. This is a draft protocol feature and may change.",
-                subgroups,
-            ) { flags.setSubgroupsEnabled(!subgroups) }
+            className = ClassName("field-label")
+            +label
+        }
+        input {
+            className = ClassName("modal-input")
+            type = InputType.password
+            this.value = value
+            this.onChange = { event -> onChange(event.currentTarget.value) }
         }
     }
+}
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
 

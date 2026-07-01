@@ -246,6 +246,7 @@ fun ManageChildrenModal(
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             colors = editFieldColors(),
+                            textStyle = editFieldTextStyle(),
                             shape = RoundedCornerShape(8.dp),
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))

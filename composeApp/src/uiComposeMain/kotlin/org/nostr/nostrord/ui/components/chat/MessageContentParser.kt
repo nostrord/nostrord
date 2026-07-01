@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import org.nostr.nostrord.nostr.Nip27
+import org.nostr.nostrord.nostr.Nip68
 
 /**
  * # Chat Message Content Parser
@@ -109,6 +110,16 @@ object MessageContentParser {
             val content: String,
         ) : ParsedPart()
 
+        /** Strikethrough text (~~text~~) */
+        data class Strikethrough(
+            val content: String,
+        ) : ParsedPart()
+
+        /** Spoiler text (||text||) hidden until tapped (Discord-style). */
+        data class Spoiler(
+            val content: String,
+        ) : ParsedPart()
+
         // Code blocks (block-level)
 
         /** Fenced code block (```language\ncode```) */
@@ -186,9 +197,13 @@ object MessageContentParser {
         // every downstream pass treats their ranges as already covered.
         val urlMatches = findDataImages(contentWithPlaceholders) + findUrls(contentWithPlaceholders)
 
-        // Step 2: Find relay URLs (ws://, wss://)
+        // Step 2: Find relay URLs (ws://, wss://) and bare NIP-29 group addresses (relay'groupId).
+        // Both become a Relay part; the renderer shows a group card when the value has an apostrophe.
         val coveredByUrls = urlMatches.map { it.range }
-        val relayMatches = findRelayUrls(contentWithPlaceholders, coveredByUrls)
+        val relayUrlMatches = findRelayUrls(contentWithPlaceholders, coveredByUrls)
+        val relayMatches =
+            relayUrlMatches +
+                findGroupAddresses(contentWithPlaceholders, coveredByUrls + relayUrlMatches.map { it.range })
 
         // Step 3: Find Cashu tokens and requests
         val coveredByUrlsAndRelays = (urlMatches + relayMatches).map { it.range }
@@ -274,55 +289,9 @@ object MessageContentParser {
      *
      * @return Map of image URL to (width, height) pair
      */
-    fun extractImetaDimensions(tags: List<List<String>>): Map<String, Pair<Int, Int>> {
-        val result = mutableMapOf<String, Pair<Int, Int>>()
-        for (tag in tags) {
-            if (tag.isEmpty() || tag[0] != "imeta") continue
-            var url: String? = null
-            var dim: Pair<Int, Int>? = null
-            for (i in 1 until tag.size) {
-                val field = tag[i]
-                when {
-                    field.startsWith("url ") -> url = field.removePrefix("url ")
-                    field.startsWith("dim ") -> {
-                        val parts = field.removePrefix("dim ").split("x", limit = 2)
-                        if (parts.size == 2) {
-                            val w = parts[0].toIntOrNull()
-                            val h = parts[1].toIntOrNull()
-                            if (w != null && h != null && w > 0 && h > 0) {
-                                dim = w to h
-                            }
-                        }
-                    }
-                }
-            }
-            if (url != null && dim != null) {
-                result[url] = dim
-            }
-        }
-        return result
-    }
+    fun extractImetaDimensions(tags: List<List<String>>): Map<String, Pair<Int, Int>> = Nip68.extractImetaDimensions(tags)
 
-    fun extractImetaThumbnails(tags: List<List<String>>): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        for (tag in tags) {
-            if (tag.isEmpty() || tag[0] != "imeta") continue
-            var url: String? = null
-            var thumb: String? = null
-            for (i in 1 until tag.size) {
-                val field = tag[i]
-                when {
-                    field.startsWith("url ") -> url = field.removePrefix("url ")
-                    field.startsWith("thumb ") -> thumb = field.removePrefix("thumb ")
-                    field.startsWith("image ") -> if (thumb == null) thumb = field.removePrefix("image ")
-                }
-            }
-            if (url != null && thumb != null) {
-                result[url] = thumb
-            }
-        }
-        return result
-    }
+    fun extractImetaThumbnails(tags: List<List<String>>): Map<String, String> = Nip68.extractImetaThumbnails(tags)
 
     /**
      * Validate shortcode format.
@@ -399,6 +368,17 @@ object MessageContentParser {
     private val relayUrlRegex =
         Regex(
             """wss?://[^\s<>"]+""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    /**
+     * Bare NIP-29 group address without the scheme: `relay.host'groupId` (the form the share field
+     * copies). Requires a dotted host and a 4+ char group id so ordinary apostrophes ("it's") don't
+     * match. The wss:// form is caught by [relayUrlRegex] first; this runs on what's left.
+     */
+    private val groupAddressRegex =
+        Regex(
+            """(?<![\w@/])[a-z0-9-]+(?:\.[a-z0-9-]+)+'[a-z0-9]{4,}""",
             RegexOption.IGNORE_CASE,
         )
 
@@ -734,6 +714,12 @@ object MessageContentParser {
      */
     private val monospaceRegex = Regex("`([^`]+)`")
 
+    /** Strikethrough: ~~text~~ (non-greedy, at least one char). */
+    private val strikethroughRegex = Regex("~~([\\s\\S]+?)~~")
+
+    /** Spoiler: ||text|| (non-greedy, at least one char). */
+    private val spoilerRegex = Regex("\\|\\|([\\s\\S]+?)\\|\\|")
+
     /**
      * Find text formatting (bold, italic, monospace) in non-covered regions.
      */
@@ -744,9 +730,25 @@ object MessageContentParser {
         val coveredPositions = buildCoveredPositions(coveredRanges)
         val matches = mutableListOf<ParsedMatch>()
 
+        fun overlapsExisting(range: IntRange) = matches.any { existing -> range.first <= existing.range.last && range.last >= existing.range.first }
+
+        // Find spoiler ||text|| and strikethrough ~~text~~ first (their double markers
+        // don't collide with the single * _ ` tokens, but claiming them up front keeps
+        // an inner * from being read as bold).
+        spoilerRegex.findAll(content).forEach { match ->
+            if (!match.range.any { it in coveredPositions }) {
+                matches.add(ParsedMatch(match.range, ParsedPart.Spoiler(match.groupValues[1])))
+            }
+        }
+        strikethroughRegex.findAll(content).forEach { match ->
+            if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
+                matches.add(ParsedMatch(match.range, ParsedPart.Strikethrough(match.groupValues[1])))
+            }
+        }
+
         // Find bold *text*
         boldRegex.findAll(content).forEach { match ->
-            if (!match.range.any { it in coveredPositions }) {
+            if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
                 matches.add(ParsedMatch(match.range, ParsedPart.Bold(match.groupValues[1])))
             }
         }
@@ -909,6 +911,24 @@ object MessageContentParser {
 
                     ParsedMatch(actualRange, ParsedPart.Relay(cleanedUrl))
                 }
+            }.toList()
+    }
+
+    /**
+     * Find bare NIP-29 group addresses (`relay.host'groupId`, no scheme) in non-covered regions and
+     * emit them as the same [ParsedPart.Relay] as wss:// addresses (normalized with the scheme), so
+     * the renderer's apostrophe split turns them into a group card.
+     */
+    private fun findGroupAddresses(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
+        val coveredPositions = buildCoveredPositions(coveredRanges)
+        return groupAddressRegex
+            .findAll(content)
+            .mapNotNull { match ->
+                if (match.range.any { it in coveredPositions }) return@mapNotNull null
+                ParsedMatch(match.range, ParsedPart.Relay("wss://${match.value}"))
             }.toList()
     }
 

@@ -30,7 +30,11 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
 @Composable
-fun GeneratedKeyCard(privateKey: String) {
+fun GeneratedKeyCard(
+    privateKey: String,
+    title: String = "SAVE YOUR PRIVATE KEY",
+    subtitle: String = "This is a copy of your key, not your only copy. Save it somewhere safe.",
+) {
     val copyToClipboard = rememberClipboardWriter()
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
@@ -60,7 +64,7 @@ fun GeneratedKeyCard(privateKey: String) {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "SAVE YOUR PRIVATE KEY",
+                    title,
                     color = NostrordColors.WarningOrange,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
@@ -68,7 +72,7 @@ fun GeneratedKeyCard(privateKey: String) {
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "This is a copy of your key, not your only copy. Save it somewhere safe.",
+                subtitle,
                 color = NostrordColors.TextContent,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,

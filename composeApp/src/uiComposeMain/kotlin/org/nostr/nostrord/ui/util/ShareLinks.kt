@@ -1,7 +1,5 @@
 package org.nostr.nostrord.ui.util
 
-import org.nostr.nostrord.nostr.Nip19
-
 private const val OPEN_BASE = "https://nostrord.com/open/"
 
 private fun relayHost(relayUrl: String): String = relayUrl
@@ -11,19 +9,6 @@ private fun relayHost(relayUrl: String): String = relayUrl
     .removePrefix("http://")
     .trimEnd('/')
 
-fun buildShareRelayLink(relayUrl: String): String {
-    val host = relayHost(relayUrl)
-    return "${OPEN_BASE}?relay=$host"
-}
-
-fun buildShareGroupLink(
-    relayUrl: String,
-    groupId: String,
-): String {
-    val host = relayHost(relayUrl)
-    return "${OPEN_BASE}?relay=$host&group=$groupId"
-}
-
 fun buildShareMessageLink(
     relayUrl: String,
     groupId: String,
@@ -32,9 +17,3 @@ fun buildShareMessageLink(
     val host = relayHost(relayUrl)
     return "${OPEN_BASE}?relay=$host&group=$groupId&e=$messageId"
 }
-
-fun buildGroupNaddr(
-    relayUrl: String,
-    groupId: String,
-    relayPubkey: String? = null,
-): String = "nostr:" + Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)

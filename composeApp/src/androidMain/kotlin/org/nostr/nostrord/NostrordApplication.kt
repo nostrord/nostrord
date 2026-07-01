@@ -9,11 +9,14 @@ import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
+import coil3.svg.SvgDecoder
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
 import org.nostr.nostrord.notifications.AndroidNotificationSoundInit
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStoreAndroid
 import org.nostr.nostrord.ui.components.media.VideoCache
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 
 /**
  * Custom Application class that registers Coil's animated GIF decoders.
@@ -37,6 +40,7 @@ class NostrordApplication :
     override fun onCreate() {
         super.onCreate()
         SecureStorage.initialize(applicationContext)
+        CacheStoreAndroid.initialize(applicationContext)
         AndroidNetworkMonitorInit.initialize(applicationContext)
         AndroidNotificationSoundInit.initialize(applicationContext)
         VideoCache.initialize(applicationContext)
@@ -44,6 +48,8 @@ class NostrordApplication :
 
     override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader
         .Builder(context)
+        // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
+        .eventListener(ImageLoadEventListener)
         .components {
             // AnimatedImageDecoder is hardware-accelerated via the platform ImageDecoder
             // API. GifDecoder is a pure-software fallback for older API levels.
@@ -53,15 +59,18 @@ class NostrordApplication :
             } else {
                 add(GifDecoder.Factory())
             }
+            // Decodes data:image/svg+xml avatars (the data: fetcher is built in since 3.1).
+            add(SvgDecoder.Factory())
         }
-        // Memory cache: 15% of available app heap.
-        // Adapts automatically to device capability without a fixed floor
-        // that could starve low-RAM devices (e.g. 128 MB heap → 19 MB cache,
-        // not the previous 64 MB floor that consumed half the heap).
+        // Memory cache: 20% of available app heap. Adapts to device capability
+        // without a fixed floor that could starve low-RAM devices (128 MB heap
+        // → ~26 MB cache). Sized so frequently-shown avatars stay resident
+        // rather than being refetched over a long session, since each refetch
+        // is a chance to hit a transient load failure that shows a placeholder.
         .memoryCache {
             MemoryCache
                 .Builder()
-                .maxSizePercent(context, percent = 0.15)
+                .maxSizePercent(context, percent = 0.20)
                 .build()
         }
         // Persistent disk cache so images survive app restarts without re-downloading.

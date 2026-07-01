@@ -2,16 +2,20 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,11 +35,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.ui.components.upload.UploadImageField
+import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.ui.components.forms.AppField
+import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.isValidRelayUrl
+import org.nostr.nostrord.utils.toRelayUrl
+
+/** Sentinel relay value that reveals the custom-relay text field. */
+private const val CUSTOM_RELAY = "__custom__"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,7 +55,9 @@ fun CreateGroupModal(
     userRelays: Set<String> = emptySet(),
     parentGroupId: String? = null,
     onDismiss: () -> Unit,
-    onGroupCreated: (groupId: String, groupName: String) -> Unit,
+    // relayUrl is the relay the group was actually created on (may be a custom relay,
+    // not currentRelayUrl), so the caller navigates to the right place.
+    onGroupCreated: (relayUrl: String, groupId: String, groupName: String) -> Unit,
 ) {
     val isSubgroup = parentGroupId != null
     val scope = rememberCoroutineScope()
@@ -52,10 +65,15 @@ fun CreateGroupModal(
 
     var name by remember { mutableStateOf("") }
     var customGroupId by remember { mutableStateOf("") }
+    // The Group ID is an advanced option (the relay assigns a random one); reveal its field only
+    // when the user opts in, so the common case stays uncluttered.
+    var showCustomId by remember { mutableStateOf(false) }
     var about by remember { mutableStateOf("") }
     var picture by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var isClosed by remember { mutableStateOf(false) }
+    var isRestricted by remember { mutableStateOf(false) }
+    var isHidden by remember { mutableStateOf(false) }
     var isCreating by remember { mutableStateOf(false) }
     var creatingJob by remember { mutableStateOf<Job?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -69,12 +87,21 @@ fun CreateGroupModal(
                 list.remove(currentRelayUrl)
                 list.add(0, currentRelayUrl)
             }
-            list.filter { it.isNotBlank() }.distinct()
+            // With no relays yet, offer a known NIP-29 group relay so the user can create without
+            // typing one; "Custom relay…" stays available.
+            list.filter { it.isNotBlank() }.distinct().ifEmpty { RelayListManager.SUGGESTED_GROUP_RELAYS }
         }
-    var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
+    var selectedRelay by remember(currentRelayUrl) {
+        mutableStateOf(currentRelayUrl.ifBlank { RelayListManager.SUGGESTED_GROUP_RELAYS.first() })
+    }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
+    // Custom relay: picking "Custom relay…" reveals a text field so a group can be created on any
+    // relay, not just the listed ones.
+    var customRelay by remember { mutableStateOf("") }
+    val usingCustomRelay = selectedRelay == CUSTOM_RELAY
+    val effectiveRelay = if (usingCustomRelay) customRelay.trim().toRelayUrl() else selectedRelay
 
-    val relayWebUrl = selectedRelay.replace("wss://", "https://").replace("ws://", "http://")
+    val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
 
     fun cancelCreation() {
         creatingJob?.cancel()
@@ -167,61 +194,67 @@ fun CreateGroupModal(
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
 
+                    GroupAvatarUploadRow(
+                        pictureUrl = picture,
+                        seed = customGroupId.ifBlank { name },
+                        name = name,
+                        onPictureChange = { picture = it },
+                        onError = { errorMessage = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+
                     // Group Name
                     FieldLabel("Group Name")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
+                    AppField(
                         value = name,
                         onValueChange = {
                             name = it
                             errorMessage = null
                         },
-                        placeholder = {
-                            Text(
-                                "#example",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                            )
-                        },
-                        singleLine = true,
+                        placeholder = "#example",
                         modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
 
-                    // Custom Group ID (optional)
-                    FieldLabel("Group ID (optional)")
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
-                        value = customGroupId,
-                        onValueChange = {
-                            customGroupId =
-                                it.lowercase().filter { c ->
-                                    c.isLetterOrDigit() || c == '-' || c == '_'
-                                }
-                            errorMessage =
-                                null
-                        },
-                        placeholder = {
-                            Text(
-                                "my-group",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp),
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Text(
-                        text = "Leave empty for a random ID. The relay may override your choice.",
-                        style = NostrordTypography.Caption,
-                        color = NostrordColors.TextMuted,
-                    )
+                    // Custom Group ID (optional): hidden behind a disclosure link so the common
+                    // case (random relay-assigned ID) stays uncluttered.
+                    if (showCustomId) {
+                        FieldLabel("Group ID (optional)")
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        AppField(
+                            value = customGroupId,
+                            onValueChange = {
+                                customGroupId =
+                                    it.lowercase().filter { c ->
+                                        c.isLetterOrDigit() || c == '-' || c == '_'
+                                    }
+                                errorMessage = null
+                            },
+                            placeholder = "my-group",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        Text(
+                            text = "Leave empty for a random ID. The relay may override your choice.",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextMuted,
+                        )
+                    } else {
+                        Text(
+                            text = "Set a custom ID",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.Primary,
+                            textDecoration = TextDecoration.Underline,
+                            modifier =
+                            Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable { showCustomId = true },
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
 
@@ -232,8 +265,8 @@ fun CreateGroupModal(
                         expanded = relayDropdownExpanded,
                         onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
                     ) {
-                        OutlinedTextField(
-                            value = selectedRelay.removePrefix("wss://"),
+                        AppField(
+                            value = if (usingCustomRelay) "Custom relay…" else selectedRelay.removePrefix("wss://"),
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = {
@@ -242,29 +275,20 @@ fun CreateGroupModal(
                             modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                            colors = fieldColors(),
-                            shape = RoundedCornerShape(8.dp),
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                // It is a select, not an editable field: a hand cursor (overriding
+                                // the inner text field's I-beam), matching the web `.modal-select`.
+                                .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true),
                         )
                         ExposedDropdownMenu(
                             expanded = relayDropdownExpanded,
                             onDismissRequest = { relayDropdownExpanded = false },
-                            containerColor = NostrordColors.SurfaceVariant,
+                            containerColor = NostrordColors.BackgroundFloating,
                         ) {
                             relayOptions.forEach { relay ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            relay.removePrefix("wss://"),
-                                            color =
-                                            if (relay == selectedRelay) {
-                                                NostrordColors.Primary
-                                            } else {
-                                                NostrordColors.TextPrimary
-                                            },
-                                            style = NostrordTypography.MessageBody,
-                                        )
-                                    },
+                                RelayMenuItem(
+                                    label = relay.removePrefix("wss://"),
+                                    selected = relay == selectedRelay,
                                     onClick = {
                                         selectedRelay = relay
                                         errorMessage = null
@@ -272,30 +296,29 @@ fun CreateGroupModal(
                                     },
                                 )
                             }
+                            RelayMenuItem(
+                                label = "Custom relay…",
+                                selected = usingCustomRelay,
+                                onClick = {
+                                    selectedRelay = CUSTOM_RELAY
+                                    errorMessage = null
+                                    relayDropdownExpanded = false
+                                },
+                            )
                         }
                     }
 
-                    // Always show a direct link to create the group on the relay's website.
-                    // Most NIP-29 relays require web-based creation; this sets the right expectation upfront.
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    ) {
-                        Text(
-                            text = "Some relays require creating groups via their website.",
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.TextMuted,
-                        )
-                        Text(
-                            text = "Open →",
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.Primary,
-                            textDecoration = TextDecoration.Underline,
-                            modifier =
-                            Modifier
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable { uriHandler.openUri(relayWebUrl) },
+                    if (usingCustomRelay) {
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        AppField(
+                            value = customRelay,
+                            onValueChange = {
+                                customRelay = it
+                                errorMessage = null
+                            },
+                            placeholder = "relay.example.com",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isCreating,
                         )
                     }
 
@@ -304,30 +327,13 @@ fun CreateGroupModal(
                     // Description
                     FieldLabel("Description")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    OutlinedTextField(
+                    AppField(
                         value = about,
                         onValueChange = { about = it },
-                        placeholder = {
-                            Text(
-                                "What is this group about?",
-                                color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody,
-                            )
-                        },
+                        placeholder = "What is this group about?",
+                        singleLine = false,
                         minLines = 3,
                         maxLines = 5,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp),
-                    )
-
-                    Spacer(modifier = Modifier.height(Spacing.lg))
-
-                    UploadImageField(
-                        label = "Group Image URL",
-                        value = picture,
-                        onValueChange = { picture = it },
-                        placeholder = "https://example.com/image.jpg",
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -343,8 +349,8 @@ fun CreateGroupModal(
 
                     AccessToggleRow(
                         icon = Icons.Default.Lock,
-                        label = "Private",
-                        description = "Only members can read group messages",
+                        label = GroupAccessCopy.PRIVATE_LABEL,
+                        description = GroupAccessCopy.PRIVATE_DESC,
                         checked = isPrivate,
                         onCheckedChange = { isPrivate = it },
                     )
@@ -353,10 +359,30 @@ fun CreateGroupModal(
 
                     AccessToggleRow(
                         icon = Icons.Default.Block,
-                        label = "Closed",
-                        description = "Join requests are ignored (invite-only)",
+                        label = GroupAccessCopy.CLOSED_LABEL,
+                        description = GroupAccessCopy.CLOSED_DESC,
                         checked = isClosed,
                         onCheckedChange = { isClosed = it },
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    AccessToggleRow(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = GroupAccessCopy.RESTRICTED_LABEL,
+                        description = GroupAccessCopy.RESTRICTED_DESC,
+                        checked = isRestricted,
+                        onCheckedChange = { isRestricted = it },
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    AccessToggleRow(
+                        icon = Icons.Default.VisibilityOff,
+                        label = GroupAccessCopy.HIDDEN_LABEL,
+                        description = GroupAccessCopy.HIDDEN_DESC,
+                        checked = isHidden,
+                        onCheckedChange = { isHidden = it },
                     )
 
                     // Error message
@@ -372,9 +398,12 @@ fun CreateGroupModal(
                                 color = NostrordColors.Error,
                                 modifier = Modifier.weight(1f),
                             )
-                            // If the error is a restriction, offer a link
+                            // When the relay rejects in-app creation (must use its website) or
+                            // requires authorization, offer a link to the relay site. "website"
+                            // covers the friendlyError text for the blocked case.
                             val showLink =
-                                errorMessage!!.contains("not allowed", ignoreCase = true) ||
+                                errorMessage!!.contains("website", ignoreCase = true) ||
+                                    errorMessage!!.contains("not allowed", ignoreCase = true) ||
                                     errorMessage!!.contains("restricted", ignoreCase = true) ||
                                     errorMessage!!.contains("authorization", ignoreCase = true) ||
                                     errorMessage!!.contains("auth-required", ignoreCase = true) ||
@@ -382,7 +411,7 @@ fun CreateGroupModal(
                             if (showLink) {
                                 Spacer(modifier = Modifier.width(Spacing.xs))
                                 Text(
-                                    text = "Visit relay →",
+                                    text = "Open relay website →",
                                     style = NostrordTypography.Caption,
                                     color = NostrordColors.Error,
                                     textDecoration = TextDecoration.Underline,
@@ -420,6 +449,17 @@ fun CreateGroupModal(
                                     errorMessage = "Group name is required."
                                     return@Button
                                 }
+                                // Validate the (normalized) relay before publishing: an unchecked
+                                // custom value like "asdasd" would be saved and then fail to connect.
+                                if (!isValidRelayUrl(effectiveRelay)) {
+                                    errorMessage =
+                                        if (usingCustomRelay) {
+                                            "Enter a valid relay URL (e.g. relay.example.com)."
+                                        } else {
+                                            "Pick a relay."
+                                        }
+                                    return@Button
+                                }
                                 errorMessage = null
                                 isCreating = true
                                 creatingJob =
@@ -431,9 +471,11 @@ fun CreateGroupModal(
                                                         parentGroupId = parentGroupId,
                                                         name = name.trim(),
                                                         about = about.trim().ifBlank { null },
-                                                        relayUrl = selectedRelay,
+                                                        relayUrl = effectiveRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
+                                                        isRestricted = isRestricted,
+                                                        isHidden = isHidden,
                                                         picture = picture.trim().ifBlank { null },
                                                         customGroupId = customGroupId.trim().ifBlank { null },
                                                     )
@@ -441,9 +483,11 @@ fun CreateGroupModal(
                                                     AppModule.nostrRepository.createGroup(
                                                         name = name.trim(),
                                                         about = about.trim().ifBlank { null },
-                                                        relayUrl = selectedRelay,
+                                                        relayUrl = effectiveRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
+                                                        isRestricted = isRestricted,
+                                                        isHidden = isHidden,
                                                         picture = picture.trim().ifBlank { null },
                                                         customGroupId = customGroupId.trim().ifBlank { null },
                                                     )
@@ -451,7 +495,7 @@ fun CreateGroupModal(
                                             isCreating = false
                                             creatingJob = null
                                             when (result) {
-                                                is Result.Success -> onGroupCreated(result.data, name.trim())
+                                                is Result.Success -> onGroupCreated(effectiveRelay, result.data, name.trim())
                                                 is Result.Error -> {
                                                     val raw = result.error.cause?.message ?: result.error.message
                                                     errorMessage = friendlyError(raw)
@@ -464,7 +508,7 @@ fun CreateGroupModal(
                                         }
                                     }
                             },
-                            enabled = !isCreating && name.isNotBlank(),
+                            enabled = !isCreating && name.isNotBlank() && effectiveRelay.isNotBlank(),
                             colors =
                             ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.Primary,
@@ -576,18 +620,39 @@ private fun AccessToggleRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * One relay option in the [ExposedDropdownMenu] (web `.modal-select` option parity): a compact,
+ * custom row (Material's [DropdownMenuItem] floors at 48dp) with a full-width brand highlight on the
+ * selected row, a hover tint on the rest, and the default cursor (native `<option>`s are not hand).
+ */
 @Composable
-private fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = NostrordColors.TextPrimary,
-    unfocusedTextColor = NostrordColors.TextPrimary,
-    focusedBorderColor = NostrordColors.Primary,
-    unfocusedBorderColor = NostrordColors.Divider,
-    cursorColor = NostrordColors.Primary,
-    focusedContainerColor = NostrordColors.InputBackground,
-    unfocusedContainerColor = NostrordColors.InputBackground,
-    focusedPlaceholderColor = NostrordColors.TextMuted,
-    unfocusedPlaceholderColor = NostrordColors.TextMuted,
-    focusedTrailingIconColor = NostrordColors.TextSecondary,
-    unfocusedTrailingIconColor = NostrordColors.TextMuted,
-)
+private fun RelayMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val background =
+        when {
+            selected -> NostrordColors.Primary
+            hovered -> NostrordColors.HoverBackground
+            else -> Color.Transparent
+        }
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .background(background)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            color = if (selected) Color.White else NostrordColors.TextPrimary,
+            style = NostrordTypography.MessageBody,
+        )
+    }
+}

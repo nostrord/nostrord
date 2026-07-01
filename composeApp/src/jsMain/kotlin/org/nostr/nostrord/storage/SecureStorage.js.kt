@@ -7,6 +7,8 @@ import kotlin.coroutines.suspendCoroutine
 
 // In-memory caches for IndexedDB-backed data (synchronous read access after preloadMetadata).
 private var relayMetaIdbCache: String? = null
+private var userMetaIdbCache: String? = null
+private var userGroupListsIdbCache: String? = null
 private val joinedGroupMetaIdbCache = mutableMapOf<String, String>()
 
 // Single persistent DB connection — set once by preloadMetadata(), reused for all writes.
@@ -46,6 +48,7 @@ actual object SecureStorage {
     private const val NIP07_USER_PUBKEY_PREF = "nostr_nip07_user_pubkey"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val LAST_ROUTE_PREFIX = "last_route_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
@@ -53,6 +56,8 @@ actual object SecureStorage {
 
     // IDB key constants
     private const val IDB_RELAY_META_KEY = "relay_meta:relay_metadata"
+    private const val IDB_USER_META_KEY = "user_meta:user_metadata"
+    private const val IDB_USER_GROUP_LISTS_KEY = "user_group_lists:user_group_lists"
     private const val IDB_JOINED_GROUP_META_PREFIX = "joined_group_meta:"
 
     actual fun savePrivateKey(privateKeyHex: String) {
@@ -214,6 +219,21 @@ actual object SecureStorage {
         localStorage.removeItem(key)
     }
 
+    actual fun saveLastRoute(pubkey: String, routeHash: String) {
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        localStorage.setItem(key, routeHash)
+    }
+
+    actual fun getLastRoute(pubkey: String): String? {
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        return localStorage.getItem(key)
+    }
+
+    actual fun clearLastRoute(pubkey: String) {
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        localStorage.removeItem(key)
+    }
+
     actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         localStorage.setItem(key, messagesJson)
@@ -297,6 +317,22 @@ actual object SecureStorage {
     }
 
     actual fun getRelayMetadata(): String? = relayMetaIdbCache
+
+    // kind:0 user metadata — backed by IndexedDB, read via in-memory cache.
+    actual fun saveUserMetadataCache(json: String) {
+        userMetaIdbCache = json
+        idbWrite(IDB_USER_META_KEY, json)
+    }
+
+    actual fun getUserMetadataCache(): String? = userMetaIdbCache
+
+    // Other users' kind:10009 lists — backed by IndexedDB, read via in-memory cache.
+    actual fun saveUserGroupListsCache(json: String) {
+        userGroupListsIdbCache = json
+        idbWrite(IDB_USER_GROUP_LISTS_KEY, json)
+    }
+
+    actual fun getUserGroupListsCache(): String? = userGroupListsIdbCache
 
     actual fun saveLiveCursors(relayUrl: String, json: String) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
@@ -407,6 +443,8 @@ actual object SecureStorage {
             }
 
             loaded[IDB_RELAY_META_KEY]?.let { relayMetaIdbCache = it }
+            loaded[IDB_USER_META_KEY]?.let { userMetaIdbCache = it }
+            loaded[IDB_USER_GROUP_LISTS_KEY]?.let { userGroupListsIdbCache = it }
             loaded.forEach { (key, value) ->
                 if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
                     joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = value

@@ -18,11 +18,14 @@ actual object SecureStorage {
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val LAST_ROUTE_PREFIX = "last_route_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
     private const val JOINED_GROUP_META_PREFIX = "joined_group_meta_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val USER_METADATA_KEY = "user_metadata"
+    private const val USER_GROUP_LISTS_KEY = "user_group_lists"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     private lateinit var prefs: SharedPreferences
@@ -281,6 +284,27 @@ actual object SecureStorage {
         prefs.edit().remove(key).apply()
     }
 
+    actual fun saveLastRoute(
+        pubkey: String,
+        routeHash: String,
+    ) {
+        ensureInitialized()
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        prefs.edit().putString(key, routeHash).apply()
+    }
+
+    actual fun getLastRoute(pubkey: String): String? {
+        ensureInitialized()
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearLastRoute(pubkey: String) {
+        ensureInitialized()
+        val key = LAST_ROUTE_PREFIX + pubkey.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
     // Message persistence
     actual fun saveMessagesForGroup(
         pubkey: String,
@@ -408,6 +432,26 @@ actual object SecureStorage {
     actual fun getRelayMetadata(): String? {
         ensureInitialized()
         return prefs.getString(RELAY_METADATA_KEY, null)
+    }
+
+    actual fun saveUserMetadataCache(json: String) {
+        ensureInitialized()
+        prefs.edit().putString(USER_METADATA_KEY, json).apply()
+    }
+
+    actual fun getUserMetadataCache(): String? {
+        ensureInitialized()
+        return prefs.getString(USER_METADATA_KEY, null)
+    }
+
+    actual fun saveUserGroupListsCache(json: String) {
+        ensureInitialized()
+        prefs.edit().putString(USER_GROUP_LISTS_KEY, json).apply()
+    }
+
+    actual fun getUserGroupListsCache(): String? {
+        ensureInitialized()
+        return prefs.getString(USER_GROUP_LISTS_KEY, null)
     }
 
     actual fun saveLiveCursors(

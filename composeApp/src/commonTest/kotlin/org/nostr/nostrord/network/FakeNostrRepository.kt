@@ -3,8 +3,11 @@ package org.nostr.nostrord.network
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -43,6 +46,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val _userRelayList = MutableStateFlow<List<Nip65Relay>>(emptyList())
     val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
+    val _unreachableRelays = MutableStateFlow<Set<String>>(emptySet())
     val _loadingMembers = MutableStateFlow<Set<String>>(emptySet())
 
     // Configurable behaviour
@@ -73,6 +77,8 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override val isInitialized: StateFlow<Boolean> = _isInitialized
     override val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
+    val _activePubkey = MutableStateFlow<String?>(null)
+    override val activePubkey: StateFlow<String?> = _activePubkey
     override val isBunkerVerifying: StateFlow<Boolean> = _isBunkerVerifying
     override val isBunkerConnected: StateFlow<Boolean> = _isBunkerConnected
     override val bunkerState: StateFlow<BunkerState> = MutableStateFlow(BunkerState.Inactive)
@@ -80,10 +86,17 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val currentRelayUrl: StateFlow<String> = _currentRelayUrl
     override val connectionState: StateFlow<ConnectionManager.ConnectionState> = _connectionState
     override val groups: StateFlow<List<GroupMetadata>> = _groups
-    override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = MutableStateFlow(emptyMap())
+    val _groupsByRelay = MutableStateFlow<Map<String, List<GroupMetadata>>>(emptyMap())
+    override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = _groupsByRelay
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages
     val _messageStatus = MutableStateFlow<Map<String, GroupManager.MessageStatus>>(emptyMap())
     override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = _messageStatus
+    val _threadRoots = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    override val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadRoots
+    val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    override val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies
+    val _threadsLoaded = MutableStateFlow<Set<String>>(emptySet())
+    override val threadsLoaded: StateFlow<Set<String>> = _threadsLoaded
     val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
@@ -94,19 +107,28 @@ class FakeNostrRepository : NostrRepositoryApi {
         MutableStateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>(emptyMap())
     override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> =
         _groupStates
+    override val groupsAwaitingAuthRead: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override suspend fun resetGroupLoadingState(groupId: String) {}
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = _reactions
     override val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers
+    override val pendingApprovalSince: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
     override val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata
     override val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents
     override val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts
+    override val dmConversations: StateFlow<List<DmConversation>> = MutableStateFlow(emptyList())
+    override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> = MutableStateFlow(emptyMap())
+    override val dmUnreadByPeer: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    override val totalDmUnread: StateFlow<Int> = MutableStateFlow(0)
+    val myDmRelaysFlow = MutableStateFlow<List<String>>(emptyList())
+    override val myDmRelays: StateFlow<List<String>> = myDmRelaysFlow
     override val latestMessageTimestamps: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
     override val totalUnread: StateFlow<Int> = MutableStateFlow(0)
     override val unreadByRelay: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
     override val userRelayList: StateFlow<List<Nip65Relay>> = _userRelayList
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata
+    override val unreachableRelays: StateFlow<Set<String>> = _unreachableRelays
     override val loadingMembers: StateFlow<Set<String>> = _loadingMembers
 
     override fun forceInitialized() {
@@ -138,9 +160,17 @@ class FakeNostrRepository : NostrRepositoryApi {
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean,
+        ncryptsec: String?,
     ): Result<Unit> {
         calls += "loginSuspend"
         return loginSuspendAction(privKey, pubKey)
+    }
+
+    val _pendingUnlockAccount = MutableStateFlow<Account?>(null)
+    override val pendingUnlockAccount: StateFlow<Account?> = _pendingUnlockAccount
+
+    override fun clearPendingUnlock() {
+        _pendingUnlockAccount.value = null
     }
 
     override suspend fun loginWithNip07(pubkey: String): Result<Unit> {
@@ -198,6 +228,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> = Result.Success(customGroupId ?: "fake-group-id")
@@ -209,6 +241,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> = Result.Success(customGroupId ?: "fake-subgroup-id")
@@ -217,6 +251,48 @@ class FakeNostrRepository : NostrRepositoryApi {
         groupId: String,
         inviteCode: String?,
     ): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun requestGroupThreads(groupId: String): Boolean {
+        calls += "requestGroupThreads:$groupId"
+        return true
+    }
+
+    override fun closeThreadSubscriptions(groupId: String) {
+        calls += "closeThreadSubscriptions:$groupId"
+    }
+
+    override suspend fun fetchThread(groupId: String, rootId: String) {
+        calls += "fetchThread:$groupId:$rootId"
+    }
+
+    override suspend fun createThread(groupId: String, title: String, content: String): Result<Unit> {
+        calls += "createThread:$groupId:$title"
+        return Result.Success(Unit)
+    }
+
+    override suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit> {
+        calls += "sendThreadReply:$groupId:${root.id}:${parent.id}"
+        return Result.Success(Unit)
+    }
+
+    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean {
+        if (groupId in (_joinedGroupsByRelay.value[relayUrl] ?: emptySet())) return false
+        _joinedGroupsByRelay.update { current ->
+            current + (relayUrl to ((current[relayUrl] ?: emptySet()) + groupId))
+        }
+        return true
+    }
+
+    override fun revertOptimisticJoin(relayUrl: String, groupId: String) {
+        _joinedGroupsByRelay.update { current ->
+            current + (relayUrl to ((current[relayUrl] ?: emptySet()) - groupId))
+        }
+    }
 
     override suspend fun leaveGroup(
         groupId: String,
@@ -245,6 +321,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
         childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?,
@@ -297,6 +375,17 @@ class FakeNostrRepository : NostrRepositoryApi {
         extraTags: List<List<String>>,
     ): Result<Unit> = sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
 
+    var sendDmAction: (String, String) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
+
+    override suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> = sendDmAction(recipientPubkey, content)
+
+    override suspend fun markDmRead(peerPubkey: String) {}
+
+    override suspend fun publishDmRelayList(relays: List<String>): Result<Unit> {
+        myDmRelaysFlow.value = relays
+        return Result.Success(Unit)
+    }
+
     var retrySendAction: (String) -> Unit = {}
 
     override fun retrySend(eventId: String) = retrySendAction(eventId)
@@ -320,7 +409,42 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
-    override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
+    override suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean) {}
+
+    val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
+    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists
+
+    override suspend fun requestUserGroupList(pubkey: String) {}
+
+    val _following = MutableStateFlow<Set<String>>(emptySet())
+    override val following: StateFlow<Set<String>> = _following
+
+    val _contactListLoaded = MutableStateFlow(true)
+    override val contactListLoaded: StateFlow<Boolean> = _contactListLoaded
+
+    /** Times [requestContactList] was called, so a test can assert the screen re-fetches
+     *  the contact list on cold start and again on every account switch. */
+    var requestContactListCount = 0
+        private set
+
+    override suspend fun requestContactList() {
+        requestContactListCount++
+    }
+
+    override suspend fun followUser(pubkey: String): Result<Unit> {
+        _following.value = _following.value + pubkey
+        return Result.Success(Unit)
+    }
+
+    override suspend fun unfollowUser(pubkey: String): Result<Unit> {
+        _following.value = _following.value - pubkey
+        return Result.Success(Unit)
+    }
+
+    override suspend fun followUsers(pubkeys: Set<String>): Result<Unit> {
+        _following.value = _following.value + pubkeys.filter { it.isNotBlank() }
+        return Result.Success(Unit)
+    }
 
     override suspend fun updateProfileMetadata(
         displayName: String?,
@@ -395,6 +519,7 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = MutableStateFlow(emptyMap())
     override val restrictedGroups: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
+    override val leftGroups: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override suspend fun sendReaction(
         groupId: String,
@@ -440,7 +565,14 @@ class FakeNostrRepository : NostrRepositoryApi {
         relayUrl: String,
     ) {}
 
+    var fetchGroupPreviewsCalls = mutableListOf<Map<String, Set<String>>>()
+
+    override suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>) {
+        fetchGroupPreviewsCalls.add(relayToGroups)
+    }
+
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val completeGroupLoadRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override fun setGroupFetchLazy(
         relayUrl: String,

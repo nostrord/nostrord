@@ -3,16 +3,22 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -20,7 +26,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -35,6 +40,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -72,7 +79,6 @@ import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
-import org.nostr.nostrord.ui.scroll.ScrollEntryTarget
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.buildShareMessageLink
@@ -119,9 +125,11 @@ fun MessagesList(
     isInitialLoading: Boolean = false,
     isPendingApproval: Boolean = false,
     isGroupRestricted: Boolean = false,
-    // True while the composer is in reply mode; entering it re-pins the feed to the
-    // bottom so the reply bar doesn't hide the last message.
+    // True while the composer is in reply mode; entering it nudges the replied-to
+    // message into view if the grown reply bar would cover it.
     isReplying: Boolean = false,
+    // Id of the message being replied to, for the reply-scroll nudge above.
+    replyTargetId: String? = null,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -130,7 +138,7 @@ fun MessagesList(
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onReachedBottom: () -> Unit = {},
     // Fired when the user scrolls up away from the bottom. Used by the
     // "New messages" divider dismissal (issue #83).
@@ -140,6 +148,11 @@ fun MessagesList(
     // actually reached, instead of the binary "all or nothing" of
     // onReachedBottom).
     onSeenUpTo: (Long) -> Unit = {},
+    // Fired once the "New messages" divider has entered the viewport as a result
+    // of a genuine user scroll (gated on sawNotBottom, so the entry settle at the
+    // bottom never triggers it). The caller consumes the divider: the user has now
+    // seen where new messages begin (issue #83).
+    onDividerSeen: () -> Unit = {},
     // Count of unread messages from other users — drives the FAB badge
     // (Telegram pattern: when there are unread messages and the user has
     // scrolled away, the jump-to-bottom button shows a count badge).
@@ -169,6 +182,7 @@ fun MessagesList(
     val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
     val currentOnLeftBottom by rememberUpdatedState(onLeftBottom)
     val currentOnSeenUpTo by rememberUpdatedState(onSeenUpTo)
+    val currentOnDividerSeen by rememberUpdatedState(onDividerSeen)
     val currentOnFetchTargetById by rememberUpdatedState(onFetchTargetById)
     val currentChatItems by rememberUpdatedState(chatItems)
 
@@ -189,6 +203,11 @@ fun MessagesList(
     }
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
+    // Relay that HOSTS this group (its kind:39000 home), which may differ from the relay we're
+    // viewing it through. The copied nevent embeds this so readers fetch from the event's real home.
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
+    val neventRelay =
+        groupsByRelay.entries.firstOrNull { entry -> entry.value.any { it.id == groupId } }?.key ?: currentRelayUrl
     val copyToClipboard = rememberClipboardWriter()
     val shareText = rememberTextSharer()
 
@@ -212,20 +231,21 @@ fun MessagesList(
     val scrollStateHolder = rememberScrollStateHolder(groupId)
     val isSeekingTarget = targetMessageId != null
 
-    // One-shot entry alignment to the "New messages" divider (Telegram pattern).
-    // Fires once when a divider first appears after entering the group, then
-    // latches openedAtDivider so streaming chunks / pagination don't re-anchor.
-    // Setting atBottom = false here is what suppresses the bottom-pin from yanking
-    // the view down on later chunks — the single authority the whole scroll system
-    // now reads. No divider (everything already read) leaves the latch at its
-    // default atBottom = true, so the group simply opens at the bottom.
+    // Two-stage jump pill: the first tap focuses the "New messages" divider, the next
+    // drops to the bottom. Landing on the divider at entry counts as the first stage,
+    // so the first pill tap from there goes straight to the latest.
+    var dividerSeen by remember(groupId) { mutableStateOf(false) }
+
+    // The group always opens at the bottom (newest). The "New messages" line still
+    // renders in the list, and the jump pill still offers a tap to it (see dividerSeen
+    // below), but we no longer auto-scroll to the divider on entry: it landed far up in
+    // unread history and dragged the view away from the latest. Resolving the entry as
+    // "bottom" (hasDivider = false) keeps atBottom = true and still latches entryResolved,
+    // so a divider that appears LATER (a message arriving while reading history) does not
+    // re-anchor the view.
     LaunchedEffect(groupId, chatItems) {
-        if (scrollStateHolder.openedAtDivider || chatItems.isEmpty()) return@LaunchedEffect
-        val idx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
-        val target = scrollStateHolder.applyEntryChange(hasDivider = idx >= 0, isSeeking = isSeekingTarget)
-        if (target == ScrollEntryTarget.Divider && idx >= 0) {
-            listState.scrollToItem(idx)
-        }
+        if (scrollStateHolder.entryResolved || chatItems.isEmpty()) return@LaunchedEffect
+        scrollStateHolder.applyEntryChange(hasDivider = false, isSeeking = isSeekingTarget)
     }
 
     fun getItemKey(item: ChatItem): String = when (item) {
@@ -359,13 +379,26 @@ fun MessagesList(
         }.collect { atBottom -> if (atBottom != null) pinnedAtBottom.value = atBottom }
     }
 
-    // Entering reply mode grows the composer with the reply bar; if the feed was pinned at
-    // the bottom, re-scroll so the replied-to last message stays visible instead of sliding
-    // behind the bar (web parity). Uses the tracked flag, not a one-shot layoutInfo read.
-    LaunchedEffect(isReplying) {
-        if (!isReplying || !pinnedAtBottom.value) return@LaunchedEffect
-        val total = listState.layoutInfo.totalItemsCount
-        if (total > 0) listState.animateScrollToItem(total - 1)
+    // Entering reply mode grows the composer with the reply bar, which can cover the
+    // message being replied to. Nudge that row just into view above the composer
+    // (Compose equivalent of the web's scrollIntoView block:'nearest'): only scroll
+    // if the row is actually below the shrunken viewport, so replying to an already
+    // visible message doesn't yank the feed.
+    LaunchedEffect(replyTargetId) {
+        val id = replyTargetId ?: return@LaunchedEffect
+        // Wait for the reply bar to grow and the list to relayout before measuring.
+        kotlinx.coroutines.delay(50)
+        val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        if (idx < 0) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val item = info.visibleItemsInfo.firstOrNull { it.index == idx }
+        if (item == null) {
+            // Not in view at all (covered below, or scrolled off): bring it to the bottom.
+            listState.animateScrollToItem(idx)
+        } else {
+            val overflow = (item.offset + item.size) - info.viewportEndOffset
+            if (overflow > 0) listState.animateScrollBy(overflow.toFloat())
+        }
     }
 
     // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the
@@ -440,7 +473,10 @@ fun MessagesList(
             Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0 && !currentSearchActive)
         }.distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
-                firstVisible <= 5 && canLoad
+                // Only paginate once the user has actually scrolled up off the bottom. On open the
+                // view sits at the bottom (atBottom = true), so entering a group never triggers a
+                // history load on its own; pagination resumes when the user scrolls toward the top.
+                firstVisible <= 5 && canLoad && !scrollStateHolder.atBottom
             }.collect {
                 currentOnLoadMore()
             }
@@ -486,6 +522,34 @@ fun MessagesList(
             .collect { currentOnSeenUpTo(it) }
     }
 
+    // Latches once the divider row has been on screen this entry — sitting at the bottom
+    // on open (a small unread batch) or scrolled into view (a large one). The dismissal
+    // below reads this latch instead of live visibility: with a single unread message the
+    // divider sits one row above the newest, so it slides off the bottom edge in the same
+    // frame sawNotBottom flips, and a live check would miss the overlap and strand the
+    // line until the next reach-bottom or send.
+    var dividerEverVisible by remember(groupId) { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val dividerIndex = currentChatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
+            dividerIndex >= 0 && listState.layoutInfo.visibleItemsInfo.any { it.index == dividerIndex }
+        }.distinctUntilChanged().filter { it }.collect { dividerEverVisible = true }
+    }
+
+    // Dismiss the "New messages" divider once the user has both seen it (dividerEverVisible)
+    // and engaged a genuine scroll-away this entry (sawNotBottom). Gating on sawNotBottom
+    // stops the entry settle at the bottom from consuming it unseen (issue #83); gating on
+    // the latch rather than live visibility clears it even after it has left the viewport.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            currentChatItems.any { it is ChatItem.NewMessagesDivider } &&
+                scrollStateHolder.sawNotBottom &&
+                dividerEverVisible
+        }.distinctUntilChanged()
+            .filter { it }
+            .collect { currentOnDividerSeen() }
+    }
+
     // Compensate the LazyColumn's scroll as the IME animates so visible content rides
     // with the input bar. The IME absorbs the navigation bar inset on Android, so the
     // viewport actually shrinks by (ime - navBars), not by ime alone. Skip while any
@@ -519,7 +583,11 @@ fun MessagesList(
         LocalImageViewerUrl provides imageViewerUrl,
     ) {
         when {
-            isPendingApproval || isGroupRestricted -> {
+            // The lock placeholder only when there are no messages to show: a PUBLIC group
+            // that needs approval still serves its chat, so once messages exist we render
+            // them even while the join request is pending (parity with web). Only private /
+            // truly-restricted groups stay empty and fall here.
+            (isPendingApproval || isGroupRestricted) && chatItems.isEmpty() -> {
                 Column(
                     modifier =
                     Modifier
@@ -663,6 +731,7 @@ fun MessagesList(
                                             currentUserPubkey = currentUserPubkey,
                                             currentGroupId = groupId,
                                             currentRelayUrl = currentRelayUrl,
+                                            neventRelayHint = neventRelay,
                                             swipeToReplyEnabled = swipeToReplyEnabled,
                                             onUsernameClick = currentOnUsernameClick,
                                             onReplyClick = { currentOnReplyClick(item.message) },
@@ -808,41 +877,65 @@ fun MessagesList(
 
                         AnimatedVisibility(
                             visible = scrollStateHolder.isScrolledAway,
-                            enter = fadeIn(),
-                            exit = fadeOut(),
+                            // Pop-in: rise + slight scale anchored at the bottom-right,
+                            // matching the web `.chat-jump-bottom` pill animation.
+                            enter = fadeIn() + scaleIn(initialScale = 0.96f, transformOrigin = TransformOrigin(1f, 1f)),
+                            exit = fadeOut() + scaleOut(targetScale = 0.96f, transformOrigin = TransformOrigin(1f, 1f)),
                             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
                         ) {
-                            // FAB + badge overlay (Telegram pattern). The badge sits
-                            // at the top-right corner of the FAB and only renders when
-                            // there's at least one unread message from someone else.
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                SmallFloatingActionButton(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            val lastIndex = chatItems.lastIndex
-                                            val distance = lastIndex - listState.firstVisibleItemIndex
-                                            if (distance <= 30) {
-                                                listState.animateScrollToItem(lastIndex)
-                                            } else {
-                                                listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                            // Jump-to-bottom pill (prototype design): a floating-bg rounded
+                            // pill with an optional unread count and a down chevron. Two-stage:
+                            // the first tap focuses the "New messages" divider so they're read
+                            // top-down, the next drops to the very latest.
+                            val interaction = remember { MutableInteractionSource() }
+                            val hovered by interaction.collectIsHoveredAsState()
+                            val contentColor = if (hovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary
+                            Row(
+                                modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(NostrordColors.BackgroundFloating)
+                                    .hoverable(interaction)
+                                    .clickable {
+                                        val dividerIdx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
+                                        if (dividerIdx >= 0 && !dividerSeen) {
+                                            dividerSeen = true
+                                            coroutineScope.launch { listState.animateScrollToItem(dividerIdx) }
+                                        } else {
+                                            dividerSeen = false
+                                            coroutineScope.launch {
+                                                val lastIndex = chatItems.lastIndex
+                                                val distance = lastIndex - listState.firstVisibleItemIndex
+                                                if (distance <= 30) {
+                                                    listState.animateScrollToItem(lastIndex)
+                                                } else {
+                                                    listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                                                }
                                             }
                                         }
-                                    },
-                                    containerColor = NostrordColors.Primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Jump to latest message",
-                                    )
-                                }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 if (unreadFromOthersCount > 0) {
-                                    UnreadBadge(
-                                        count = unreadFromOthersCount,
-                                        size = 18.dp,
-                                        modifier = Modifier.offset(x = 6.dp, y = (-4).dp),
-                                    )
+                                    UnreadBadge(count = unreadFromOthersCount, size = 18.dp)
                                 }
+                                Text(
+                                    text = when {
+                                        unreadFromOthersCount > 99 -> "99+ new"
+                                        unreadFromOthersCount > 0 -> "$unreadFromOthersCount new"
+                                        else -> "Jump to latest"
+                                    },
+                                    color = contentColor,
+                                    fontSize = 13.sp,
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Jump to latest message",
+                                    tint = contentColor,
+                                    modifier = Modifier.size(14.dp),
+                                )
                             }
                         }
 

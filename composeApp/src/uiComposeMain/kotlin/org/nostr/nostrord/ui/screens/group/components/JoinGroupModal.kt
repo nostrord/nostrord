@@ -4,9 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import org.nostr.nostrord.ui.components.forms.AppTextField
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.parseGroupJoinInput
 
@@ -25,13 +25,22 @@ fun JoinGroupModal(
     var linkInput by remember { mutableStateOf("") }
     var parseError by remember { mutableStateOf<String?>(null) }
 
+    val submit = {
+        val parsed = parseGroupJoinInput(linkInput)
+        if (parsed == null) {
+            parseError = "Invalid input. Use a wss://relay'groupId address or a nostrord invite link."
+        } else {
+            onJoin(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NostrordColors.Surface,
         title = {
             Text(
                 "Join Group",
-                color = Color.White,
+                color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleMedium,
             )
         },
@@ -43,34 +52,16 @@ fun JoinGroupModal(
                     style = MaterialTheme.typography.bodySmall,
                 )
 
-                // Standalone label above the field, mirroring the web `field-label` +
-                // placeholder structure (not Material's in-field floating label).
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "Group address, naddr, or invite link",
-                        color = NostrordColors.TextSecondary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    OutlinedTextField(
-                        value = linkInput,
-                        onValueChange = {
-                            linkInput = it
-                            parseError = null
-                        },
-                        placeholder = {
-                            Text(
-                                "wss://relay.com'groupId",
-                                color = NostrordColors.TextMuted,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = outlinedFieldColors(),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        shape = RoundedCornerShape(8.dp),
-                    )
-                }
+                AppTextField(
+                    value = linkInput,
+                    onValueChange = {
+                        linkInput = it
+                        parseError = null
+                    },
+                    placeholder = "wss://relay.com'groupId",
+                    label = "Group address, naddr, or invite link",
+                    onDone = { if (linkInput.isNotBlank()) submit() },
+                )
 
                 if (parseError != null) {
                     Text(
@@ -83,14 +74,7 @@ fun JoinGroupModal(
         },
         confirmButton = {
             Button(
-                onClick = {
-                    val parsed = parseGroupJoinInput(linkInput)
-                    if (parsed == null) {
-                        parseError = "Invalid input. Use a wss://relay'groupId address or a nostrord invite link."
-                        return@Button
-                    }
-                    onJoin(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
-                },
+                onClick = submit,
                 enabled = linkInput.isNotBlank(),
                 colors =
                 ButtonDefaults.buttonColors(
@@ -111,14 +95,3 @@ fun JoinGroupModal(
         },
     )
 }
-
-@Composable
-private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedBorderColor = NostrordColors.Primary,
-    unfocusedBorderColor = NostrordColors.SurfaceVariant,
-    cursorColor = NostrordColors.Primary,
-    focusedLabelColor = NostrordColors.Primary,
-    unfocusedLabelColor = NostrordColors.TextSecondary,
-)

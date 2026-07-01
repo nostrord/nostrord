@@ -71,7 +71,6 @@ sealed class GroupLoadingState {
         PARTIAL_TIMEOUT,
         SEND_FAILED,
         DISCONNECTED,
-        RELAY_ERROR,
     }
 
     // Helper properties for UI consumption
@@ -163,14 +162,22 @@ class GroupLoadingController(
     private val _state = MutableStateFlow<GroupLoadingState>(GroupLoadingState.Idle)
     val state: StateFlow<GroupLoadingState> = _state.asStateFlow()
 
+    /** The group this controller manages. */
+    val id: String get() = groupId
+
     private var currentTracker: SubscriptionTracker? = null
     private var timeoutJob: Job? = null
 
     /**
      * Attempt to start initial message loading.
      * Returns subscription ID if started, null if already loading.
+     *
+     * Pass [armTimeout] = false when the caller defers the REQ behind a NIP-42 AUTH wait
+     * (private groups on a remote signer): the state enters InitialLoading immediately so
+     * the UI shows skeletons, but the load timeout is armed later via [armInitialTimeout]
+     * once the REQ is actually on the wire, so a multi-second AUTH wait does not expire it.
      */
-    suspend fun startInitialLoad(): String? = mutex.withLock {
+    suspend fun startInitialLoad(armTimeout: Boolean = true): String? = mutex.withLock {
         val currentState = _state.value
 
         // Only start from Idle or Error states
@@ -187,12 +194,42 @@ class GroupLoadingController(
                 currentTracker = tracker
 
                 _state.value = GroupLoadingState.InitialLoading(subId)
-                startTimeout(subId, isInitial = true)
+                if (armTimeout) startTimeout(subId, isInitial = true)
 
                 subId
             }
             else -> null // Already loading or has messages
         }
+    }
+
+    /**
+     * Arm the initial-load timeout once the REQ has actually been sent. Pairs with
+     * [startInitialLoad] (armTimeout = false): starting the timeout at start-of-load time
+     * would let it expire during a NIP-42 AUTH wait and fail a load that is merely waiting
+     * to authenticate. No-op if [subscriptionId] is no longer the in-flight initial load.
+     */
+    suspend fun armInitialTimeout(subscriptionId: String) = mutex.withLock {
+        val tracker = currentTracker ?: return@withLock
+        if (tracker.subscriptionId != subscriptionId) return@withLock
+        if (_state.value is GroupLoadingState.InitialLoading) {
+            startTimeout(subscriptionId, isInitial = true)
+        }
+    }
+
+    /**
+     * The relay returned/CLOSED an in-flight INITIAL load while it still needs NIP-42 AUTH
+     * (e.g. opening a private group from the homepage, where the first read races the AUTH
+     * challenge the relay issues in response to it). Returns true to signal the caller it
+     * must NOT settle this load: resubscribeAfterAuth replays the read once AUTH completes,
+     * and keeping the state in InitialLoading lets the UI hold skeletons instead of flashing
+     * a false "No messages yet". The load timeout stays armed, so a signer that never AUTHs
+     * still terminates to Error. No-op (false) for pagination or once the load has settled.
+     */
+    suspend fun holdInitialLoadForReauth(subscriptionId: String): Boolean = mutex.withLock {
+        val tracker = currentTracker ?: return@withLock false
+        if (tracker.subscriptionId != subscriptionId) return@withLock false
+        if (!tracker.isInitialLoad) return@withLock false
+        _state.value is GroupLoadingState.InitialLoading
     }
 
     /**
@@ -244,7 +281,6 @@ class GroupLoadingController(
             val tracker = currentTracker ?: return@withLock false
             if (tracker.subscriptionId != subscriptionId) return@withLock false
 
-            // Cancel timeout
             timeoutJob?.cancel()
             timeoutJob = null
 
@@ -321,31 +357,43 @@ class GroupLoadingController(
 
     /**
      * Handle connection lost.
-     * Resets ALL states to Idle because the WebSocket subscription is gone regardless
-     * of whether the group was loading or had already loaded messages.
-     * This allows startInitialLoad() to re-subscribe on reconnect.
+     *
+     * Preserves the pagination frontier exactly like [handleReconnect]: the cursor is a
+     * timestamp bookmark, not tied to the dropped socket, so a group that has loaded history
+     * stays HasMore and the next scroll resumes from the same frontier. Resetting a loaded
+     * group to Idle here stranded it with hasMore=false when the reconnect's re-load never
+     * fired (flaky relay), so pagination died until an app restart. Only never-loaded groups
+     * (no cursor) go Idle so reconnect re-runs the initial load; the mux re-establishes the
+     * live feed and backfills the gap.
      */
     suspend fun handleDisconnect() {
         mutex.withLock {
             timeoutJob?.cancel()
             timeoutJob = null
-            _state.value = GroupLoadingState.Idle
             currentTracker = null
+            val cursor = getCurrentCursor()
+            _state.value = if (cursor != null) {
+                GroupLoadingState.HasMore(cursor)
+            } else {
+                GroupLoadingState.Idle
+            }
         }
     }
 
     /**
      * Handle a reconnect/re-subscribe while PRESERVING pagination progress.
      *
-     * Unlike [handleDisconnect] (which resets to Idle so a fresh initial load runs),
-     * this keeps the advanced cursor when the group is mid-pagination. The cursor is a
-     * timestamp bookmark, not tied to the dropped socket, so there is no reason to
-     * discard it on reconnect. Resetting to Idle here caused the initial load to re-fire
-     * with `until = oldest message - 1`; when the oldest message is a bulk-delivered
-     * moderation event (an old join/leave far older than the paginated chat frontier),
-     * that jumps straight to the floor and marks the group Exhausted, silently skipping
-     * all the un-paginated middle history. The live feed is re-established separately by
-     * the mux refresh, so preserving the cursor loses nothing.
+     * Keeps the cursor whenever the group has loaded history (any cursor, not only after a
+     * manual page). The cursor is a timestamp bookmark, not tied to the dropped socket, so
+     * there is no reason to discard it on reconnect. Resetting to Idle here caused the initial
+     * load to re-fire with `until = oldest message - 1`; when the oldest message is a
+     * bulk-delivered moderation event (an old join/leave far older than the paginated chat
+     * frontier), that jumps straight to the floor and marks the group Exhausted, silently
+     * skipping all the un-paginated middle history. It also stranded a freshly-loaded group
+     * (HasMore, pageNumber 0) on Idle/hasMore=false when the re-load never fired. Only a group
+     * still on its initial load (no cursor yet) falls back to Idle so a fresh load runs. The
+     * live feed is re-established separately by the mux refresh, so preserving the cursor
+     * loses nothing.
      */
     suspend fun handleReconnect() {
         mutex.withLock {
@@ -353,14 +401,9 @@ class GroupLoadingController(
             timeoutJob = null
             currentTracker = null
             val cursor = getCurrentCursor()
-            _state.value = if (cursor != null && cursor.pageNumber > 0) {
-                // Revert an in-flight Paginating to HasMore so the user's next scroll
-                // resumes from the same frontier (the in-flight page's EOSE will never
-                // arrive on the new socket).
+            _state.value = if (cursor != null) {
                 GroupLoadingState.HasMore(cursor)
             } else {
-                // Never paginated (still on the initial load) — fall back to Idle so a
-                // fresh initial load runs on reconnect.
                 GroupLoadingState.Idle
             }
         }
@@ -442,33 +485,37 @@ class GroupLoadingController(
             if (tracker.subscriptionId != subscriptionId) return@withLock
 
             val cursor = getCurrentCursor()
-            val existingRetryCount = getRetryCount()
 
-            // A timeout is always a degraded relay signal — never a substitute
-            // for EOSE. Even when messages did arrive, we surface this as an
-            // explicit PARTIAL_TIMEOUT error (carrying the advanced cursor) so
-            // the UI does not auto-paginate against a flaky relay assuming
-            // "more history exists". Caller can retry via [retry] to resume.
-            val (reason, advancedCursor) = if (tracker.messageCount > 0) {
-                val newCursor = if (tracker.oldestEventId != null) {
-                    (cursor ?: PaginationCursor.initial()).advance(
-                        oldestTimestamp = tracker.oldestTimestamp,
-                        oldestEventId = tracker.oldestEventId!!,
-                        messagesReceived = tracker.messageCount,
-                    )
-                } else {
-                    cursor
-                }
-                GroupLoadingState.ErrorReason.PARTIAL_TIMEOUT to newCursor
+            val advancedCursor = if (tracker.messageCount > 0 && tracker.oldestEventId != null) {
+                (cursor ?: PaginationCursor.initial()).advance(
+                    oldestTimestamp = tracker.oldestTimestamp,
+                    oldestEventId = tracker.oldestEventId!!,
+                    messagesReceived = tracker.messageCount,
+                )
             } else {
-                GroupLoadingState.ErrorReason.TIMEOUT to cursor
+                cursor
             }
 
-            _state.value = GroupLoadingState.Error(
-                cursor = advancedCursor,
-                reason = reason,
-                retryCount = existingRetryCount,
-            )
+            // A pagination REQ that times out (no EOSE in the window) must never strand the group.
+            // Switching groups rapidly tears down and recreates subscriptions, and the relay can
+            // drop an in-flight pagination sub, so its EOSE never arrives and this fires with the
+            // sub still mid-page. Revert to HasMore (keeping the cursor frontier) so the user's
+            // next scroll retries from the same place. Settling on Error set hasMore=false, which
+            // hid pagination on web until an app restart. Initial-load timeouts (no cursor) still
+            // go to Error so the load screen can show its retry affordance.
+            _state.value = if (!isInitial && advancedCursor != null) {
+                GroupLoadingState.HasMore(advancedCursor)
+            } else {
+                GroupLoadingState.Error(
+                    cursor = advancedCursor,
+                    reason = if (tracker.messageCount > 0) {
+                        GroupLoadingState.ErrorReason.PARTIAL_TIMEOUT
+                    } else {
+                        GroupLoadingState.ErrorReason.TIMEOUT
+                    },
+                    retryCount = getRetryCount(),
+                )
+            }
 
             currentTracker = null
         }

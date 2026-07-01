@@ -1,6 +1,6 @@
 package org.nostr.nostrord.web.components
 
-import kotlinx.browser.document
+import js.objects.unsafeJso
 import kotlinx.browser.window
 import kotlinx.coroutines.awaitCancellation
 import react.FC
@@ -20,6 +20,10 @@ external interface ChatVideoProps : Props {
     /** Optional NIP-92 imeta thumbnail, shown as the poster so a not-yet-loaded
      *  video previews a frame instead of a black box. */
     var posterUrl: String?
+
+    /** NIP-68 imeta (width, height) hint. When present the player box is reserved at the
+     *  exact aspect ratio before metadata loads, so the row never grows on load. */
+    var dimensions: Pair<Int, Int>?
 }
 
 // How long a metadata load may stall before we abort and retry. nostr.build
@@ -94,6 +98,8 @@ val ChatVideo =
         useEffect(props.videoUrl, showPlayer, attempt) {
             val node = videoRef.current ?: return@useEffect
             if (!showPlayer || inView) return@useEffect
+            // Referenced by name inside the js() IntersectionObserver call below.
+            @Suppress("UnusedPrivateProperty")
             val callback: (dynamic, dynamic) -> Unit = { entries, obs ->
                 if (entries[0].isIntersecting == true) {
                     obs.disconnect()
@@ -169,6 +175,15 @@ val ChatVideo =
                     key = "${props.videoUrl}#$attempt"
                     ref = videoRef
                     className = ClassName("msg-video")
+                    // Reserve the exact box from the imeta dim hint so the row keeps its height
+                    // before metadata resolves; drop the floor that would distort it.
+                    props.dimensions?.let { (w, h) ->
+                        style = unsafeJso {
+                            asDynamic().aspectRatio = "$w / $h"
+                            asDynamic().minHeight = "auto"
+                            asDynamic().minWidth = "auto"
+                        }
+                    }
                     // Only set src once near the viewport — keeps the element mounted
                     // (so the observer has a target) but defers the metadata fetch.
                     if (loadNow) src = props.videoUrl
@@ -182,11 +197,8 @@ val ChatVideo =
                     playsInline = true
                     onLoadedMetadata = {
                         setMetaLoaded(true)
-                        // Re-pin the scroll for anyone anchored at the bottom now that
-                        // the video's height is known (issue #74).
-                        document.asDynamic().dispatchEvent(
-                            js("new CustomEvent('chat-content-loaded')"),
-                        )
+                        // Re-pinning the feed once the video's height is known is handled by the
+                        // list's ResizeObserver (and, for imeta video, by the reserved box).
                         Unit
                     }
                     onError = { setFailed(true) }

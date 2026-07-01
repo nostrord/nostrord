@@ -40,7 +40,8 @@ actual class Nip46Client actual constructor(
         val relayParams = relays.joinToString("&") { "relay=${it.encodeForUri()}" }
         val metadata = """{"name":"$name"}"""
         val secretParam = nostrConnectSecret?.let { "&secret=${it.encodeForUri()}" } ?: ""
-        val uri = "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam&metadata=${metadata.encodeForUri()}"
+        val permsParam = "&perms=${NIP46_REQUESTED_PERMS.encodeForUri()}"
+        val uri = "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam$permsParam&metadata=${metadata.encodeForUri()}"
         return uri
     }
 
@@ -89,7 +90,19 @@ actual class Nip46Client actual constructor(
                     val cleanUrl = relayUrl.trimEnd('/')
                     val client = NostrGroupClient(cleanUrl)
                     client.connect { msg -> handleMessage(msg, client) }
-                    client.waitForConnection()
+                    if (!client.waitForConnection()) {
+                        // WS never opened — drop it (mirrors connectRelaysParallel)
+                        // instead of adding a dead socket and completing firstReady.
+                        // Otherwise the QR displays while no listening sub is live,
+                        // so the signer's connect event never arrives and the user
+                        // has to restart the app. Common right after a logout, which
+                        // tears down many sockets at once and slows the next connect.
+                        client.disconnect()
+                        if (failures.incrementAndGet() == total && !firstReady.isCompleted) {
+                            firstReady.completeExceptionally(Exception("Failed to connect to any relay"))
+                        }
+                        return@launch
+                    }
                     openResponseSubscription(client)
                     synchronized(relayClients) { relayClients.add(client) }
                     firstReady.complete(Unit)
@@ -241,10 +254,13 @@ actual class Nip46Client actual constructor(
         }
 
         val requestId = generateRequestId()
+        // NIP-46 connect params: [remote_signer_pubkey, secret, requested_permissions]. The secret
+        // slot must be present (empty string if none) so the signer reads perms as the 3rd param.
         val params =
             buildList {
                 add(remoteSignerPubkey)
-                secret?.let { add(it) }
+                add(secret ?: "")
+                add(NIP46_REQUESTED_PERMS)
             }
 
         sendRequest(requestId, "connect", params)
@@ -266,6 +282,10 @@ actual class Nip46Client actual constructor(
         val requestId = generateRequestId()
         return sendRequest(requestId, "sign_event", listOf(eventJson))
     }
+
+    actual suspend fun nip44Encrypt(peerPubkey: String, plaintext: String): String = sendRequest(generateRequestId(), "nip44_encrypt", listOf(peerPubkey, plaintext))
+
+    actual suspend fun nip44Decrypt(peerPubkey: String, ciphertext: String): String = sendRequest(generateRequestId(), "nip44_decrypt", listOf(peerPubkey, ciphertext))
 
     private suspend fun sendRequest(
         requestId: String,

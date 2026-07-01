@@ -20,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,10 +32,11 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.screens.group.model.SystemEventType
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Enhanced system event item with avatars and grouping support.
@@ -126,10 +126,10 @@ fun SystemEventItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (totalUsers == 1) {
-                val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+                val displayName = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey)
                 Text(
                     text = displayName,
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -146,7 +146,7 @@ fun SystemEventItem(
             } else {
                 Text(
                     text = "$totalUsers members",
-                    color = Color.White,
+                    color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -251,7 +251,7 @@ private fun MiniAvatar(
             contentAlignment = Alignment.Center,
         ) {
             if (imageState is AsyncImagePainter.State.Error) {
-                Jdenticon(value = pubkey, size = size.dp)
+                UserGradientAvatar(seed = pubkey, size = size.dp)
             } else {
                 val imageRequest =
                     remember(pictureUrl, context) {
@@ -264,7 +264,7 @@ private fun MiniAvatar(
                             .build()
                     }
                 if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Empty) {
-                    Jdenticon(value = pubkey, size = size.dp)
+                    UserGradientAvatar(seed = pubkey, size = size.dp)
                 }
                 AsyncImage(
                     model = imageRequest,
@@ -287,7 +287,7 @@ private fun MiniAvatar(
                 .then(clickModifier),
             contentAlignment = Alignment.Center,
         ) {
-            Jdenticon(value = pubkey, size = size.dp)
+            UserGradientAvatar(seed = pubkey, size = size.dp)
         }
     }
 }

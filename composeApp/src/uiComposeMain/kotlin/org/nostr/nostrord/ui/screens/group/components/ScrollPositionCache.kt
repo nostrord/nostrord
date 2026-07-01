@@ -78,11 +78,18 @@ class ScrollStateHolder(
     /** True while the viewport is pinned to the bottom (single latch authority). */
     val atBottom: Boolean get() = scroll.atBottom
 
-    /** Latched once the entry alignment to the "New messages" divider has run. */
-    val openedAtDivider: Boolean get() = scroll.openedAtDivider
+    /** Latched once the one-shot entry alignment has been decided (divider OR bottom). */
+    val entryResolved: Boolean get() = scroll.entryResolved
 
     /** Jump-to-bottom FAB visibility. */
     val isScrolledAway: Boolean get() = ChatScrollPolicy.isScrolledAway(scroll)
+
+    /**
+     * True once a genuine scroll-away from the bottom has happened this entry. Gates
+     * the "New messages" divider dismissal so the divider is consumed only after the
+     * user actually scrolled to look at it, never on the entry settle at the bottom.
+     */
+    val sawNotBottom: Boolean get() = scroll.sawNotBottom
 
     /** Apply the one-shot entry alignment decision; returns the target to scroll to. */
     fun applyEntryChange(
@@ -111,12 +118,6 @@ class ScrollStateHolder(
     fun markRestored() {
         isRestored = true
         isRestorationPending = false
-        scroll = ChatScrollPolicy.onItemsReady(scroll)
-    }
-
-    fun markRestorationFailed() {
-        isRestorationPending = false
-        isRestored = true
         scroll = ChatScrollPolicy.onItemsReady(scroll)
     }
 
@@ -169,6 +170,16 @@ fun <T> ScrollPositionEffect(
 ) {
     val currentItems by rememberUpdatedState(items)
 
+    // Open settle window: for a short time after entering the group, keep pinning to the bottom
+    // regardless of the atBottom latch, so late-decoding media or streaming system events can't
+    // strand the open above the true bottom (the latch can briefly read "not at bottom" mid-reflow).
+    var settling by remember(groupId) { mutableStateOf(true) }
+    LaunchedEffect(groupId) {
+        settling = true
+        kotlinx.coroutines.delay(1500)
+        settling = false
+    }
+
     // Resolve the restoration gate once items first appear. The authoritative entry
     // positioning (divider vs bottom) is decided by the entry effect in
     // MessagesList; here we only flip isRestored so the user-scroll tracker and the
@@ -201,10 +212,20 @@ fun <T> ScrollPositionEffect(
     // discarded state and never move the visible list.
     LaunchedEffect(groupId, listState) {
         if (!initialScrollToEnd) return@LaunchedEffect
-        snapshotFlow { currentItems.size to listState.canScrollForward }
+        snapshotFlow {
+            // Height-aware key. Re-pin on a new tail item (size) AND on tail height growth
+            // (the last visible item's index and measured size), so a late-decoding image,
+            // including imeta-less media that grows from text height, still drops the newest
+            // content flush to the bottom. The former `canScrollForward` key missed this:
+            // once it was already `true`, distinctUntilChanged dropped the unchanged value
+            // and the view stayed parked above the true bottom while the image expanded.
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            Triple(currentItems.size, last?.index ?: -1, last?.size ?: 0)
+        }
             .distinctUntilChanged()
             .collect {
-                if (stateHolder.atBottom) {
+                if (stateHolder.atBottom || settling) {
                     val idx = currentItems.lastIndex
                     if (idx >= 0) listState.scrollToItem(idx, Int.MAX_VALUE)
                 }
@@ -224,7 +245,15 @@ fun <T> ScrollPositionEffect(
             val layoutInfo = listState.layoutInfo
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val total = layoutInfo.totalItemsCount
-            val reachedBottom = lastVisible >= 0 && total > 0 && lastVisible >= total - 2
+            // At the bottom when the last item is in view OR the list simply cannot scroll down
+            // any further. The index heuristic alone missed the case where the final message is
+            // tall and only partly visible (its index is the last, but a strict reading failed),
+            // leaving the jump-to-bottom FAB showing while the user is already at the last
+            // message (#129). Only ever makes "reached bottom" more true, so a freshly-arrived
+            // message at the end never spuriously demotes the latch.
+            val reachedBottom =
+                (lastVisible >= 0 && total > 0 && lastVisible >= total - 2) ||
+                    (total > 0 && !listState.canScrollForward)
             // Pair with isRestored so the latch re-evaluates the CURRENT position the
             // moment restoration completes. Without it, a user who scrolls up during
             // the initial load (before isRestored) has that reading dropped by the

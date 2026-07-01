@@ -1,12 +1,17 @@
 package org.nostr.nostrord
 
 import kotlinx.browser.window
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.toHash
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.WebApp
-import org.nostr.nostrord.web.theme.applyColorTokens
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.runCacheStoreSelfTest
 import org.nostr.nostrord.web.theme.applyDimenTokens
+import org.nostr.nostrord.web.theme.applyTheme
 import react.create
 import react.dom.client.createRoot
 import web.dom.ElementId
@@ -14,8 +19,10 @@ import web.dom.document
 
 /**
  * Parse URL query parameters for deep linking.
- * Supports: /?relay=groups.hzrd149.com&group=a45b2f
- *           /?relay=groups.hzrd149.com
+ * Supports: /?relay=groups.hzrd149.com (opens the relay)
+ *           /?view=notifications
+ * Legacy group links (/?relay=X&group=Y[&code=Z]) redirect to the canonical
+ * hash route #/g/X/Y[?invite=Z] before render.
  */
 private fun parseDeepLinkFromUrl() {
     val search = window.location.search
@@ -46,18 +53,22 @@ private fun parseDeepLinkFromUrl() {
 
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
+    // `&e=<eventId>` from a "copy message link" deep link: carried into the hash route so
+    // AppFrame seeks + highlights that message once it loads. Dropping it here was why the
+    // link opened the group but never scrolled to the message.
     val messageId = params["e"]?.takeIf { it.isNotBlank() }
+
+    // Legacy ?relay=&group= group links redirect to the canonical #/g/<relay>/<id>
+    // hash route (AppFrame owns it: relay switch, open, ?invite= auto-join, &e= seek). The
+    // query is stripped so the URL shown/copied is the new form.
+    if (groupId != null) {
+        val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = inviteCode, messageId = messageId)
+        window.history.replaceState(null, "", window.location.pathname + route.toHash())
+        return
+    }
 
     val context =
         when {
-            groupId != null ->
-                ExternalLaunchContext.OpenGroup(
-                    groupId = groupId,
-                    groupName = null,
-                    relayUrl = relayUrl,
-                    inviteCode = inviteCode,
-                    messageId = messageId,
-                )
             viewNotifications -> ExternalLaunchContext.OpenNotifications(relayUrl)
             else -> ExternalLaunchContext.OpenRelay(relayUrl)
         }
@@ -69,13 +80,26 @@ private fun parseDeepLinkFromUrl() {
  *
  * The web UI was migrated off Compose Canvas (Skia/WASM) to real DOM via React
  * (kotlin-wrappers). Business logic is unchanged and consumed from commonMain
- * (AppModule); only the rendering layer is React. Fonts are now loaded by the
- * browser via CSS, so the old tiered Compose font-preloading is gone.
+ * (AppModule); only the rendering layer is React. Fonts are loaded by the
+ * browser via CSS.
  */
 fun main() {
-    // Reconcile the web palette with the shared ColorTokens (commonMain) before render,
-    // overriding the cold-start fallback values in styles.css :root.
-    applyColorTokens()
+    // Dev affordance: `?cachetest` runs the IndexedDB cache store self-test in this real
+    // browser instead of mounting the app, and reports the result via window/title for a
+    // headless driver to read. Inert in normal use.
+    if (window.location.search.contains("cachetest")) {
+        launchApp {
+            val result = runCacheStoreSelfTest()
+            window.asDynamic().__cacheTestResult = result
+            document.title = "cachetest: $result"
+        }
+        return
+    }
+
+    // Reconcile the web palette with the shared tokens (commonMain) before render,
+    // overriding the cold-start fallback values in styles.css :root. Uses the persisted
+    // theme preference so a light-theme user doesn't get a dark first paint.
+    applyTheme(AppModule.appearanceSettings.theme.value)
     applyDimenTokens()
     parseDeepLinkFromUrl()
     val container =

@@ -165,22 +165,28 @@ fun String.normalizeRelayUrl(): String {
  * localhost / loopback hosts (useful for local development relays).
  */
 /**
- * Add a scheme to a bare relay host. If the input already has `ws://` or `wss://`,
- * it is returned unchanged. Otherwise, localhost/loopback hosts get `ws://` and
- * everything else gets `wss://`.
+ * Add (or correct) the scheme on a relay host. Loopback hosts always get `ws://`
+ * (a local relay has no TLS, so `wss://127.0.0.1` just fails to connect) even if
+ * `wss://` was typed; otherwise a typed scheme is kept and a bare host gets `wss://`.
  */
 fun String.toRelayUrl(): String {
     val trimmed = trim()
     if (trimmed.isEmpty()) return trimmed
-    val hadScheme = trimmed.startsWith("ws://") || trimmed.startsWith("wss://")
-    val afterScheme = trimmed.removePrefix("wss://").removePrefix("ws://")
-    val authority = afterScheme.substringBefore('/')
+    val typedWs = trimmed.startsWith("ws://")
+    val typedWss = trimmed.startsWith("wss://")
+    val body = trimmed.removePrefix("wss://").removePrefix("ws://")
+    val authority = body.substringBefore('/')
     // Reject userinfo: `ws://localhost:7777@evil.com` would bypass loopback checks.
     if ('@' in authority) return ""
-    if (hadScheme) return trimmed
     val host = authority.substringBefore(':').lowercase()
-    val scheme = if (host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1") "ws" else "wss"
-    return "$scheme://$trimmed"
+    val loopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    val scheme = when {
+        loopback -> "ws"
+        typedWss -> "wss"
+        typedWs -> "ws"
+        else -> "wss"
+    }
+    return "$scheme://$body"
 }
 
 /**

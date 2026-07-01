@@ -54,6 +54,7 @@ import org.nostr.nostrord.ui.components.QrCode
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * App-wide entry point for opening the zap modal from anywhere (message context menu,
@@ -103,7 +104,7 @@ private fun ZapModal(
 
     val metadataMap by AppModule.nostrRepository.userMetadata.collectAsState()
     val metadata = metadataMap[recipientPubkey]
-    val recipientName = metadata?.displayName ?: metadata?.name ?: (recipientPubkey.take(8) + "…")
+    val recipientName = metadata?.displayName ?: metadata?.name ?: shortNpub(recipientPubkey)
 
     LaunchedEffect(recipientPubkey) {
         if (metadataMap[recipientPubkey] == null) {
@@ -183,7 +184,6 @@ private fun ZapModal(
                         .verticalScroll(rememberScrollState())
                         .padding(Spacing.xxl),
                 ) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -276,7 +276,7 @@ private fun ZapAmountStep(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (selected) NostrordColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
-                            contentColor = if (selected) Color.White else NostrordColors.TextPrimary,
+                            contentColor = NostrordColors.TextPrimary,
                         ),
                     ) {
                         Text("$preset", fontSize = 13.sp)

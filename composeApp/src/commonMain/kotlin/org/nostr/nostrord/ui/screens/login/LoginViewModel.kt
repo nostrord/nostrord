@@ -3,17 +3,27 @@ package org.nostr.nostrord.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip46Client
+import org.nostr.nostrord.nostr.Nip49
+import org.nostr.nostrord.nostr.hexToByteArray
+import org.nostr.nostrord.nostr.ncryptsecStorageApplicable
+import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
 import org.nostr.nostrord.utils.toKotlinResult
@@ -63,19 +73,50 @@ class LoginViewModel(
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean = false,
+        ncryptsec: String? = null,
         onResult: (Result<Unit>) -> Unit,
     ) {
         viewModelScope.launch {
-            onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity).toKotlinResult())
+            onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity, ncryptsec).toKotlinResult())
+        }
+    }
+
+    /** True when the input is a NIP-49 encrypted key; the UIs ask for [loginWithPrivateKeyInput]'s password. */
+    fun isEncryptedKeyInput(input: String): Boolean = Nip49.isEncryptedKey(input)
+
+    /** True for a plain (hex / nsec) key — the UIs offer the protect-with-password option for these. */
+    fun isPlainKeyInput(input: String): Boolean = isValidKeyInput(input) && !Nip49.isEncryptedKey(input)
+
+    /**
+     * True where the protect-with-password option (ncryptsec at rest + unlock at
+     * startup) makes sense: only the web. Native platforms already protect keys at
+     * rest (Keystore / Keychain / OS keychain), so the UIs hide the option there and
+     * an imported ncryptsec is decrypted once into the platform's secure storage.
+     */
+    val isProtectApplicable: Boolean get() = ncryptsecStorageApplicable
+
+    /** Fresh private key from the platform CSPRNG (the generate flow; not kotlin.random). */
+    fun generateNewKeyHex(): String = Crypto.generatePrivateKey().toHexString()
+
+    /** npub + nsec for displaying a key backup; null when the hex is invalid. */
+    fun deriveBech32Keys(hexOrNsec: String): Pair<String, String>? {
+        val hex = parsePrivateKeyHex(hexOrNsec) ?: return null
+        return try {
+            Nip19.encodeNpub(KeyPair.fromPrivateKeyHex(hex).publicKeyHex) to Nip19.encodeNsec(hex)
+        } catch (e: Throwable) {
+            null
         }
     }
 
     /**
-     * Accepts a raw nsec or 64-char hex private key, derives the public key, and logs in.
-     * The parsing lives here (not per-UI) so Compose and web validate identically.
+     * Login with a plain (hex / nsec) key in password-protected mode: the key is
+     * wrapped as an ncryptsec (NIP-49, scrypt on the Default dispatcher), only the
+     * encrypted form is persisted, and the next session restore asks the password
+     * via [pendingUnlock].
      */
-    fun loginWithPrivateKeyInput(
+    fun loginProtected(
         input: String,
+        password: String,
         isNewIdentity: Boolean = false,
         onResult: (Result<Unit>) -> Unit,
     ) {
@@ -84,6 +125,96 @@ class LoginViewModel(
             onResult(Result.failure(IllegalArgumentException("Invalid private key")))
             return
         }
+        viewModelScope.launch {
+            val ncryptsec = withContext(Dispatchers.Default) { Nip49.encrypt(hex.hexToByteArray(), password) }
+            loginWithHex(hex, isNewIdentity, ncryptsec, onResult)
+        }
+    }
+
+    /** Account waiting for its NIP-49 password at startup (drives the unlock dialog). */
+    val pendingUnlock: StateFlow<Account?> = repo.pendingUnlockAccount
+
+    /** Dismiss the unlock dialog; the user falls back to the regular login screen. */
+    fun dismissUnlock() = repo.clearPendingUnlock()
+
+    /**
+     * Decrypt the pending account's stored ncryptsec with [password] and finish the
+     * session restore. Fails with "Wrong password or corrupted key" on a bad password.
+     */
+    fun unlockWithPassword(
+        password: String,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        val account = repo.pendingUnlockAccount.value
+        if (account == null) {
+            onResult(Result.failure(IllegalStateException("No account to unlock")))
+            return
+        }
+        val ncryptsec = SecureStorage.getEncryptedPrivateKeyFor(account.pubkey)
+        if (ncryptsec == null) {
+            onResult(Result.failure(IllegalStateException("No encrypted key stored")))
+            return
+        }
+        loginWithPrivateKeyInput(ncryptsec, password, onResult = onResult)
+    }
+
+    /**
+     * True when the input is a complete, well-formed key: 64-char hex, a decodable
+     * nsec, or a structurally valid ncryptsec. The UIs gate the Login button on this
+     * so partial or garbage input never produces an "Invalid private key" round trip.
+     */
+    fun isValidKeyInput(input: String): Boolean {
+        val s = input.trim()
+        return if (Nip49.isEncryptedKey(s)) Nip49.hasValidStructure(s) else parsePrivateKeyHex(s) != null
+    }
+
+    /**
+     * Accepts a raw nsec, 64-char hex, or NIP-49 ncryptsec private key, derives the
+     * public key, and logs in. ncryptsec requires [password]; scrypt runs on the
+     * Default dispatcher because the default log_n = 16 costs real CPU and memory.
+     * The parsing lives here (not per-UI) so Compose and web validate identically.
+     */
+    fun loginWithPrivateKeyInput(
+        input: String,
+        password: String? = null,
+        isNewIdentity: Boolean = false,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        if (Nip49.isEncryptedKey(input)) {
+            if (password.isNullOrEmpty()) {
+                onResult(Result.failure(IllegalArgumentException("Enter the key password")))
+                return
+            }
+            viewModelScope.launch {
+                val trimmed = input.trim()
+                val keyBytes = withContext(Dispatchers.Default) { Nip49.decrypt(trimmed, password) }
+                if (keyBytes == null) {
+                    onResult(Result.failure(IllegalArgumentException("Wrong password or corrupted key")))
+                } else {
+                    // On the web an ncryptsec login keeps the account password-protected
+                    // (only the encrypted key is persisted; unlock asked at next startup).
+                    // Native platforms store the decrypted key in Keystore / keychain
+                    // instead, so the NIP-49 password is needed only for this import.
+                    val persistEncrypted = trimmed.takeIf { ncryptsecStorageApplicable }
+                    loginWithHex(keyBytes.toHexString(), isNewIdentity, ncryptsec = persistEncrypted, onResult)
+                }
+            }
+            return
+        }
+        val hex = parsePrivateKeyHex(input)
+        if (hex == null) {
+            onResult(Result.failure(IllegalArgumentException("Invalid private key")))
+            return
+        }
+        loginWithHex(hex, isNewIdentity, ncryptsec = null, onResult)
+    }
+
+    private fun loginWithHex(
+        hex: String,
+        isNewIdentity: Boolean,
+        ncryptsec: String?,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
         val pub =
             try {
                 KeyPair.fromPrivateKeyHex(hex).publicKeyHex
@@ -91,7 +222,7 @@ class LoginViewModel(
                 onResult(Result.failure(IllegalArgumentException("Invalid private key")))
                 return
             }
-        loginWithPrivateKey(hex, pub, isNewIdentity, onResult)
+        loginWithPrivateKey(hex, pub, isNewIdentity, ncryptsec, onResult)
     }
 
     fun loginWithNip07(
@@ -136,7 +267,12 @@ class LoginViewModel(
         qrJob =
             viewModelScope.launch {
                 try {
-                    val (uri, client) = repo.createNostrConnectSession(_nostrConnectRelays.value)
+                    // Retry the relay connect a few times: logging out tears down many
+                    // sockets at once, and the browser keeps the just-closed ones in a
+                    // CLOSING state that still counts against its per-host WebSocket
+                    // limit, so a connect attempted right after a logout can fail until
+                    // they free up. A short backoff recovers without an app restart.
+                    val (uri, client) = createSessionWithRetry()
                     qrClient = client
                     _qrUri.value = uri
                     repo.completeNostrConnectLogin(client)
@@ -156,6 +292,21 @@ class LoginViewModel(
             }
     }
 
+    private suspend fun createSessionWithRetry(): Pair<String, Nip46Client> {
+        var lastError: Exception? = null
+        repeat(QR_CONNECT_ATTEMPTS) { attempt ->
+            try {
+                return repo.createNostrConnectSession(_nostrConnectRelays.value)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                lastError = e
+                if (attempt < QR_CONNECT_ATTEMPTS - 1) delay(QR_CONNECT_RETRY_DELAY_MS)
+            }
+        }
+        throw lastError ?: Exception("Failed to connect to any relay")
+    }
+
     fun cancelQrSession() {
         qrJob?.cancel()
         qrClient?.disconnect()
@@ -172,6 +323,12 @@ class LoginViewModel(
 
     private companion object {
         const val HEX_CHARS = "0123456789abcdefABCDEF"
+
+        // Bounded retry for the nostrconnect relay connect, to ride out the brief
+        // post-logout window where just-closed sockets still hold the browser's
+        // per-host WebSocket slots.
+        const val QR_CONNECT_ATTEMPTS = 3
+        const val QR_CONNECT_RETRY_DELAY_MS = 1_500L
 
         /** Accepts an nsec or a 64-char hex private key; returns the hex, or null if invalid. */
         fun parsePrivateKeyHex(input: String): String? {

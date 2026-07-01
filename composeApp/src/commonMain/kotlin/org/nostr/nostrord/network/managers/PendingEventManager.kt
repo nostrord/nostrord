@@ -168,7 +168,7 @@ class PendingEventManager(
             val events = _pendingEvents.value.toList()
             if (events.isEmpty()) return
 
-            val client = connectionManager.getPrimaryClient() ?: return
+            val client = connectionManager.getFocusedClient() ?: return
 
             for (event in events) {
                 if (!event.canRetry) {
@@ -215,7 +215,6 @@ class PendingEventManager(
                         removeEvent(event.id)
                     }
                     is PublishResult.Timeout, is PublishResult.Error -> {
-                        // Increment retry count
                         val errorMsg =
                             when (result) {
                                 is PublishResult.Timeout -> "Timeout"
@@ -238,7 +237,7 @@ class PendingEventManager(
         val event = _pendingEvents.value.find { it.id == pendingId } ?: return null
         if (!event.canRetry) return null
 
-        val client = connectionManager.getPrimaryClient() ?: return null
+        val client = connectionManager.getFocusedClient() ?: return null
 
         updateStatus(event.id, PendingEventStatus.Sending)
 
@@ -330,7 +329,6 @@ class PendingEventManager(
 
             _pendingEvents.value = current.map { if (it.id == pendingId) updated else it }
 
-            // Update status
             if (updated.canRetry) {
                 _eventStatuses.value = _eventStatuses.value +
                     (pendingId to PendingEventStatus.Failed(reason = errorMsg, canRetry = true))

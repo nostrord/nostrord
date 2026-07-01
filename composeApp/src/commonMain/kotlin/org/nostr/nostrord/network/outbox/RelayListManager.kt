@@ -46,6 +46,9 @@ class RelayListManager(
                 "wss://www.nostr.ltd",
             )
 
+        // Offered in Create Group when the user has no NIP-29 group relay yet.
+        val SUGGESTED_GROUP_RELAYS = listOf("wss://groups.0xchat.com")
+
         const val CACHE_TTL_MS = 3600_000L // 1 hour
         const val MAX_CACHE_SIZE = 1000
         const val FETCH_TIMEOUT_MS = 5_000L // 5 seconds (faster)
@@ -106,7 +109,6 @@ class RelayListManager(
             }
         }
 
-        // Check if already fetching
         val shouldFetch =
             pendingMutex.withLock {
                 if (pendingRequests.contains(pubkey)) {

@@ -1,7 +1,11 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.Serializable
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -13,10 +17,24 @@ import org.nostr.nostrord.utils.Result
  * Public contract for NostrRepository.
  * Allows ViewModels to be tested with a fake implementation.
  */
+/** One entry of a user's public kind:10009 group list. */
+@Serializable
+data class UserGroupRef(
+    val relayUrl: String,
+    val groupId: String,
+)
+
 interface NostrRepositoryApi {
     // --- Auth state ---
     val isInitialized: StateFlow<Boolean>
     val isLoggedIn: StateFlow<Boolean>
+
+    /**
+     * Hex pubkey of the active account, or null when logged out. Changes on every
+     * account switch, so screens can re-arm per-account loading state (skeletons)
+     * instead of flashing the previous account's data or an empty/onboarding state.
+     */
+    val activePubkey: StateFlow<String?>
     val isBunkerVerifying: StateFlow<Boolean>
     val isBunkerConnected: StateFlow<Boolean>
     val bunkerState: StateFlow<BunkerState>
@@ -37,12 +55,25 @@ interface NostrRepositoryApi {
 
     /** Per-message delivery status for the local user's own messages (optimistic send). */
     val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>>
+
+    // --- Forum threads (NIP-29 kind:11 root + NIP-22 kind:1111 replies) ---
+    /** Thread roots (kind:11) per group; the threads-pane list source. */
+    val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+
+    /** Thread replies (kind:1111) per group; grouped by their root `E` tag in the ViewModel. */
+    val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+
+    /** Group ids whose thread-roots subscription has reached EOSE (so an empty list is real). */
+    val threadsLoaded: StateFlow<Set<String>>
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
 
     /** Relays (in LAZY mode) whose full group list has been fetched this session. */
     val fullGroupListFetchedRelays: StateFlow<Set<String>>
+
+    /** Relays that finished serving their group list (EOSE); gates the "group no longer available" UI. */
+    val completeGroupLoadRelays: StateFlow<Set<String>>
 
     /** Relays that returned CLOSED "restricted" — access permanently denied. */
     val restrictedRelays: StateFlow<Map<String, String>>
@@ -60,10 +91,17 @@ interface NostrRepositoryApi {
     val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>
 
     /**
+     * Groups whose initial history read is waiting on NIP-42 AUTH (private group on a relay
+     * that challenges in response to the read). The UI shows skeletons for these instead of a
+     * premature "No messages yet", until an authenticated read settles.
+     */
+    val groupsAwaitingAuthRead: StateFlow<Set<String>>
+
+    /**
      * Force-reset the loading state of [groupId] to Idle. Used to recover from
      * controllers stuck in InitialLoading because their underlying socket died
      * (account swap, connection reset) but the natural onConnectionLost path
-     * didn't fire (e.g. explicit primaryClient.disconnect() during a reconnect()
+     * didn't fire (e.g. explicit focusedClient.disconnect() during a reconnect()
      * doesn't always trigger the WebSocket close callback in time).
      */
     suspend fun resetGroupLoadingState(groupId: String)
@@ -72,6 +110,9 @@ interface NostrRepositoryApi {
     /** NIP-57 zap totals keyed by zapped event id. */
     val zaps: StateFlow<Map<String, ZapManager.ZapInfo>>
     val groupMembers: StateFlow<Map<String, List<String>>>
+
+    /** groupId -> epochMillis of our outstanding kind:9021 join request awaiting approval. */
+    val pendingApprovalSince: StateFlow<Map<String, Long>>
     val groupAdmins: StateFlow<Map<String, List<String>>>
     val groupRoles: StateFlow<Map<String, List<RoleDefinition>>>
     val loadingMembers: StateFlow<Set<String>>
@@ -79,10 +120,38 @@ interface NostrRepositoryApi {
     /** Groups whose subscriptions were CLOSED with "restricted" — private group, non-member. */
     val restrictedGroups: StateFlow<Map<String, String>>
 
+    /** Groups the user explicitly LEFT (durable, survives restart); membership reads NONE for these. */
+    val leftGroups: StateFlow<Set<String>>
+
     // --- Metadata state ---
     val userMetadata: StateFlow<Map<String, UserMetadata>>
     val cachedEvents: StateFlow<Map<String, CachedEvent>>
     val unreadCounts: StateFlow<Map<String, Int>>
+
+    // --- Direct messages (NIP-17) ---
+    /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
+    val dmConversations: StateFlow<List<DmConversation>>
+
+    /** Decrypted DM messages keyed by peer pubkey. */
+    val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>>
+
+    /** Unread DM count per peer (incoming messages newer than the read high-water). */
+    val dmUnreadByPeer: StateFlow<Map<String, Int>>
+
+    /** Total unread DMs across all conversations, for the nav badge. */
+    val totalDmUnread: StateFlow<Int>
+
+    /** Our own effective NIP-17 DM relays (kind:10050, or the defaults until one is published). */
+    val myDmRelays: StateFlow<List<String>>
+
+    /** Send a NIP-17 direct message to [recipientPubkey]. */
+    suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit>
+
+    /** Mark a DM conversation read up to its newest message (clears its unread badge). */
+    suspend fun markDmRead(peerPubkey: String)
+
+    /** Publish our NIP-17 DM relay list (kind:10050) so others know where to reach us. */
+    suspend fun publishDmRelayList(relays: List<String>): Result<Unit>
 
     /**
      * High-water mark per group: `created_at` (seconds) of the newest message
@@ -95,11 +164,39 @@ interface NostrRepositoryApi {
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
 
+    /**
+     * Relay URLs (normalized) we could not reach: the WebSocket connect failed, or
+     * the NIP-11 HTTP fetch exhausted its retries with no working socket. Discovery
+     * surfaces (From friends, Recommended) hide groups hosted on these.
+     */
+    val unreachableRelays: StateFlow<Set<String>>
+
     /** Relay URLs present as explicit "r" tags in the user's kind:10009 event. */
     val kind10009Relays: StateFlow<Set<String>>
 
     /** Relay URLs from "group" tags that have no "r" tag — implicit, never persisted. */
     val groupTagRelays: StateFlow<Set<String>>
+
+    /**
+     * Public NIP-29 group lists (kind:10009) of OTHER users, keyed by pubkey, as
+     * (relayUrl, groupId) refs. Filled by [requestUserGroupList]; the active
+     * account's own list keeps flowing through the joined-groups state instead.
+     */
+    val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>>
+
+    /**
+     * The active account's own following set (pubkeys) from its NIP-02 kind:3
+     * contact list. Empty until [requestContactList] (or a follow/unfollow) fills it.
+     */
+    val following: StateFlow<Set<String>>
+
+    /**
+     * True once the kind:3 contact list has actually loaded (arrived from a relay,
+     * was published by us, or the fetch resolved as "no list"). Lets the UI tell
+     * "still loading" apart from "follows nobody" so an empty [following] is not
+     * mistaken for a not-yet-loaded one.
+     */
+    val contactListLoaded: StateFlow<Boolean>
 
     // --- Initialization ---
     fun forceInitialized()
@@ -121,11 +218,23 @@ interface NostrRepositoryApi {
 
     fun forgetBunkerConnection()
 
+    /**
+     * Login with a raw private key. [ncryptsec] marks the account
+     * password-protected (NIP-49): only the encrypted key is persisted and the
+     * next session restore surfaces [pendingUnlockAccount] instead of logging in.
+     */
     suspend fun loginSuspend(
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean = false,
+        ncryptsec: String? = null,
     ): Result<Unit>
+
+    /** Account whose NIP-49 password is needed to finish session restore (unlock gate). */
+    val pendingUnlockAccount: StateFlow<Account?>
+
+    /** Dismiss the unlock gate (the user can still log in another way). */
+    fun clearPendingUnlock()
 
     suspend fun loginWithNip07(pubkey: String): Result<Unit>
 
@@ -208,6 +317,8 @@ interface NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         customGroupId: String? = null,
     ): Result<String>
@@ -223,6 +334,8 @@ interface NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         customGroupId: String? = null,
     ): Result<String>
@@ -231,6 +344,16 @@ interface NostrRepositoryApi {
         groupId: String,
         inviteCode: String? = null,
     ): Result<Unit>
+
+    /**
+     * Optimistically flip [groupId] on [relayUrl] to joined in memory so the UI reacts
+     * immediately (mirrors the follow button); [joinGroup] then confirms and persists it.
+     * Returns false when it was already joined, so the caller skips [revertOptimisticJoin].
+     */
+    fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean
+
+    /** Undo a [markOptimisticJoin] when the join ultimately fails. */
+    fun revertOptimisticJoin(relayUrl: String, groupId: String)
 
     suspend fun leaveGroup(
         groupId: String,
@@ -262,6 +385,8 @@ interface NostrRepositoryApi {
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         parentOp: GroupManager.ParentOp? = null,
         childrenEdit: GroupManager.ChildrenEdit? = null,
@@ -334,6 +459,14 @@ interface NostrRepositoryApi {
         relayUrl: String,
     )
 
+    /**
+     * Batched, deduplicated metadata fetch for discovered groups: [relayToGroups]
+     * maps each relay to the set of group ids to fetch there. Connects to each
+     * relay at most once (pooled) and sends one kind:39000 REQ per relay, so a
+     * friends-groups list spanning many relays does not open redundant connections.
+     */
+    suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>)
+
     suspend fun loadMoreMessages(
         groupId: String,
         channel: String? = null,
@@ -358,6 +491,29 @@ interface NostrRepositoryApi {
 
     /** Drop a failed own message from the chat. */
     fun dismissFailed(groupId: String, eventId: String)
+
+    /** Open the threads-pane subscriptions for a group (kind:11 roots + batched kind:1111 replies). */
+    suspend fun requestGroupThreads(groupId: String): Boolean
+
+    /** CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget. */
+    fun closeThreadSubscriptions(groupId: String)
+
+    /** Backfill a single thread by id (deep link): fetch the kind:11 root and its replies. */
+    suspend fun fetchThread(groupId: String, rootId: String)
+
+    /** Create a forum thread (kind:11 root). [title] becomes a NIP-14 subject tag when non-blank. */
+    suspend fun createThread(groupId: String, title: String, content: String): Result<Unit>
+
+    /**
+     * Publish a NIP-22 reply (kind:1111). [root] is the kind:11 thread root; [parent] is the item
+     * being replied to (pass [root] itself for a top-level reply).
+     */
+    suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+    ): Result<Unit>
 
     suspend fun addUser(
         groupId: String,
@@ -428,7 +584,27 @@ interface NostrRepositoryApi {
     fun getLastReadTimestamp(groupId: String): Long?
 
     // --- Metadata operations ---
-    suspend fun requestUserMetadata(pubkeys: Set<String>)
+    // [forceStale] re-fetches entries already cached but older than the staleness window
+    // (e.g. when the user explicitly opens a profile and wants the latest name/avatar).
+    suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean = false)
+
+    /** Fetch [pubkey]'s public NIP-29 group list (kind:10009) into [userGroupLists]. */
+    suspend fun requestUserGroupList(pubkey: String)
+
+    /** Fetch the active account's own kind:3 contact list into [following]. */
+    suspend fun requestContactList()
+
+    /** Add [pubkey] to the active account's kind:3 contact list and publish it. */
+    suspend fun followUser(pubkey: String): Result<Unit>
+
+    /** Remove [pubkey] from the active account's kind:3 contact list and publish it. */
+    suspend fun unfollowUser(pubkey: String): Result<Unit>
+
+    /**
+     * Add every pubkey in [pubkeys] not already followed to the active account's kind:3
+     * contact list and publish it once (a single event, not one per pubkey).
+     */
+    suspend fun followUsers(pubkeys: Set<String>): Result<Unit>
 
     suspend fun updateProfileMetadata(
         displayName: String? = null,

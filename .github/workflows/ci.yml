@@ -27,6 +27,9 @@ jobs:
       - name: Spotless check
         run: ./gradlew spotlessCheck
 
+      - name: Detekt (dead-code gate)
+        run: ./gradlew detekt
+
       - name: Compile (JVM)
         run: ./gradlew compileKotlinJvm
 

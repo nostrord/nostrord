@@ -16,6 +16,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
@@ -28,18 +32,33 @@ import org.nostr.nostrord.network.groupMetadataListSerializer
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.addLeftGroupForRelay
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.CachedMsg
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
+import org.nostr.nostrord.storage.clearGroupMembershipFor
+import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
+import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.isMessageBlobMigratedFor
+import org.nostr.nostrord.storage.loadDroppedGroupIds
+import org.nostr.nostrord.storage.loadGroupMembershipFor
+import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
+import org.nostr.nostrord.storage.saveDroppedGroupIds
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
+import org.nostr.nostrord.storage.saveGroupMembershipFor
+import org.nostr.nostrord.storage.setMessageBlobMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Manages group operations: join, leave, messages, and group metadata.
@@ -58,6 +77,7 @@ class GroupManager(
     private val connStats: ConnectionStats? = null,
     private val muxTracker: MuxSubscriptionTracker = MuxSubscriptionTracker(),
     private val adaptiveConfig: AdaptiveConfig? = null,
+    private val cacheStore: CacheStore = InMemoryCacheStore(),
     private val onNewMessagesFlushed: ((groupId: String, newMessages: List<NostrGroupClient.NostrMessage>) -> Unit)? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -90,6 +110,13 @@ class GroupManager(
     // Cleared on relay switch / logout.
     private val messageIdIndex = mutableMapOf<String, MutableSet<String>>()
 
+    // Group-message recency, least-recent first (re-inserted on touch). Drives whole-group
+    // eviction past [MAX_GROUPS_IN_MEMORY] so in-memory history stays bounded over a long
+    // multi-group session. Per-group message-count capping is deferred to the disk-backed
+    // history store (plan phase 4): trimming a live list here would desync messageIdIndex
+    // and stop a re-fetched older message from re-rendering.
+    private val groupMessageRecency = LinkedHashSet<String>()
+
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
 
@@ -106,6 +133,10 @@ class GroupManager(
             _currentRelayUrl.value = value
         }
     private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Relays that finished serving their group list (EOSE this session); gates the "group no
+     * longer available" check so a not-yet-loaded relay doesn't read as deleted. */
+    val completeGroupLoadRelays: StateFlow<Set<String>> = _completeGroupLoadRelays.asStateFlow()
 
     /**
      * Joined groups on a relay that have no corresponding `kind:39000` after the
@@ -326,13 +357,31 @@ class GroupManager(
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 
+    // Forum threads live in their own stores, keyed by group id, so kind:11 roots and their
+    // NIP-22 kind:1111 replies never enter the chat timeline (_messages) or its pagination.
+    // Replies are kept per-group and grouped by their root `E` tag in the ViewModel.
+    private val _threadRoots = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    val threadRoots: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadRoots.asStateFlow()
+
+    private val _threadReplies = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
+    val threadReplies: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _threadReplies.asStateFlow()
+
+    // Group ids whose thread-roots subscription has received its EOSE (stored events done), so the
+    // ViewModel can show "No threads yet" only once loading is genuinely finished, not on a guess.
+    private val _threadsLoaded = MutableStateFlow<Set<String>>(emptySet())
+    val threadsLoaded: StateFlow<Set<String>> = _threadsLoaded.asStateFlow()
+
+    /** Mark a group's thread-roots subscription as having reached EOSE. Called from the EOSE handler. */
+    fun markThreadsLoaded(groupId: String) {
+        _threadsLoaded.update { it + groupId }
+    }
+
     /**
      * Delivery status of the local user's own messages (optimistic send).
      * Sending = the message is on screen and awaiting relay confirmation (or
-     * queued for auto-retry); Failed = the relay rejected it or retries were
-     * exhausted. A delivered message has NO entry here and renders without an
-     * indicator. Keyed by event id. [Failed] carries the signed JSON so the
-     * message can be re-sent without re-signing.
+     * queued for auto-retry); Failed = the relay rejected it, retries were
+     * exhausted, or signing failed. A delivered message has NO entry here and
+     * renders without an indicator. Keyed by event id.
      */
     sealed interface MessageStatus {
         data object Sending : MessageStatus
@@ -340,7 +389,11 @@ class GroupManager(
         data class Failed(
             val reason: String,
             val groupId: String,
-            val eventJson: String,
+            // The signed JSON when a relay rejected an already-signed event; null when
+            // signing itself failed, in which case [unsignedEvent] is set so retry
+            // re-signs before delivering. Exactly one of the two is non-null.
+            val eventJson: String?,
+            val unsignedEvent: Event? = null,
         ) : MessageStatus
     }
 
@@ -371,6 +424,14 @@ class GroupManager(
     // Track active group states for UI binding
     private val _groupStates = MutableStateFlow<Map<String, GroupLoadingState>>(emptyMap())
     val groupStates: StateFlow<Map<String, GroupLoadingState>> = _groupStates.asStateFlow()
+
+    // Groups whose initial read is waiting on NIP-42 AUTH (held by holdInitialLoadForReauth).
+    // The UI treats these as still-loading so it shows skeletons across the whole pre-AUTH
+    // dance (pre-AUTH CLOSE -> AUTH -> resubscribeAfterAuth reset/replay), which briefly
+    // bounces the controller through Idle, instead of flashing "No messages yet". Cleared
+    // the moment the controller reaches a settled state (an authenticated read completed).
+    private val _groupsAwaitingAuthRead = MutableStateFlow<Set<String>>(emptySet())
+    val groupsAwaitingAuthRead: StateFlow<Set<String>> = _groupsAwaitingAuthRead.asStateFlow()
 
     // Legacy API compatibility: derive isLoadingMore from state machine
     private val _isLoadingMore = MutableStateFlow<Map<String, Boolean>>(emptyMap())
@@ -441,17 +502,38 @@ class GroupManager(
     private val _restrictedGroups = MutableStateFlow<Map<String, String>>(emptyMap())
     val restrictedGroups: StateFlow<Map<String, String>> = _restrictedGroups.asStateFlow()
 
+    // Durable "I explicitly left this group" intent (kind:9022 sent), persisted per-account/per-relay
+    // with a 30-day TTL and restored on cold start. This is the authoritative override the membership
+    // derivation checks BEFORE the relay's kind:39002, so a left group reads as not-a-member ("Request
+    // to Join") even when the relay keeps listing us (some relays do after a 9022). A rejoin clears it.
+    private val _leftGroups = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val leftGroups: StateFlow<Set<String>> =
+        _leftGroups
+            .map { it.keys }
+            .stateIn(scope, SharingStarted.Eagerly, emptySet())
+
     // Lets clientForGroup reconnect a group's own relay on demand. Wired by NostrRepository.
     var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
 
     // Gate for the approval-recovery path: only fires when the user actually
     // sent kind:9021, never for historical events on already-joined groups.
-    private val pendingApprovalSince = mutableMapOf<String, Long>()
+    // Exposed as a StateFlow so the membership derivation reads "I have an outstanding join request"
+    // from this LOCAL truth (set on our 9021, cleared on our 9022/leave/approval) instead of the
+    // kind:9021 echo in the message feed, which leaveGroup clears and a re-fetch races, leaving a
+    // left group stuck on "Request pending" until a reload.
+    private val _pendingApprovalSince = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val pendingApprovalSince: StateFlow<Map<String, Long>> = _pendingApprovalSince.asStateFlow()
 
     // Drops the relay's kind:9022 echo and updated kind:39002 that arrive in
     // the milliseconds after a leave, otherwise they re-populate the lists we
     // just cleared and the UI shows zombie members + a "you left" message.
     private val recentlyLeftAt = mutableMapOf<String, Long>()
+
+    /**
+     * True when the group was deleted or left on THIS device. Stale kind:10009
+     * merges skip these so a lagging relay cannot resurrect them.
+     */
+    fun isLocallyDropped(groupId: String): Boolean = groupId in deletedGroupIds || recentlyLeftAt.containsKey(groupId)
     private val LEFT_GROUP_GRACE_MS = 5_000L
 
     // Relay-of-origin per groupId, recorded from the WebSocket that delivered
@@ -465,6 +547,46 @@ class GroupManager(
         if (epochMillis() - at < LEFT_GROUP_GRACE_MS) return true
         recentlyLeftAt.remove(groupId)
         return false
+    }
+
+    // When a group was joined this session. Auto-forget skips groups joined within
+    // RECENT_JOIN_GRACE_MS so a just-joined group whose kind:39000 is still in flight is
+    // never mistaken for a deleted orphan.
+    private val recentlyJoinedAt = mutableMapOf<String, Long>()
+    private val RECENT_JOIN_GRACE_MS = 60_000L
+
+    fun markRecentlyJoined(groupId: String) {
+        recentlyJoinedAt[groupId] = epochMillis()
+    }
+
+    /**
+     * Orphaned joined pins safe to auto-forget: groups still missing kind:39000 after their
+     * relay finished serving its group list (so the relay was asked and does not have them —
+     * deleted, or filed under the wrong relay). Two guards keep this from removing real
+     * groups: skip any group joined within [RECENT_JOIN_GRACE_MS] (metadata may still be
+     * arriving), and skip any relay where EVERY joined group is an orphan — a relay glitch or
+     * transient data loss must never wipe the user's groups; those stay as manual-forget
+     * orphans. Returns relay -> forgettable group ids.
+     */
+    fun autoForgettableOrphans(): Map<String, Set<String>> {
+        val orphans = _orphanedJoinedByRelay.value
+        if (orphans.isEmpty()) return emptyMap()
+        val now = epochMillis()
+        val joined = _joinedGroupsByRelay.value
+        return orphans
+            .mapNotNull { (relay, orphanIds) ->
+                val joinedOnRelay = joined[relay].orEmpty()
+                // Glitch guard: a healthy relay served metadata for at least one joined group.
+                if (joinedOnRelay.isEmpty() || orphanIds.size >= joinedOnRelay.size) {
+                    return@mapNotNull null
+                }
+                val safe =
+                    orphanIds.filterTo(mutableSetOf()) { id ->
+                        val at = recentlyJoinedAt[id]
+                        at == null || now - at > RECENT_JOIN_GRACE_MS
+                    }
+                if (safe.isEmpty()) null else relay to (safe as Set<String>)
+            }.toMap()
     }
 
     /**
@@ -531,10 +653,42 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+
+        // Forum threads: page size for kind:11 roots and the cap on the batched kind:1111
+        // reply feed used to derive per-thread counts/previews on the list. A group with more
+        // than THREAD_REPLY_BATCH replies across all threads would under-count on the list (the
+        // detail view still filters whatever is loaded); fine for an MVP, revisit if it bites.
+        const val THREAD_PAGE_SIZE = 50
+        const val THREAD_REPLY_BATCH = 500
+
+        // Cap the disk-first cache read so a hung IndexedDB cursor on web can never dead-lock
+        // pagination — fall through to the relay if the cache does not answer in time.
+        const val CACHE_PAGE_TIMEOUT_MS = 2_000L
+
+        // Budget for awaiting NIP-42 AUTH before the initial group read. Sized above a
+        // remote (NIP-46) signer's round-trip so a private group on a bunker authenticates
+        // before the first REQ instead of racing it (a pre-AUTH REQ is CLOSED "auth-required"
+        // and the empty result flashes a false "No messages yet"). Public relays skip it.
+        const val INITIAL_READ_AUTH_TIMEOUT_MS = 12_000L
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
+
+        // Most-recently-used groups whose messages stay hydrated in memory. Groups beyond
+        // this are evicted whole (list + dedup index + reactions, persisted first) to bound
+        // long-session growth across many opened groups. The active group is never evicted.
+        const val MAX_GROUPS_IN_MEMORY = 30
+
+        // How many cached messages to render instantly when a group is opened, before the
+        // live subscription refreshes the tail.
+        const val CACHE_HYDRATE_LIMIT = 300
+
+        // Disk budget for the persistent history cache (messages + events), per account.
+        // Evicted oldest-first once exceeded; the eviction is debounced behind writes.
+        const val CACHE_BYTE_BUDGET = 75L * 1024 * 1024
+        const val CACHE_EVICTION_DEBOUNCE_MS = 30_000L
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
+        const val GROUP_SNAPSHOT_EXTRA_CAP = 100 // Recently-seen non-joined groups kept per relay
     }
 
     private var currentPubkey: String? = null
@@ -574,9 +728,6 @@ class GroupManager(
         return s
     }
 
-    // Mutex for message list updates (separate from loading state)
-    private val messageMutex = Mutex()
-
     // Track which groups have observation jobs to prevent memory leaks
     private val observedGroups = mutableSetOf<String>()
     private val observedGroupsMutex = Mutex()
@@ -588,7 +739,7 @@ class GroupManager(
     fun getRelayForGroup(groupId: String): String? = _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
         // Fallback: private groups may not appear in kind 39000 listing but are
         // tracked in _joinedGroupsByRelay (from kind 10009). Without this,
-        // clientForGroup() falls back to the primary client which may be wrong.
+        // clientForGroup() falls back to the focused client which may be wrong.
         ?: _joinedGroupsByRelay.value.entries.firstOrNull { (_, groupIds) -> groupId in groupIds }?.key
 
     /**
@@ -596,13 +747,13 @@ class GroupManager(
      *
      * A NIP-29 relay rejects a kind:9 ("blocked: group doesn't exist") if it does not
      * host the group in the `h` tag, so once the group's relay is known this never falls
-     * back to the primary. A non-primary pool relay that was evicted is reconnected on
+     * back to the focused. A non-focused pool relay that was evicted is reconnected on
      * demand; a relay that is down (or whose socket is dead) returns null so the send
      * fails honestly instead of being misrouted.
      */
     private suspend fun clientForGroup(groupId: String): NostrGroupClient? {
         val relayUrl = getRelayForGroup(groupId)
-            ?: return connectionManager.getPrimaryClient()
+            ?: return connectionManager.getFocusedClient()
         val client = connectionManager.getClientForRelay(relayUrl)
         return when {
             client != null && client.isConnected() -> client
@@ -645,7 +796,12 @@ class GroupManager(
             val relay = getRelayForGroup(groupId)?.normalizeRelayUrl()
             relay == normalized || (relay == null && normalized == currentRelayUrl)
         }
-        return (joined + loaded + opened).distinct()
+        // A group we durably left, AND are no longer joined to, must not re-enter the shared mux via
+        // the loaded/opened terms (reopening it to see the locked panel would otherwise re-subscribe
+        // its live chat). A still-joined group is NEVER excluded — a stale left marker on a rejoined
+        // group must not cut off its live messages.
+        val excluded = _leftGroups.value.keys - joined
+        return (joined + loaded + opened).distinct().filter { it !in excluded }
     }
 
     /**
@@ -656,6 +812,12 @@ class GroupManager(
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
+        if (groupId != null) {
+            touchGroupRecency(groupId)
+            evictGroupMessagesBeyondCap()
+            // Instant render from the persistent history cache; the live sub refreshes the tail.
+            scope.launch { hydrateMessagesFromCache(groupId) }
+        }
         // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
         // navigated to a private group URL without being a member).
         val relayUrl = if (groupId != null) (getRelayForGroup(groupId) ?: currentRelayUrl) else currentRelayUrl
@@ -673,41 +835,56 @@ class GroupManager(
             false
         }
 
-        if (isNew) {
-            scope.launch {
-                val url = relayUrl ?: return@launch
-                // Quick handshake check — 50ms × 20 = 1s max (down from 500ms × 6 = 3s).
-                var client = connectionManager.getClientForRelay(url)
-                if (client != null && !client.isConnected()) {
-                    repeat(20) {
-                        delay(50)
-                        if (client!!.isConnected()) return@repeat
-                    }
+        if (groupId == null) {
+            if (relayUrl != null) scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
+            return
+        }
+
+        scope.launch {
+            val url = relayUrl ?: return@launch
+            // Quick handshake check — 50ms × 20 = 1s max (down from 500ms × 6 = 3s).
+            var client = connectionManager.getClientForRelay(url)
+            if (client != null && !client.isConnected()) {
+                repeat(20) {
+                    delay(50)
+                    if (client!!.isConnected()) return@repeat
                 }
-                client = connectionManager.getClientForRelay(url)
-
-                // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
-                val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
-
-                if (client != null && client.isConnected()) {
-                    // Wait for NIP-42 AUTH before the direct REQs. Closed/private
-                    // groups answer with CLOSED "auth-required" if these race ahead,
-                    // and the 39002 never arrives, leaving the screen stuck on
-                    // "Awaiting admin approval" for an already-approved member.
-                    client.awaitAuthOrTimeout()
-                    // Direct requests for the ACTIVE group — fast-lane.
-                    // Mux provides breadth; these provide speed for the group the user is looking at.
-                    // Duplicates are handled by the event deduplicator.
-                    client.requestGroupMetadata(groupId!!) // Metadata (essential for private groups)
-                    requestGroupMessages(groupId) // Pagination (mux has no limit)
-                    requestGroupMembers(groupId) // Fast member list
-                    requestGroupAdmins(groupId) // Fast admin list
-                }
-
-                muxJob.join()
             }
-        } else if (relayUrl != null) {
-            scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
+            client = connectionManager.getClientForRelay(url)
+
+            // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
+            val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
+
+            if (client != null && client.isConnected()) {
+                // Wait for NIP-42 AUTH before the direct REQs. Closed/private
+                // groups answer with CLOSED "auth-required" if these race ahead,
+                // and the 39002 never arrives, leaving the screen stuck on
+                // "Awaiting admin approval" for an already-approved member.
+                client.awaitAuthOrTimeout()
+                // Direct fast-lane REQs for the ACTIVE group. Re-issued on EVERY
+                // switch, not just the first open: a first open that raced AUTH,
+                // timed out an EOSE, or landed before the socket connected would
+                // otherwise never re-pull this group's metadata/members/admins, so
+                // the screen stays partly empty until something else happens to
+                // refresh it. shouldRequest() still debounces rapid re-entry, and
+                // duplicates are handled by the event deduplicator.
+                client.requestGroupMetadata(groupId) // Metadata (essential for private groups)
+                requestGroupMembers(groupId) // Fast member list
+                requestGroupAdmins(groupId) // Fast admin list
+                // Load message history on first open AND whenever the loader is sitting in a
+                // non-loaded state. A cross-relay switch runs clearForRelaySwitch (resets every
+                // controller to Idle); the bulk re-subscribe reloads the other groups but skips
+                // the active one, so without this the active group stays Idle (hasMore=false) and
+                // can never paginate until restart. startInitialLoad is a no-op when the group is
+                // already HasMore/Paginating, so a normal re-entry still costs nothing.
+                val loadState = loadingRegistry.getController(groupId).state.value
+                val needsLoad = isNew ||
+                    loadState is GroupLoadingState.Idle ||
+                    loadState is GroupLoadingState.Error
+                if (needsLoad) requestGroupMessages(groupId)
+            }
+
+            muxJob.join()
         }
     }
 
@@ -735,7 +912,6 @@ class GroupManager(
      * Use this from callers that may fire in quick succession (auth, EOSE, CLOSED handlers).
      */
     fun refreshMuxDebounced(relayUrl: String) {
-        val wasCoalesced = muxRefreshJobs[relayUrl]?.isActive == true
         muxRefreshJobs[relayUrl]?.cancel()
         muxRefreshJobs[relayUrl] = scope.launch {
             delay(300)
@@ -754,20 +930,20 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        // Two cost models: on the primary relay we keep the on-demand pattern (only
+        // Two cost models: on the focused relay we keep the on-demand pattern (only
         // groups the user has opened in this session subscribe to live chat) so the
         // hot path stays cheap. On background joined relays we subscribe to live
         // chat for *every* joined group so notifications/sound/unread fire cross-relay
         // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
         // (which lives on a different relay) would silence them entirely.
         //
-        // Exception: during a switch-in catch-up window, the primary relay also
+        // Exception: during a switch-in catch-up window, the focused relay also
         // subscribes to chat for ALL joined groups. Without this, an account that
         // landed on the home screen would only receive notifications for groups
         // it manually opened, defeating the whole point of the catch-up since.
         val catchUp = activeCatchUpSince()
-        val isPrimary = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
-        val chatGroupIds = if (isPrimary && catchUp == null) {
+        val isFocusedRelay = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
+        val chatGroupIds = if (isFocusedRelay && catchUp == null) {
             _openedGroupIds.value
                 .filter { it in allGroupIds }
                 .ifEmpty {
@@ -847,16 +1023,33 @@ class GroupManager(
      * from the general kind 39000 listing, but returns them on targeted #d requests
      * once the client has authenticated via NIP-42.
      */
+    // Per-group cooldown so the several post-AUTH callers (connect, switchRelay,
+    // ensureJoinedRelaysConnected, resubscribeAfterAuth) do not each re-fire the same
+    // private group's #d REQs in the window before its kind:39000 lands. Without it a
+    // cold boot fanned out duplicate per-group REQs that could exhaust a relay's
+    // subscription budget and get the chat/pagination REQs CLOSED "too many subscriptions".
+    private val privateGroupFetchAt = mutableMapOf<String, Long>()
+    private val PRIVATE_GROUP_FETCH_COOLDOWN_MS = 10_000L
+
     suspend fun requestPrivateGroupData(relayUrl: String) {
         val uncached = getUncachedJoinedGroups(relayUrl)
         if (uncached.isEmpty()) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
-        for (groupId in uncached) {
+        val now = epochMillis()
+        val toFetch = uncached.filter { now - (privateGroupFetchAt[it] ?: 0L) > PRIVATE_GROUP_FETCH_COOLDOWN_MS }
+        if (toFetch.isEmpty()) return
+        toFetch.forEach { privateGroupFetchAt[it] = now }
+        try {
+            // One batched #d REQ for ALL missing metadata, not one per group.
+            client.requestGroupsMetadata(toFetch)
+        } catch (_: Exception) {}
+        for (groupId in toFetch) {
             try {
-                client.requestGroupMetadata(groupId)
-                client.requestGroupMembers(groupId)
-                client.requestGroupAdmins(groupId)
+                // Members/admins may already be live (mux_meta or an earlier fetch); only
+                // ask for what we still lack so we don't double the kind:39002/39001 REQs.
+                if (groupId !in _groupMembers.value) client.requestGroupMembers(groupId)
+                if (groupId !in _groupAdmins.value) client.requestGroupAdmins(groupId)
             } catch (_: Exception) {}
         }
     }
@@ -883,12 +1076,68 @@ class GroupManager(
     }
 
     /**
+     * Timing-robust safety net for kind:39000. The mux_meta batch and the one-shot meta_batch_
+     * REQ are all-or-nothing: if the relay drops or CLOSEs them in the AUTH-vs-REQ window, EVERY
+     * joined group loses its metadata at once (members still arrive on their independent per-group
+     * members_ REQ). The slow JVM WebSocket engine loses that race far more than the browser
+     * engine, so on desktop cold boot many groups render as a truncated id + "No description"
+     * until a restart. This fires an INDEPENDENT per-group kind:39000 REQ for each joined group
+     * STILL missing metadata, so recovery never depends on winning the batch race. Paced (one
+     * short-lived, EOSE-closed sub open at a time) to stay well under strict relay sub caps
+     * (nos.social 50), and NOT gated by the [requestPrivateGroupData] cooldown — it is the net
+     * that cooldown otherwise breaks. Re-checks the missing set each step so it stops as soon as
+     * another path (the mux) fills them in.
+     */
+    suspend fun requestMissingGroupMetadata(relayUrl: String) {
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        var missing = getUncachedJoinedGroups(relayUrl)
+        while (missing.isNotEmpty()) {
+            val groupId = missing.first()
+            try {
+                client.requestGroupMetadata(groupId)
+            } catch (_: Exception) {}
+            delay(60)
+            if (!client.isConnected()) return
+            val next = getUncachedJoinedGroups(relayUrl)
+            // Guard against a group whose 39000 the relay never serves: drop it from the
+            // work set even if still uncached so the loop always terminates.
+            missing = next.filter { it != groupId }
+        }
+    }
+
+    /**
+     * Load the active group's message history after a relay switch.
+     *
+     * [clearForRelaySwitch] resets every controller to Idle; the bulk re-subscribe reloads the
+     * other groups but not the active one, and setActiveGroupId's own load races the clear and
+     * gets wiped (it runs before clearForRelaySwitch). Re-firing here, after the new relay's
+     * group-list EOSE (so after the clear), guarantees the active group leaves Idle and can
+     * paginate. No-op if the group already loaded — requestGroupMessages only acts from Idle/Error.
+     */
+    suspend fun requestActiveGroupMessagesIfNeeded(relayUrl: String) {
+        val groupId = _activeGroupId ?: return
+        if (getRelayForGroup(groupId)?.normalizeRelayUrl() != relayUrl.normalizeRelayUrl()) return
+        val state = loadingRegistry.getController(groupId).state.value
+        if (state !is GroupLoadingState.Idle && state !is GroupLoadingState.Error) return
+        requestGroupMessages(groupId)
+    }
+
+    /**
      * Load joined groups from storage
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         currentPubkey = pubKey
+        // Restore the persisted dropped-group guard: a relay that missed our delete still serves the
+        // old kind:10009, and the additive merge would resurrect the group on restart without this.
+        deletedGroupIds.addAll(SecureStorage.loadDroppedGroupIds(pubKey))
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
-        _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
+        // Additive: a join that landed before this async restore must not be wiped
+        // by the (older) persisted set.
+        _joinedGroupsByRelay.update { current ->
+            val key = relayUrl.normalizeRelayUrl()
+            current + (key to (current[key].orEmpty() + groups))
+        }
     }
 
     /**
@@ -896,12 +1145,29 @@ class GroupManager(
      * only touching the per-relay cache.
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
+        val now = epochSeconds()
+        // Restore the durable left markers into the flow (called at every restore path) so a left group
+        // reads NONE after a restart. We do NOT filter the joined set against them: leaveGroup already
+        // removes the group from the joined slot, and filtering here risked excluding a rejoined group
+        // whose marker hadn't been cleared yet, breaking its live messages.
+        val leftAll = mutableMapOf<String, Long>()
+        for (url in relayUrls) leftAll.putAll(SecureStorage.getLeftGroupsForRelay(pubKey, url, now))
         val updates = relayUrls.associate { url ->
             url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
         }.filter { (_, groups) -> groups.isNotEmpty() }
+        if (leftAll.isNotEmpty()) _leftGroups.update { it + leftAll }
         if (updates.isNotEmpty()) {
-            _joinedGroupsByRelay.update { it + updates }
+            // Additive, like loadJoinedGroupsFromStorage: never wipe a fresher join.
+            _joinedGroupsByRelay.update { current ->
+                current + updates.mapValues { (relay, groups) -> current[relay].orEmpty() + groups }
+            }
         }
+    }
+
+    /** Persist [deletedGroupIds] so the dropped-group guard survives a restart (see its callers). */
+    private fun persistDroppedGroups(pubKey: String? = currentPubkey) {
+        val pk = pubKey?.takeIf { it.isNotBlank() } ?: return
+        SecureStorage.saveDroppedGroupIds(pk, deletedGroupIds.toSet())
     }
 
     /**
@@ -950,12 +1216,19 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             deletedGroupIds.remove(groupId)
+            persistDroppedGroups()
             recentlyLeftAt.remove(groupId)
+            // Rejoining clears the durable left marker BEFORE the optimistic bookkeeping below adds
+            // the group back, so the additive kind:10009 merge can't drop the fresh join.
+            _leftGroups.update { it - groupId }
+            try {
+                SecureStorage.removeLeftGroupForRelay(pubKey, groupRelayUrl.normalizeRelayUrl(), groupId)
+            } catch (_: Exception) {}
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
             if (effectiveCode != null) {
@@ -970,23 +1243,56 @@ class GroupManager(
             )
 
             val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.JoinFailed(groupId, Exception("Event ID not generated")))
 
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            currentClient.send(message)
+            // Private/closed relays gate the join-request publish behind NIP-42 AUTH. Firing the
+            // 9021 on an unauthenticated socket gets it dropped "auth-required" and the admin never
+            // sees the pending request. awaitAuthSigned (not the requiresAuth-gated wait) also covers
+            // the fresh-connect race where the relay has not issued its challenge yet by tap time:
+            // it waits for the challenge to arrive, then for the signer. Returns fast on open/public
+            // relays that never challenge.
+            currentClient.awaitAuthSigned(signBudgetMs = INITIAL_READ_AUTH_TIMEOUT_MS)
 
-            val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
+            // Await the OK so a relay rejection (e.g. a closed group that only admits via invite
+            // code) surfaces with its reason instead of failing silently, and so we only record the
+            // optimistic membership when the request was actually accepted.
+            when (val publish = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Unit
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception(publish.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, Exception("The relay did not confirm the join request.")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    return Result.Error(AppError.Group.JoinFailed(groupId, publish.exception))
+            }
+
+            // Normalized key, like every other _joinedGroupsByRelay writer: a raw URL
+            // variant ("wss://x/" vs "wss://x") would start a parallel entry whose set
+            // lacks the relay's other groups, and the next kind:10009 publish/echo
+            // would read as the list being replaced instead of incremented.
+            // Merged with the persisted slot because the in-memory map can be partial
+            // early in a session (the storage restore is async): writing memory-only
+            // here would clobber the slot, and on restart the slot is the only truth
+            // (our own kind:10009 echo is dropped by the persisted timestamp guard).
+            val normalizedGroupRelay = groupRelayUrl.normalizeRelayUrl()
+            val stored = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedGroupRelay)
+            val relayGroups = (_joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()) + stored
             val updated = relayGroups + groupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updated)
-            _joinedGroupsByRelay.update { it + (groupRelayUrl to updated) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedGroupRelay, updated)
+            _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updated) }
+            markRecentlyJoined(groupId)
 
             publishJoinedGroups()
 
             clearGroupRestricted(groupId)
-            pendingApprovalSince[groupId] = epochMillis()
+            // Seconds, to match GroupMembershipState.requestedAtSeconds (the "Requested ..." label).
+            _pendingApprovalSince.update { it + (groupId to epochSeconds()) }
             refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             kotlinx.coroutines.delay(500)
@@ -1005,6 +1311,52 @@ class GroupManager(
     }
 
     /**
+     * Flip [groupId] to joined on [relayUrl] in memory immediately so the UI reacts
+     * without waiting on a relay switch + signer + send (mirrors the optimistic follow
+     * button). The real [joinGroup] confirms and persists it; [revertOptimisticJoin]
+     * rolls it back on failure. Returns false when it was already joined, so the caller
+     * knows not to revert a pre-existing membership. Memory-only: persistence stays with
+     * the confirmed join so a failed attempt never lands in SecureStorage.
+     */
+    fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean {
+        val key = relayUrl.normalizeRelayUrl()
+        if (groupId in (_joinedGroupsByRelay.value[key] ?: emptySet())) return false
+        _joinedGroupsByRelay.update { current ->
+            current + (key to ((current[key] ?: emptySet()) + groupId))
+        }
+        markRecentlyJoined(groupId)
+        return true
+    }
+
+    /** Undo a [markOptimisticJoin] when the join ultimately fails. */
+    fun revertOptimisticJoin(relayUrl: String, groupId: String) {
+        val key = relayUrl.normalizeRelayUrl()
+        _joinedGroupsByRelay.update { current ->
+            current + (key to ((current[key] ?: emptySet()) - groupId))
+        }
+    }
+
+    /**
+     * Append the NIP-29 access flags to a kind:9002 tag list. Flags are presence-only:
+     * each is added only when on; absence is the permissive default (public / open /
+     * anyone-writes / discoverable). There are no public / open / un-restricted tags, so a
+     * complete flag declaration is exactly the set of on-flags, which is also how the OFF
+     * state is communicated to the relay.
+     */
+    private fun addAccessFlags(
+        tags: MutableList<List<String>>,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
+    ) {
+        if (isPrivate) tags.add(listOf("private"))
+        if (isClosed) tags.add(listOf("closed"))
+        if (isRestricted) tags.add(listOf("restricted"))
+        if (isHidden) tags.add(listOf("hidden"))
+    }
+
+    /**
      * Create a new NIP-29 group
      */
     suspend fun createGroup(
@@ -1013,13 +1365,15 @@ class GroupManager(
         picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         customGroupId: String? = null,
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit,
     ): Result<String> {
-        val currentClient = connectionManager.getPrimaryClient()
+        val currentClient = connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
 
         return try {
@@ -1056,13 +1410,16 @@ class GroupManager(
                 suggestedGroupId = suggestedId,
             )
 
-            // kind 9002: edit-metadata — sets name, about, picture, and access in one event
+            // kind 9002: edit-metadata — sets name, about, picture, and access in one event.
             val metaTags = mutableListOf(
                 listOf("h", confirmedGroupId),
                 listOf("name", name),
-                if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open"),
             )
+            // NIP-29 access flags are presence-only: absence is the permissive default
+            // (public / open / anyone-writes / discoverable). There are no public / open /
+            // un-restricted counterpart tags, so we emit each flag only when on and omit it
+            // otherwise — that omission is what declares the OFF state to the relay.
+            addAccessFlags(metaTags, isPrivate, isClosed, isRestricted, isHidden)
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
             val signedMeta = signEvent(
@@ -1081,10 +1438,15 @@ class GroupManager(
                 }.toString(),
             )
 
-            val relayGroups = _joinedGroupsByRelay.value[currentRelayUrl] ?: emptySet()
+            // Normalized key + merged with the persisted slot, for the same reasons as
+            // joinGroup: a raw URL variant forks a parallel relay entry, and a partial
+            // in-memory map would clobber the slot that restarts rely on.
+            val normalizedCreateRelay = currentRelayUrl.normalizeRelayUrl()
+            val storedAtCreate = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedCreateRelay)
+            val relayGroups = (_joinedGroupsByRelay.value[normalizedCreateRelay] ?: emptySet()) + storedAtCreate
             val updatedAfterCreate = relayGroups + confirmedGroupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterCreate)
-            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterCreate) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedCreateRelay, updatedAfterCreate)
+            _joinedGroupsByRelay.update { it + (normalizedCreateRelay to updatedAfterCreate) }
             publishJoinedGroups()
             currentClient.requestGroupMessages(confirmedGroupId)
 
@@ -1117,6 +1479,8 @@ class GroupManager(
         picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
@@ -1125,16 +1489,16 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             val metaTags = mutableListOf(
                 listOf("h", groupId),
                 listOf("name", name),
-                if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open"),
             )
+            // Presence-only NIP-29 flags (see createGroup): emit only the ones that are on.
+            addAccessFlags(metaTags, isPrivate, isClosed, isRestricted, isHidden)
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
 
@@ -1182,19 +1546,26 @@ class GroupManager(
                 add(signedMeta.toJsonObject())
             }.toString()
             val eventId = signedMeta.id
-                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Event ID not generated")))
 
             when (val result = currentClient.sendAndAwaitOk(eventJson, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    // Pull the just-edited kind:39000 so name/picture/parent/children land locally
+                    // immediately (groupsByRelay + childrenByParent), instead of waiting for a
+                    // refresh that no longer happens now that we only fetch known groups.
+                    currentClient.requestGroupMetadata(groupId)
+                    refreshMuxSubscriptionsForRelay(groupRelayUrl)
+                    Result.Success(Unit)
+                }
                 is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.CreateFailed(Exception(result.reason)))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception(result.reason)))
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception("Relay did not respond in time")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
-                    Result.Error(AppError.Group.CreateFailed(result.exception))
+                    Result.Error(AppError.Group.EditFailed(groupId, result.exception))
             }
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.CreateFailed(e))
+            Result.Error(AppError.Group.EditFailed(groupId, e))
         }
     }
 
@@ -1219,7 +1590,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1243,18 +1614,26 @@ class GroupManager(
                 add(signed.toJsonObject())
             }.toString()
             val eventId = signed.id
-                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Event ID not generated")))
             when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    // Pull the just-updated kind:39000 so its new `parent` tag lands locally
+                    // (childrenByParent + groupsByRelay) right away — otherwise the subgroup
+                    // shows up parent-less (in the rail, missing from Subgroups) until a later
+                    // refresh, which no longer happens now that we only fetch known groups.
+                    currentClient.requestGroupMetadata(groupId)
+                    refreshMuxSubscriptionsForRelay(groupRelayUrl)
+                    Result.Success(Unit)
+                }
                 is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.CreateFailed(Exception(res.reason)))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception(res.reason)))
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception("Relay did not respond in time")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
-                    Result.Error(AppError.Group.CreateFailed(res.exception))
+                    Result.Error(AppError.Group.EditFailed(groupId, res.exception))
             }
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.CreateFailed(e))
+            Result.Error(AppError.Group.EditFailed(groupId, e))
         }
     }
 
@@ -1283,7 +1662,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         // Include current metadata so the relay accepts the kind:9002.
@@ -1293,8 +1672,16 @@ class GroupManager(
             val tags = mutableListOf<List<String>>(
                 listOf("h", groupId),
                 listOf("name", meta?.name ?: groupId),
-                if (meta?.isPublic != false) listOf("public") else listOf("private"),
-                if (meta?.isOpen != false) listOf("open") else listOf("closed"),
+            )
+            // Re-declare the existing access flags so this topology/children edit doesn't
+            // drop them (presence-only, same rule as createGroup/editGroup). Omitting them
+            // here previously cleared restricted/hidden and emitted bogus public/open tags.
+            addAccessFlags(
+                tags,
+                isPrivate = meta?.isPublic == false,
+                isClosed = meta?.isOpen == false,
+                isRestricted = meta?.isRestricted == true,
+                isHidden = meta?.isHidden == true,
             )
             meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
             meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
@@ -1366,7 +1753,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1379,27 +1766,33 @@ class GroupManager(
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
-                ?: return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.DeleteFailed(groupId, Exception("Event ID not generated")))
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            when (val pub = currentClient.sendAndAwaitOk(message, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception(pub.reason)))
-                is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Relay did not respond in time")))
-                is org.nostr.nostrord.network.PublishResult.Error ->
-                    return Result.Error(AppError.Group.LeaveFailed(groupId, pub.exception))
-                is org.nostr.nostrord.network.PublishResult.Success -> Unit
+            // Background the 9008 so delete doesn't block on the relay OK (a half-open socket burns
+            // the 10s timeout). The local cleanup below drops the group now; the send retries once.
+            scope.launch {
+                val pub = currentClient.sendAndAwaitOk(message, eventId)
+                if (pub is org.nostr.nostrord.network.PublishResult.Timeout && connectionManager.reconnect()) {
+                    val freshClient = connectionManager.getClientForRelay(groupRelayUrl)
+                        ?: connectionManager.getFocusedClient()
+                    freshClient?.sendAndAwaitOk(message, eventId)
+                }
             }
 
             val idsToRemove = setOf(groupId)
             val normalizedGroupRelay = groupRelayUrl.normalizeRelayUrl()
-            val relayGroupsBefore = _joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()
+            // Merge memory with the persisted slot (the map can be partial early in a
+            // session), then remove. The slot key must be the normalized URL: storage
+            // slots hash the raw string, so a raw variant would write a parallel slot
+            // and the canonical one would resurrect the group on restart.
+            val storedBeforeLeave = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedGroupRelay)
+            val relayGroupsBefore = (_joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()) + storedBeforeLeave
             val updatedAfterLeave = relayGroupsBefore - idsToRemove
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedGroupRelay, updatedAfterLeave)
             _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updatedAfterLeave) }
             publishJoinedGroups()
 
@@ -1414,15 +1807,17 @@ class GroupManager(
             _isLoadingMore.update { it - idsToRemove }
             _hasMoreMessages.update { it - idsToRemove }
             _groupStates.update { it - idsToRemove }
+            _groupsAwaitingAuthRead.update { it - idsToRemove }
             _groupAdmins.update { it - idsToRemove }
             _groupMembers.update { it - idsToRemove }
             idsToRemove.forEach { loadingRegistry.remove(it) }
             deletedGroupIds.addAll(idsToRemove)
+            persistDroppedGroups(pubKey)
             recomputeSubgroupTopology()
 
             Result.Success(Unit)
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.LeaveFailed(groupId, e))
+            Result.Error(AppError.Group.DeleteFailed(groupId, e))
         }
     }
 
@@ -1458,10 +1853,12 @@ class GroupManager(
         _isLoadingMore.update { it - idsToRemove }
         _hasMoreMessages.update { it - idsToRemove }
         _groupStates.update { it - idsToRemove }
+        _groupsAwaitingAuthRead.update { it - idsToRemove }
         _groupAdmins.update { it - idsToRemove }
         _groupMembers.update { it - idsToRemove }
         idsToRemove.forEach { loadingRegistry.remove(it) }
         deletedGroupIds.addAll(idsToRemove)
+        persistDroppedGroups(pubKey)
         recomputeSubgroupTopology()
         return false
     }
@@ -1490,6 +1887,7 @@ class GroupManager(
             } catch (_: Exception) {}
         }
         deletedGroupIds.add(groupId)
+        persistDroppedGroups(pubKey)
         return true
     }
 
@@ -1507,7 +1905,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1552,7 +1950,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1599,7 +1997,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1646,7 +2044,7 @@ class GroupManager(
     ): Result<String> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1695,7 +2093,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1746,28 +2144,49 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit,
     ): Result<Unit> {
-        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
-        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+        // Normalize so the joined-set/storage keys match those written by joinGroup and the
+        // kind:10009 handler. getRelayForGroup already returns a normalized key, but the
+        // currentRelayUrl fallback may not, and a non-normalized key would leave the group
+        // in the canonical (normalized) slot and resurrect it on the next publish.
+        val groupRelayUrl = (getRelayForGroup(groupId) ?: currentRelayUrl).normalizeRelayUrl()
 
         return try {
-            val event = Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9022,
-                tags = listOf(listOf("h", groupId)),
-                content = reason.orEmpty(),
-            )
-
-            val signedEvent = signEvent(event)
-
-            val message = buildJsonArray {
-                add("EVENT")
-                add(signedEvent.toJsonObject())
-            }.toString()
-
-            currentClient.send(message)
+            // Best-effort 9022 to the group relay. A dead or unreachable relay must NOT
+            // block removal from the user's own kind:10009 list, so a missing client or a
+            // failed send is swallowed and we still clean the list below. The kind:10009
+            // republish goes to the outbox relays, which are independent of this relay.
+            val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+                ?: connectionManager.getFocusedClient()
+            if (currentClient != null) {
+                try {
+                    val event = Event(
+                        pubkey = pubKey,
+                        createdAt = epochMillis() / 1000,
+                        kind = 9022,
+                        tags = listOf(listOf("h", groupId)),
+                        content = reason.orEmpty(),
+                    )
+                    val signedEvent = signEvent(event)
+                    val message = buildJsonArray {
+                        add("EVENT")
+                        add(signedEvent.toJsonObject())
+                    }.toString()
+                    // Private/closed relays gate the leave-request behind NIP-42 AUTH. Firing the
+                    // 9022 on an unauthenticated socket gets it dropped "auth-required", so the relay
+                    // never removes the user and re-fetched members keep listing them (the group looks
+                    // joined again on reopen). Wait for AUTH first, like the join path. No-op on
+                    // open/public relays. Fire-and-forget after that so the local cleanup below is
+                    // never delayed by an OK that some relays don't send for a 9022.
+                    if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+                        currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+                    }
+                    currentClient.send(message)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // Relay send/sign failed; the kind:10009 cleanup below still applies.
+                }
+            }
 
             val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
             val updatedAfterLeave = relayGroups - groupId
@@ -1778,11 +2197,18 @@ class GroupManager(
             publishJoinedGroups()
 
             recentlyLeftAt[groupId] = epochMillis()
+            // Durable leave intent: outlives recentlyLeftAt (5s) and a restart, so the membership
+            // derivation keeps reporting NONE even when the relay still lists us in kind:39002.
+            _leftGroups.update { it + (groupId to epochSeconds()) }
+            try {
+                SecureStorage.addLeftGroupForRelay(pubKey, groupRelayUrl, groupId, epochSeconds())
+            } catch (_: Exception) {}
 
             _messages.update { it - groupId }
             _isLoadingMore.update { it - groupId }
             _hasMoreMessages.update { it - groupId }
             _groupStates.update { it - groupId }
+            _groupsAwaitingAuthRead.update { it - groupId }
             _groupMembers.update { it - groupId }
             _groupAdmins.update { it - groupId }
             _groupRoles.update { it - groupId }
@@ -1790,21 +2216,31 @@ class GroupManager(
             memberEventTimestamps.remove(groupId)
             adminEventTimestamps.remove(groupId)
             roleEventTimestamps.remove(groupId)
-            pendingApprovalSince.remove(groupId)
+            _pendingApprovalSince.update { it - groupId }
             messageIdIndex.remove(groupId)
             _latestMessageRelayByGroup.update { it - groupId }
             observedGroupsMutex.withLock { observedGroups.remove(groupId) }
             loadingRegistry.remove(groupId)
             _openedGroupIds.update { it - groupId }
+            // When the relay gates this group's reads behind NIP-42 AUTH, leaving makes us a
+            // non-member and the relay WILL re-CLOSE our reads "restricted" a round-trip later.
             // Leaving is an explicit reset of intent — a future rejoin should
             // get a fresh access attempt instead of being silently excluded.
             clearGroupRestricted(groupId)
+
+            // Overwrite the persisted membership cache (now that the in-memory maps no longer carry
+            // this group) so a restart does not re-hydrate self into the left group's member list —
+            // which would read back as MEMBER (no Join button, cached chat) on a private group whose
+            // 39002 the relay no longer serves us.
+            persistGroupMembershipSnapshot()
 
             // Drop the group from the live mux so the relay stops pushing
             // events for it the moment we send the leave.
             refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             Result.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }
@@ -1822,9 +2258,11 @@ class GroupManager(
     suspend fun requestGroupMessages(groupId: String, channel: String? = null): Boolean {
         val currentClient = clientForGroup(groupId) ?: return false
 
-        // Get controller and attempt to start initial load
+        // Get controller and attempt to start initial load. Enter InitialLoading immediately
+        // (so the UI shows skeletons) but DEFER the load timeout: the AUTH wait below can take
+        // several seconds on a remote signer and must not consume the timeout budget.
         val controller = loadingRegistry.getController(groupId)
-        val subscriptionId = controller.startInitialLoad() ?: return false
+        val subscriptionId = controller.startInitialLoad(armTimeout = false) ?: return false
 
         // Register subscription for O(1) lookup
         loadingRegistry.registerSubscription(subscriptionId, controller)
@@ -1835,8 +2273,19 @@ class GroupManager(
         // Observe state changes to update legacy flags (only once per group)
         observeStateChanges(groupId, controller)
 
-        // If messages have already been delivered by mux, request only events older than
-        // the oldest one we have to avoid deduplication causing messageCount=0 → Exhausted.
+        // Private/closed groups gate reads behind NIP-42 AUTH. Firing the initial REQ before
+        // AUTH lands gets CLOSED "auth-required" and zero events, which the UI mistakes for an
+        // empty group (the "No messages yet" flicker on bunker login). Wait for AUTH first,
+        // with a budget sized for a remote (NIP-46) signer. The controller stays in
+        // InitialLoading during the wait, so the UI keeps showing skeletons. No-op once AUTH
+        // has succeeded; skipped on public relays that never challenge. Mirrors loadMoreMessages.
+        if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+            currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+        }
+
+        // If messages have already been delivered by mux (possibly during the AUTH wait),
+        // request only events older than the oldest one we have to avoid deduplication
+        // causing messageCount=0 → Exhausted.
         val existingMessages = _messages.value[groupId]
         val until = existingMessages?.minOfOrNull { it.createdAt }?.let { oldest ->
             if (oldest < Long.MAX_VALUE) oldest - 1L else null
@@ -1850,6 +2299,8 @@ class GroupManager(
                 limit = PAGE_SIZE,
                 subscriptionId = subscriptionId,
             )
+            // The authenticated REQ is now on the wire — start the load timeout.
+            controller.armInitialTimeout(subscriptionId)
             true
         } catch (e: Throwable) {
             loadingRegistry.unregisterSubscription(subscriptionId)
@@ -1864,7 +2315,6 @@ class GroupManager(
      * Only creates one observation job per group to prevent memory leaks.
      */
     private suspend fun observeStateChanges(groupId: String, controller: GroupLoadingController) {
-        // Check if already observing this group
         val shouldObserve = observedGroupsMutex.withLock {
             if (groupId in observedGroups) {
                 false
@@ -1880,6 +2330,15 @@ class GroupManager(
             controller.state.collect { state ->
                 updateLegacyFlags(groupId, state)
                 _groupStates.update { it + (groupId to state) }
+                // A settled state means an authenticated read completed (pre-AUTH reads are
+                // held, not settled), so the group is no longer awaiting AUTH. Idle/InitialLoading
+                // keep the flag so the resubscribeAfterAuth reset window stays "loading".
+                if (state is GroupLoadingState.HasMore ||
+                    state is GroupLoadingState.Exhausted ||
+                    state is GroupLoadingState.Error
+                ) {
+                    _groupsAwaitingAuthRead.update { it - groupId }
+                }
             }
         }
     }
@@ -1898,6 +2357,15 @@ class GroupManager(
      * Uses the state machine with per-group locks - doesn't block other groups.
      */
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+        // Disk-first: serve an older page from the persistent cache before any relay round-trip
+        // (and without touching the pagination state machine). Only when local history is
+        // exhausted do we fall through to the relay. Works offline too — no client required.
+        // Guarded by a timeout: a hung IndexedDB read on web must NEVER dead-lock pagination —
+        // the web load latch only releases once this returns, so a hang froze scroll-back
+        // entirely (the group settled on HasMore but the latch stayed stuck after one page).
+        val servedFromCache = withTimeoutOrNull(CACHE_PAGE_TIMEOUT_MS) { loadOlderFromCache(groupId) } ?: false
+        if (servedFromCache) return true
+
         val currentClient = clientForGroup(groupId) ?: return false
 
         // Get controller and attempt to start pagination
@@ -1925,15 +2393,18 @@ class GroupManager(
         // Update legacy flags
         updateLegacyFlags(groupId, controller.state.value)
 
-        // When cursor.untilTimestamp == Long.MAX_VALUE the tracker counted 0 messages
-        // (all were deduplicated because mux delivered them before the pagination sub).
-        // Fall back to the actual oldest message in the store so page 2 doesn't repeat
-        // the same window as the initial load and return nothing.
-        val effectiveUntil = if (cursor.untilTimestamp == Long.MAX_VALUE) {
-            val minCreatedAt = _messages.value[groupId]
-                ?.filter { it.createdAt > 1_000_000_000L } // guard against epoch-0 outliers
-                ?.minOfOrNull { it.createdAt }
-            if (minCreatedAt != null) minCreatedAt - 1L else cursor.untilTimestamp
+        // Continue the relay scan from the oldest message actually in memory, never from a
+        // cursor that lags behind it. Two ways the cursor falls behind the in-memory boundary:
+        // disk-first pagination prepends older cached pages without advancing the controller,
+        // and a mux delivery before the pagination sub leaves the tracker at Long.MAX_VALUE.
+        // In both cases firing the REQ at the stale cursor re-requests an already-covered window
+        // (every event dedups away), so the loader reads it as "no more" and stops paginating
+        // early. Clamping to oldest-in-memory minus one makes page 2 pick up below what we hold.
+        val oldestInMemory = _messages.value[groupId]
+            ?.filter { it.createdAt > 1_000_000_000L } // guard against epoch-0 outliers
+            ?.minOfOrNull { it.createdAt }
+        val effectiveUntil = if (oldestInMemory != null) {
+            minOf(cursor.untilTimestamp, oldestInMemory - 1L)
         } else {
             cursor.untilTimestamp
         }
@@ -1971,6 +2442,24 @@ class GroupManager(
     }
 
     /**
+     * A msg_ subscription's initial load returned/CLOSED while the relay still needs NIP-42
+     * AUTH. Hold the load in InitialLoading (skeletons) instead of settling it to a false
+     * empty result, because resubscribeAfterAuth replays the read once AUTH completes. This
+     * removes the "open a private group from the homepage" flicker, where the first read
+     * races the relay's auth-required CLOSE. Returns true if the load was held (caller skips
+     * the normal EOSE settle). Unregisters the dead sub so the registry doesn't accumulate.
+     */
+    suspend fun holdInitialLoadForReauth(subscriptionId: String): Boolean {
+        val controller = loadingRegistry.findBySubscription(subscriptionId) ?: return false
+        val held = controller.holdInitialLoadForReauth(subscriptionId)
+        if (held) {
+            _groupsAwaitingAuthRead.update { it + controller.id }
+            loadingRegistry.unregisterSubscription(subscriptionId)
+        }
+        return held
+    }
+
+    /**
      * Called when EOSE is received for a subscription.
      * Delegates to the state machine for proper state transitions.
      * CRITICAL: This must be called from a coroutine context to ensure
@@ -1980,7 +2469,7 @@ class GroupManager(
      * Handle an EOSE from [sourceRelayUrl]'s socket. Passing the source relay
      * explicitly (rather than reverse-mapping from the sub ID) avoids
      * mis-attributing a late EOSE from a torn-down relay to whichever relay is
-     * currently primary — previously such a misattribution could mark the
+     * currently focused — previously such a misattribution could mark the
      * current relay as fully fetched and prune its groups even though it had
      * never received its own EOSE.
      */
@@ -2018,7 +2507,7 @@ class GroupManager(
                 }
             }
             try {
-                SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now)
+                SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, currentPubkey, now)
             } catch (_: Exception) {}
             refreshMuxSubscriptionsForRelay(normalizedRelay)
             return true
@@ -2186,89 +2675,77 @@ class GroupManager(
         replyToMessageId: String? = null,
         extraTags: List<List<String>> = emptyList(),
         signEvent: suspend (Event) -> Event,
-    ): Result<Unit> {
-        return try {
-            val tags = mutableListOf(listOf("h", groupId))
-            if (channel != null && channel != "general") {
-                tags.add(listOf("channel", channel))
-            }
-
-            // Add reply tag if replying to a message (NIP-29: use "q" tag)
-            if (replyToMessageId != null) {
-                tags.add(listOf("q", replyToMessageId))
-            }
-
-            // Replace @displayName with nostr:npub... in content
-            var processedContent = content
-            mentions.forEach { (displayName, pubkeyHex) ->
-                val npub = org.nostr.nostrord.nostr.Nip19.encodeNpub(pubkeyHex)
-                processedContent = processedContent.replace("@$displayName", "nostr:$npub")
-                tags.add(listOf("p", pubkeyHex))
-            }
-
-            // p-tag the author of the message being replied to (NIP-10/22). Without
-            // it the recipient is only classified as "replied to" when they happen
-            // to have the parent message cached locally, so replies silently miss
-            // the per-group "mentions & replies only" notification filter (#70).
-            if (replyToMessageId != null) {
-                val parentAuthor = findMessageByIdAcrossGroups(replyToMessageId)?.second?.pubkey
-                if (parentAuthor != null &&
-                    parentAuthor != pubKey &&
-                    tags.none { it.size >= 2 && it[0] == "p" && it[1] == parentAuthor }
-                ) {
-                    tags.add(listOf("p", parentAuthor))
-                }
-            }
-
-            // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
-            extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
-
-            val event = Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9,
-                tags = tags,
-                content = processedContent,
-            )
-
-            val signedEvent = signEvent(event)
-
-            val eventJson = signedEvent.toJsonObject()
-            val message = buildJsonArray {
-                add("EVENT")
-                add(eventJson)
-            }.toString()
-
-            // Get event ID for OK tracking
-            val eventId = signedEvent.id
-                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
-
-            // Optimistic insert: show the message immediately with a Sending status,
-            // before the relay round-trip. The relay echo for this id is deduped by
-            // messageIdIndex so it never double-inserts; delivery is confirmed by the
-            // OK in deliverMessage(), not the echo.
-            insertOwnMessage(
-                groupId,
-                NostrGroupClient.NostrMessage(
-                    id = eventId,
-                    pubkey = signedEvent.pubkey,
-                    content = signedEvent.content,
-                    createdAt = signedEvent.createdAt,
-                    kind = signedEvent.kind,
-                    tags = signedEvent.tags,
-                ),
-            )
-            _messageStatus.update { it + (eventId to MessageStatus.Sending) }
-
-            // Deliver on the manager scope so a group switch or screen exit does not
-            // cancel the in-flight send (viewModelScope would). Status resolves async.
-            scope.launch { deliverMessage(groupId, message, eventId) }
-            Result.Success(Unit)
-        } catch (e: Throwable) {
-            // Signing/build failure: no optimistic message was inserted yet, so
-            // surface this as a real error (the composer restores the draft).
-            Result.Error(AppError.Group.SendFailed(groupId, e))
+    ): Result<Unit> = try {
+        val tags = mutableListOf(listOf("h", groupId))
+        if (channel != null && channel != "general") {
+            tags.add(listOf("channel", channel))
         }
+
+        // Add reply tag if replying to a message (NIP-29: use "q" tag)
+        if (replyToMessageId != null) {
+            tags.add(listOf("q", replyToMessageId))
+        }
+
+        // Replace @displayName with nostr:npub... in content
+        var processedContent = content
+        mentions.forEach { (displayName, pubkeyHex) ->
+            val npub = org.nostr.nostrord.nostr.Nip19.encodeNpub(pubkeyHex)
+            processedContent = processedContent.replace("@$displayName", "nostr:$npub")
+            tags.add(listOf("p", pubkeyHex))
+        }
+
+        // p-tag the author of the message being replied to (NIP-10/22). Without
+        // it the recipient is only classified as "replied to" when they happen
+        // to have the parent message cached locally, so replies silently miss
+        // the per-group "mentions & replies only" notification filter (#70).
+        if (replyToMessageId != null) {
+            val parentAuthor = findMessageByIdAcrossGroups(replyToMessageId)?.second?.pubkey
+            if (parentAuthor != null &&
+                parentAuthor != pubKey &&
+                tags.none { it.size >= 2 && it[0] == "p" && it[1] == parentAuthor }
+            ) {
+                tags.add(listOf("p", parentAuthor))
+            }
+        }
+
+        // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
+        extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
+
+        val event = Event(
+            pubkey = pubKey,
+            createdAt = epochMillis() / 1000,
+            kind = 9,
+            tags = tags,
+            content = processedContent,
+        )
+
+        // Stable NIP-01 id, computable before signing, so the optimistic bubble
+        // carries the final id and the relay echo dedups against it.
+        val eventId = event.calculateId()
+
+        // Optimistic insert before signing: the message shows immediately with a
+        // Sending status. Signing and delivery run on the manager scope so a group
+        // switch or screen exit does not cancel them, and a signing failure (e.g. a
+        // bunker timeout) resolves to a Failed status with retry, never a modal.
+        insertOwnMessage(
+            groupId,
+            NostrGroupClient.NostrMessage(
+                id = eventId,
+                pubkey = event.pubkey,
+                content = event.content,
+                createdAt = event.createdAt,
+                kind = event.kind,
+                tags = event.tags,
+            ),
+        )
+        _messageStatus.update { it + (eventId to MessageStatus.Sending) }
+
+        scope.launch { signAndDeliver(groupId, event, eventId, signEvent) }
+        Result.Success(Unit)
+    } catch (e: Throwable) {
+        // Pre-build failure before the optimistic insert: nothing is on screen, so
+        // surface a real error (the composer keeps the draft).
+        Result.Error(AppError.Group.SendFailed(groupId, e))
     }
 
     /**
@@ -2282,6 +2759,34 @@ class GroupManager(
             if (!index.add(message.id)) return@update currentMap
             currentMap + (groupId to (current + message).sortedBy { it.createdAt })
         }
+        touchGroupRecency(groupId)
+        cacheMessages(groupId, listOf(message))
+    }
+
+    /**
+     * Sign an optimistic message off the UI scope, then deliver it. A signing failure
+     * (e.g. a bunker timeout or refusal) marks the message Failed carrying the unsigned
+     * event so retry can re-sign; success hands the signed JSON to deliverMessage().
+     */
+    private suspend fun signAndDeliver(
+        groupId: String,
+        event: Event,
+        eventId: String,
+        signEvent: suspend (Event) -> Event,
+    ) {
+        val message = try {
+            val signed = signEvent(event)
+            buildJsonArray {
+                add("EVENT")
+                add(signed.toJsonObject())
+            }.toString()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            markFailed(eventId, groupId, eventJson = null, reason = e.message ?: "Could not sign message", unsignedEvent = event)
+            return
+        }
+        deliverMessage(groupId, message, eventId)
     }
 
     /**
@@ -2311,15 +2816,24 @@ class GroupManager(
         _messageStatus.update { it - eventId }
     }
 
-    private fun markFailed(eventId: String, groupId: String, eventJson: String, reason: String) {
-        _messageStatus.update { it + (eventId to MessageStatus.Failed(reason, groupId, eventJson)) }
+    private fun markFailed(eventId: String, groupId: String, eventJson: String?, reason: String, unsignedEvent: Event? = null) {
+        _messageStatus.update { it + (eventId to MessageStatus.Failed(reason, groupId, eventJson, unsignedEvent)) }
     }
 
-    /** Re-send a previously failed own message using its stored signed JSON. */
-    fun retrySend(eventId: String) {
+    /**
+     * Re-send a previously failed own message: re-delivers the stored signed JSON, or
+     * re-signs the unsigned event first when the original failure happened while signing.
+     */
+    fun retrySend(eventId: String, signEvent: suspend (Event) -> Event) {
         val failed = _messageStatus.value[eventId] as? MessageStatus.Failed ?: return
         _messageStatus.update { it + (eventId to MessageStatus.Sending) }
-        scope.launch { deliverMessage(failed.groupId, failed.eventJson, eventId) }
+        scope.launch {
+            val json = failed.eventJson
+            when {
+                json != null -> deliverMessage(failed.groupId, json, eventId)
+                failed.unsignedEvent != null -> signAndDeliver(failed.groupId, failed.unsignedEvent, eventId, signEvent)
+            }
+        }
     }
 
     /** Drop a failed own message from the chat (user dismissed it). */
@@ -2331,6 +2845,191 @@ class GroupManager(
             if (filtered.size == current.size) currentMap else currentMap + (groupId to filtered)
         }
         messageIdIndex[groupId]?.remove(eventId)
+    }
+
+    // ---- Forum threads (NIP-29 kind:11 root + NIP-22 kind:1111 replies) ----
+
+    private fun threadRootsSubId(groupId: String) = "threads_$groupId"
+
+    private fun threadRepliesSubId(groupId: String) = "threadrepl_$groupId"
+
+    /** Route a parsed thread event into its store (kind:11 roots, kind:1111 replies), deduped. */
+    private fun applyThreadEvent(groupId: String, message: NostrGroupClient.NostrMessage) {
+        val store = if (message.kind == 11) _threadRoots else _threadReplies
+        store.update { current ->
+            val list = current[groupId] ?: emptyList()
+            if (list.any { it.id == message.id }) return@update current
+            current + (groupId to (list + message).sortedBy { it.createdAt })
+        }
+    }
+
+    // Groups with an open threads pane, so they can be resubscribed after NIP-42 AUTH: a private
+    // group's pre-AUTH thread REQ comes back CLOSED "auth-required" and otherwise never retries.
+    private val openThreadGroups = mutableSetOf<String>()
+
+    /**
+     * Open the threads pane for a group: subscribe to kind:11 roots plus the batched kind:1111
+     * reply feed (for per-thread counts/previews). Both subscriptions stay open for live updates
+     * until [closeThreadSubscriptions]. Waits for AUTH on a private group, like the chat read; if
+     * AUTH lands later, [resubscribeOpenThreadsAfterAuth] re-fires these.
+     */
+    suspend fun requestGroupThreads(groupId: String): Boolean {
+        val client = clientForGroup(groupId) ?: return false
+        openThreadGroups.add(groupId)
+        if (client.requiresAuth() && !client.hasAuthSucceeded()) {
+            client.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+        }
+        return try {
+            client.requestGroupThreadRoots(
+                groupId,
+                limit = THREAD_PAGE_SIZE,
+                subscriptionId = threadRootsSubId(groupId),
+            )
+            client.requestThreadReplies(
+                groupId,
+                rootId = null,
+                limit = THREAD_REPLY_BATCH,
+                subscriptionId = threadRepliesSubId(groupId),
+            )
+            true
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Re-fire thread subscriptions for any open threads pane on [relayUrl] after NIP-42 AUTH
+     * succeeds. A private group's pre-AUTH thread REQ is CLOSED "auth-required"; this is the
+     * threads analogue of the chat mux's resubscribeAfterAuth.
+     */
+    suspend fun resubscribeOpenThreadsAfterAuth(relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
+        for (groupId in openThreadGroups.toList()) {
+            if (getRelayForGroup(groupId)?.normalizeRelayUrl() != normalized) continue
+            val client = clientForGroup(groupId) ?: continue
+            runCatching {
+                client.requestGroupThreadRoots(groupId, limit = THREAD_PAGE_SIZE, subscriptionId = threadRootsSubId(groupId))
+                client.requestThreadReplies(groupId, rootId = null, limit = THREAD_REPLY_BATCH, subscriptionId = threadRepliesSubId(groupId))
+            }
+        }
+    }
+
+    /**
+     * CLOSE the threads-pane subscriptions for a group (on leaving the pane). Fire-and-forget on
+     * the manager scope so a ViewModel can call it from onCleared without a live caller scope.
+     */
+    fun closeThreadSubscriptions(groupId: String) {
+        openThreadGroups.remove(groupId)
+        scope.launch {
+            // A responsive relayout (a desktop window crossing the 768dp mobile breakpoint, or any
+            // fast dispose/recreate) tears down then immediately rebuilds the threads pane. The new
+            // instance re-adds the group via requestGroupThreads; wait a beat and skip the close if
+            // it was re-opened, so we never CLOSE the subscription the new instance just opened
+            // (which left the list permanently empty / stuck loading on mobile).
+            delay(500)
+            if (groupId in openThreadGroups) return@launch
+            val client = clientForGroup(groupId) ?: return@launch
+            runCatching {
+                client.closeSubscription(threadRootsSubId(groupId))
+                client.closeSubscription(threadRepliesSubId(groupId))
+            }
+        }
+    }
+
+    /**
+     * Backfill one thread for a deep link (#/g/.../threads/<rootId>): the roots subscription only
+     * returns the latest [THREAD_PAGE_SIZE], so an older root (and its replies) may never arrive
+     * from it, leaving the detail view stuck on "Loading thread...". Fetch the kind:11 root by id
+     * (routes into [_threadRoots]) and a focused #E reply page so the detail resolves.
+     */
+    suspend fun fetchThread(groupId: String, rootId: String) {
+        // Retry so a cold-start deep link (the group client is still connecting when the screen
+        // mounts) still lands the fetch instead of silently no-op'ing on a null client.
+        repeat(8) {
+            val client = clientForGroup(groupId)
+            if (client != null) {
+                runCatching {
+                    client.requestGroupMessageById(groupId, rootId)
+                    client.requestThreadReplies(groupId, rootId = rootId, subscriptionId = "threadfocus_$rootId")
+                }
+                return
+            }
+            delay(500)
+        }
+    }
+
+    /**
+     * Create a forum thread (kind:11 root). Optimistically inserts into the thread store and
+     * publishes on the manager scope so a pane switch does not cancel the send; the relay echo
+     * is deduped by id. [title] becomes a NIP-14 `subject` tag (omitted when blank).
+     */
+    suspend fun createThread(
+        groupId: String,
+        title: String,
+        content: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> = try {
+        val tags = ThreadTags.root(groupId, getRelayForGroup(groupId), title)
+        publishThreadEvent(groupId, kind = 11, content = content, tags = tags, pubKey = pubKey, signEvent = signEvent)
+    } catch (e: Throwable) {
+        Result.Error(AppError.Group.SendFailed(groupId, e))
+    }
+
+    /**
+     * Publish a NIP-22 reply (kind:1111) to a thread. [root] is always the kind:11 thread root;
+     * [parent] is the item being replied to (the root for a top-level reply, or another reply
+     * for a nested one). Uppercase E/K/P carry the root scope (kept identical across the whole
+     * thread so nested replies stay attached to the original root); lowercase e/k/p the parent.
+     */
+    suspend fun sendThreadReply(
+        groupId: String,
+        root: NostrGroupClient.NostrMessage,
+        parent: NostrGroupClient.NostrMessage,
+        content: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> = try {
+        val tags = ThreadTags.reply(groupId, getRelayForGroup(groupId), root, parent)
+        publishThreadEvent(groupId, kind = 1111, content = content, tags = tags, pubKey = pubKey, signEvent = signEvent)
+    } catch (e: Throwable) {
+        Result.Error(AppError.Group.SendFailed(groupId, e))
+    }
+
+    /** Shared sign + optimistic-insert + deliver pipeline for thread events (kind 11 / 1111). */
+    private suspend fun publishThreadEvent(
+        groupId: String,
+        kind: Int,
+        content: String,
+        tags: List<List<String>>,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> {
+        val event = Event(
+            pubkey = pubKey,
+            createdAt = epochMillis() / 1000,
+            kind = kind,
+            tags = tags,
+            content = content,
+        )
+        // Insert the optimistic thread item before signing (stable NIP-01 id), then
+        // sign + deliver on the manager scope, so a bunker sign timeout resolves to a
+        // Failed status with retry instead of a modal, matching the chat send path.
+        val eventId = event.calculateId()
+        applyThreadEvent(
+            groupId,
+            NostrGroupClient.NostrMessage(
+                id = eventId,
+                pubkey = event.pubkey,
+                content = event.content,
+                createdAt = event.createdAt,
+                kind = event.kind,
+                tags = event.tags,
+            ),
+        )
+        _messageStatus.update { it + (eventId to MessageStatus.Sending) }
+        scope.launch { signAndDeliver(groupId, event, eventId, signEvent) }
+        return Result.Success(Unit)
     }
 
     /**
@@ -2440,7 +3139,13 @@ class GroupManager(
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
-        val messageAuthor = _messages.value[groupId]?.firstOrNull { it.id == messageId }?.pubkey
+        // Thread roots/replies live in their own stores, so check those too or deleting a thread
+        // would misread ownership (author null -> wrong deletion kind).
+        val messageAuthor = (
+            _messages.value[groupId].orEmpty() +
+                _threadRoots.value[groupId].orEmpty() +
+                _threadReplies.value[groupId].orEmpty()
+            ).firstOrNull { it.id == messageId }?.pubkey
         val deletionKind = deletionKindFor(
             isOwnMessage = messageAuthor == pubKey,
             isAdmin = isGroupAdmin(groupId, pubKey),
@@ -2478,14 +3183,20 @@ class GroupManager(
     }
 
     /**
-     * Rebuild and persist the joined-group metadata snapshot for [relayUrl].
+     * Rebuild and persist the group metadata snapshot for [relayUrl]: every joined group
+     * (the rail / My groups) plus a capped set of the most recently seen non-joined groups,
+     * so discovery cards on relays you're already on also render their name/avatar instantly
+     * on the next launch. Bounded by [GROUP_SNAPSHOT_EXTRA_CAP] to keep the blob small.
      * No-op when [currentPubkey] is not set (unauthenticated state).
      */
     private fun persistJoinedGroupMetadataSnapshot(relayUrl: String) {
         val pubKey = currentPubkey ?: return
         val normalized = relayUrl.normalizeRelayUrl()
         val joinedIds = _joinedGroupsByRelay.value[normalized] ?: emptySet()
-        val snapshot = (_groupsByRelay.value[normalized] ?: emptyList()).filter { it.id in joinedIds }
+        val all = _groupsByRelay.value[normalized] ?: emptyList()
+        val joined = all.filter { it.id in joinedIds }
+        val others = all.filter { it.id !in joinedIds }.takeLast(GROUP_SNAPSHOT_EXTRA_CAP)
+        val snapshot = joined + others
         try {
             SecureStorage.saveJoinedGroupMetadata(pubKey, normalized, json.encodeToString(groupMetadataListSerializer, snapshot))
         } catch (_: Exception) {}
@@ -2597,11 +3308,11 @@ class GroupManager(
     }
 
     /**
-     * Restore only the joined-group metadata snapshot for fast startup display.
-     * Reads from the pubkey-scoped cache written by [persistJoinedGroupMetadataSnapshot],
-     * which contains only the kind:10009 groups — a small, bounded dataset.
-     * Does NOT restore [_fullGroupListFetchedRelays]: a joined-only restore does not
-     * constitute a full list fetch, so OTHER GROUPS will trigger a network fetch when opened.
+     * Restore the group metadata snapshot for fast startup display. Reads the pubkey-scoped
+     * cache written by [persistJoinedGroupMetadataSnapshot] — the joined groups plus a capped
+     * set of recently-seen others, a small, bounded dataset.
+     * Does NOT restore [_fullGroupListFetchedRelays]: this snapshot is not a full list fetch,
+     * so OTHER GROUPS still triggers a network fetch when opened.
      */
     fun restoreJoinedGroupMetadataFromStorage(pubkey: String, relayUrls: List<String>) {
         val now = epochSeconds()
@@ -2622,13 +3333,132 @@ class GroupManager(
         // network fetch when the joined-group snapshot is still within the TTL window.
         val normalizedUrls = relayUrls.map { it.normalizeRelayUrl() }
         val freshRelays = normalizedUrls.filter { normalized ->
-            SecureStorage.isGroupListCacheFresh(normalized, now) &&
+            SecureStorage.isGroupListCacheFresh(normalized, currentPubkey, now) &&
                 _groupsByRelay.value[normalized]?.isNotEmpty() == true
         }.toSet()
         if (freshRelays.isNotEmpty()) {
             _completeGroupLoadRelays.update { it + freshRelays }
         }
         recomputeSubgroupTopology()
+    }
+
+    /**
+     * One group's members/admins/roles plus each list's source-event timestamp. The
+     * timestamps are persisted so the in-memory staleness guards survive a restart: a
+     * re-delivered same-or-older event after reconnect stays a no-op, and only a genuinely
+     * newer event replaces the cached list.
+     */
+    @Serializable
+    private data class MembershipSnapshot(
+        val members: List<String> = emptyList(),
+        val admins: List<String> = emptyList(),
+        val roles: List<RoleDefinition> = emptyList(),
+        val memberTs: Long = 0L,
+        val adminTs: Long = 0L,
+        val roleTs: Long = 0L,
+    )
+
+    private val membershipSnapshotSerializer =
+        MapSerializer(String.serializer(), MembershipSnapshot.serializer())
+
+    /**
+     * Persist members/admins/roles for every known group as one per-account blob. Cheap and
+     * infrequent: only the rare kind:39001/39002/39003 handlers call it, and only when a list
+     * actually changed. No-op when [currentPubkey] is unset (unauthenticated state).
+     */
+    private fun persistGroupMembershipSnapshot() {
+        val pubKey = currentPubkey ?: return
+        val groupIds = _groupMembers.value.keys + _groupAdmins.value.keys + _groupRoles.value.keys
+        if (groupIds.isEmpty()) return
+        val snapshot =
+            groupIds.associateWith { id ->
+                MembershipSnapshot(
+                    members = _groupMembers.value[id] ?: emptyList(),
+                    admins = _groupAdmins.value[id] ?: emptyList(),
+                    roles = _groupRoles.value[id] ?: emptyList(),
+                    memberTs = memberEventTimestamps[id] ?: 0L,
+                    adminTs = adminEventTimestamps[id] ?: 0L,
+                    roleTs = roleEventTimestamps[id] ?: 0L,
+                )
+            }
+        try {
+            SecureStorage.saveGroupMembershipFor(pubKey, json.encodeToString(membershipSnapshotSerializer, snapshot))
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Hydrate members/admins/roles from the per-account cache before sockets open, so opening a
+     * previously-seen group shows its member list with no spinner. Live data already in memory
+     * wins over the cache (existing keys are kept), and the seeded timestamps only advance the
+     * staleness guards, never roll them back.
+     */
+    fun restoreGroupMembershipFromStorage(pubkey: String) {
+        val raw = SecureStorage.loadGroupMembershipFor(pubkey) ?: return
+        val snapshot =
+            try {
+                json.decodeFromString(membershipSnapshotSerializer, raw)
+            } catch (_: Exception) {
+                return
+            }
+        if (snapshot.isEmpty()) return
+        val members = mutableMapOf<String, List<String>>()
+        val admins = mutableMapOf<String, List<String>>()
+        val roles = mutableMapOf<String, List<RoleDefinition>>()
+        snapshot.forEach { (id, snap) ->
+            if (snap.members.isNotEmpty()) {
+                members[id] = snap.members
+                memberEventTimestamps[id] = maxOf(memberEventTimestamps[id] ?: 0L, snap.memberTs)
+            }
+            if (snap.admins.isNotEmpty()) {
+                admins[id] = snap.admins
+                adminEventTimestamps[id] = maxOf(adminEventTimestamps[id] ?: 0L, snap.adminTs)
+            }
+            if (snap.roles.isNotEmpty()) {
+                roles[id] = snap.roles
+                roleEventTimestamps[id] = maxOf(roleEventTimestamps[id] ?: 0L, snap.roleTs)
+            }
+        }
+        // `cached + live` so any group already updated this session keeps its live value.
+        if (members.isNotEmpty()) _groupMembers.update { members + it }
+        if (admins.isNotEmpty()) _groupAdmins.update { admins + it }
+        if (roles.isNotEmpty()) _groupRoles.update { roles + it }
+    }
+
+    /**
+     * Prepend one page of older messages from the persistent cache, ahead of the current oldest
+     * in-memory message. Returns true when it added something (the relay is then skipped for this
+     * scroll), false when local history is exhausted so the caller paginates the relay. Reads
+     * through the same dedup index as the live path; the relay's `until` cursor naturally
+     * continues from the new, older in-memory boundary once the disk runs dry.
+     */
+    private suspend fun loadOlderFromCache(groupId: String): Boolean {
+        val account = currentPubkey ?: return false
+        val oldestInMemory = _messages.value[groupId]?.minOfOrNull { it.createdAt } ?: return false
+        val olderPage =
+            try {
+                cacheStore.loadBefore(account, groupId, oldestInMemory, PAGE_SIZE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // The web IndexedDB store can fail with a raw JS error (a TypeError), which is NOT
+                // a Kotlin Exception. Catching only Exception let it escape loadMoreMessages and
+                // kill the pagination coroutine, freezing scroll-back. Treat any cache failure as
+                // "nothing cached" and fall through to the relay.
+                return false
+            }
+        if (olderPage.isEmpty()) return false
+        val restored = olderPage.map { it.toNostrMessage() }
+        var added = false
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            added = true
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        return added
     }
 
     /**
@@ -2640,7 +3470,7 @@ class GroupManager(
         // Session flag set (EOSE received this session) — always valid.
         if (normalized in _completeGroupLoadRelays.value) return true
         // No session flag: check persisted timestamp so a fresh app restart can skip requestGroups().
-        return SecureStorage.isGroupListCacheFresh(normalized, epochSeconds())
+        return SecureStorage.isGroupListCacheFresh(normalized, currentPubkey, epochSeconds())
     }
 
     /**
@@ -2664,38 +3494,63 @@ class GroupManager(
         val currentMembers = _groupMembers.value[members.groupId]
         if (currentMembers != members.members) {
             _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+            persistGroupMembershipSnapshot()
         }
         _loadingMembers.value = _loadingMembers.value - members.groupId
 
         val self = currentPubkey
-        if (self != null &&
-            pendingApprovalSince.containsKey(members.groupId) &&
-            self in members.members &&
-            currentMembers?.contains(self) != true
+        val selfNowMember = self != null && self in members.members
+        val selfWasAbsent = currentMembers?.contains(self) != true
+
+        // The relay listing us in 39002 is the ground-truth approval signal. If we were gated
+        // (locally pending OR persisted/CLOSED as restricted) and have just transitioned into the
+        // member list, we gained read access this moment: clear the gate AND re-arm the live
+        // subscription. Keyed on the restricted marker too, not only _pendingApprovalSince, because
+        // some join paths (invite link / deep link) never set the pending marker, yet the relay
+        // still CLOSED our pre-approval mux as "restricted" — without the re-arm the admin's later
+        // messages never reach us until an app restart.
+        if (selfNowMember &&
+            selfWasAbsent &&
+            (members.groupId in _pendingApprovalSince.value || members.groupId in _restrictedGroups.value)
         ) {
             onApprovalDetected(members.groupId)
+        } else if (selfNowMember && members.groupId in _restrictedGroups.value) {
+            // Confirmed membership with no live transition (e.g. a stale 7-day restricted marker
+            // restored from SecureStorage on cold start): just drop the "Private group / invite
+            // code" placeholder. The mux is built fresh this session, so no re-arm is needed.
+            clearGroupRestricted(members.groupId)
         }
 
-        // A confirmed membership contradicts any persisted restricted marker.
-        // The marker can survive 7 days in SecureStorage, so a stale CLOSED
-        // "restricted" from a past auth race would otherwise keep the group
-        // showing the "Private group / invite code" placeholder forever, even
-        // after the relay returned 39002 listing self as a member.
+        // Self-heal a stale durable left marker: the relay lists us as a member AND we are joined
+        // (our own kind:10009), so we genuinely rejoined — clear the marker so the group stops
+        // reading NONE and rejoins the mux. Gated on `joined`: the B2 case (we left, the relay still
+        // lists us) leaves us NOT joined, so the marker stays and the group keeps reading "left".
         if (self != null &&
             self in members.members &&
-            members.groupId in _restrictedGroups.value
+            members.groupId in _leftGroups.value &&
+            _joinedGroupsByRelay.value.values.any { members.groupId in it }
         ) {
-            clearGroupRestricted(members.groupId)
+            _leftGroups.update { it - members.groupId }
+            getRelayForGroup(members.groupId)?.let { relay ->
+                currentPubkey?.let { pk ->
+                    try {
+                        SecureStorage.removeLeftGroupForRelay(pk, relay.normalizeRelayUrl(), members.groupId)
+                    } catch (_: Exception) {}
+                }
+            }
         }
 
         return members.members
     }
 
-    // Pre-approval CLOSED("restricted") drove the loader to Exhausted; reset
-    // so the next poll's startInitialLoad is no longer a no-op. No _messages
-    // clear, no dedup eviction, no manual fetch — those break pagination.
+    // Pre-approval CLOSED("restricted") drove the loader to Exhausted. Reset it (so
+    // startInitialLoad is no longer a no-op) and re-run the initial history load through
+    // the controller now that we have read access: refreshMux only re-subscribes the live
+    // tail, so without this the group stays on "No messages yet" until someone posts. We go
+    // through requestGroupMessages (the state-machine path), NOT a raw _messages fetch /
+    // dedup eviction, which is what broke pagination before.
     private fun onApprovalDetected(groupId: String) {
-        pendingApprovalSince.remove(groupId)
+        _pendingApprovalSince.update { it - groupId }
         clearGroupRestricted(groupId)
         scope.launch {
             try {
@@ -2704,9 +3559,18 @@ class GroupManager(
             val relayUrl = getRelayForGroup(groupId)
             if (relayUrl != null) {
                 try {
+                    // Pre-approval the relay CLOSED our batched mux subs with "restricted"; a relay
+                    // CLOSE does not update muxTracker, so it still believes the live chat sub is
+                    // active and a same-state refresh would be skipped (needsRefresh == false),
+                    // leaving the tail dead until an app restart. Invalidate so the re-subscribe
+                    // actually fires now that we have read access.
+                    muxTracker.clearRelay(relayUrl)
                     refreshMuxSubscriptionsForRelay(relayUrl)
                 } catch (_: Exception) {}
             }
+            try {
+                requestGroupMessages(groupId)
+            } catch (_: Exception) {}
         }
     }
 
@@ -2743,6 +3607,7 @@ class GroupManager(
         val currentAdmins = _groupAdmins.value[admins.groupId]
         if (currentAdmins != admins.admins) {
             _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+            persistGroupMembershipSnapshot()
             // An admin removal can flip an attestation-based `confirmed` relation back
             // to `unverified` (spec: evaluated against current kind:39001).
             recomputeSubgroupTopology()
@@ -2785,6 +3650,7 @@ class GroupManager(
         val currentRoles = _groupRoles.value[roles.groupId]
         if (currentRoles != roles.roles) {
             _groupRoles.value = _groupRoles.value + (roles.groupId to roles.roles)
+            persistGroupMembershipSnapshot()
         }
     }
 
@@ -2866,6 +3732,11 @@ class GroupManager(
         9005, // Group admin: delete event (NIP-29 moderation)
     )
 
+    // Forum threads: kind:11 root + NIP-22 kind:1111 replies. Deliberately NOT in
+    // validMessageKinds — handleMessage routes them to the thread stores (applyThreadEvent)
+    // before the chat-only bookkeeping, so they never touch _messages or the chat cursor.
+    private val threadKinds = setOf(11, 1111)
+
     /**
      * Handle incoming message.
      * Returns the pubkey of the message sender if metadata should be fetched.
@@ -2884,6 +3755,18 @@ class GroupManager(
             }
             handleDeletion(message, rawMsg)
             return null
+        }
+
+        // Forum threads (kind:11) and their NIP-22 replies (kind:1111) go to a separate store,
+        // ahead of the chat-only bookkeeping below (live cursor, member changes, ordering
+        // buffer). Returning the author pubkey still backfills their profile metadata.
+        if (message.kind in threadKinds) {
+            if (message.id.isBlank()) return null
+            if (!eventDeduplicator.tryAddSync(message.id)) return null
+            val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
+            if (isRecentlyLeft(groupId)) return null
+            applyThreadEvent(groupId, message)
+            return message.pubkey
         }
 
         // Only process valid message kinds
@@ -2981,6 +3864,154 @@ class GroupManager(
         }
 
         capturedNew?.let { onNewMessagesFlushed?.invoke(groupId, it) }
+        capturedNew?.let { cacheMessages(groupId, it) }
+        touchGroupRecency(groupId)
+        evictGroupMessagesBeyondCap()
+    }
+
+    /** Mark [groupId] most-recently-used for whole-group eviction ordering. */
+    private fun touchGroupRecency(groupId: String) {
+        groupMessageRecency.remove(groupId)
+        groupMessageRecency.add(groupId)
+    }
+
+    private val tagsSerializer = ListSerializer(ListSerializer(String.serializer()))
+
+    private fun NostrGroupClient.NostrMessage.toCachedMsg(groupId: String): CachedMsg = CachedMsg(
+        id = id,
+        groupId = groupId,
+        pubkey = pubkey,
+        createdAt = createdAt,
+        kind = kind,
+        content = content,
+        tagsJson = json.encodeToString(tagsSerializer, tags),
+    )
+
+    private fun CachedMsg.toNostrMessage(): NostrGroupClient.NostrMessage = NostrGroupClient.NostrMessage(
+        id = id,
+        pubkey = pubkey,
+        content = content,
+        createdAt = createdAt,
+        kind = kind,
+        tags = try {
+            json.decodeFromString(tagsSerializer, tagsJson)
+        } catch (_: Exception) {
+            emptyList()
+        },
+    )
+
+    /** Write new messages through to the persistent history cache (fire-and-forget). */
+    private fun cacheMessages(
+        groupId: String,
+        messages: List<NostrGroupClient.NostrMessage>,
+    ) {
+        val account = currentPubkey ?: return
+        if (messages.isEmpty()) return
+        scope.launch {
+            try {
+                cacheStore.upsertMessages(account, groupId, messages.map { it.toCachedMsg(groupId) })
+            } catch (_: Exception) {
+            }
+        }
+        scheduleCacheEviction()
+    }
+
+    /**
+     * One-time seeding of the persistent cache from the legacy per-group message blobs
+     * (the last-100 snapshot in [SecureStorage]). Without this, a previously-seen group would
+     * hydrate empty right after upgrade until the write-through repopulates it; with it, the
+     * already-saved history shows on the first open. Idempotent (guarded by a per-account flag)
+     * and scoped to the joined groups (already restored at cold start), since the KV blobs
+     * aren't enumerable.
+     */
+    fun migrateMessageBlobsToCache(pubkey: String) {
+        if (pubkey.isBlank()) return
+        scope.launch {
+            if (SecureStorage.isMessageBlobMigratedFor(pubkey)) return@launch
+            val groupIds = _joinedGroupsByRelay.value.values.flatten().toSet()
+            if (groupIds.isEmpty()) return@launch
+            for (groupId in groupIds) {
+                val blob = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: continue
+                val messages = parseMessagesBlob(blob)
+                if (messages.isEmpty()) continue
+                try {
+                    cacheStore.upsertMessages(pubkey, groupId, messages.map { it.toCachedMsg(groupId) })
+                } catch (_: Exception) {
+                }
+            }
+            SecureStorage.setMessageBlobMigratedFor(pubkey)
+        }
+    }
+
+    private var cacheEvictionJob: Job? = null
+
+    /** Trim the persistent cache to [CACHE_BYTE_BUDGET], debounced so a write burst evicts once. */
+    private fun scheduleCacheEviction() {
+        val account = currentPubkey ?: return
+        cacheEvictionJob?.cancel()
+        cacheEvictionJob =
+            scope.launch {
+                delay(CACHE_EVICTION_DEBOUNCE_MS)
+                try {
+                    cacheStore.evictToByteBudget(account, CACHE_BYTE_BUDGET)
+                } catch (_: Exception) {
+                }
+            }
+    }
+
+    /**
+     * Render a previously-seen group instantly from the persistent cache on open, before any
+     * relay round-trip. Merges the cached page into [_messages] via the same dedup index as the
+     * live path, so the subsequent network refresh (stale-while-revalidate) never double-inserts.
+     */
+    private suspend fun hydrateMessagesFromCache(groupId: String) {
+        val account = currentPubkey ?: return
+        val cached =
+            try {
+                cacheStore.loadLatest(account, groupId, CACHE_HYDRATE_LIMIT)
+            } catch (_: Exception) {
+                return
+            }
+        if (cached.isEmpty()) return
+        val restored = cached.map { it.toNostrMessage() }
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        touchGroupRecency(groupId)
+    }
+
+    /**
+     * Evict the least-recently-used groups' in-memory messages once more than
+     * [MAX_GROUPS_IN_MEMORY] groups are loaded, never the active one. Each evicted group is
+     * persisted first so reopening hydrates instantly from disk, then its list, dedup index
+     * and reactions are dropped together (keeping list and index consistent — a partial trim
+     * would not). The live subscription refills the tail on reopen.
+     */
+    private fun evictGroupMessagesBeyondCap() {
+        val present = _messages.value
+        val overflow = present.size - MAX_GROUPS_IN_MEMORY
+        if (overflow <= 0) return
+        val active = _activeGroupId
+        val toEvict =
+            groupMessageRecency
+                .asSequence()
+                .filter { it != active && present.containsKey(it) }
+                .take(overflow)
+                .toSet()
+        if (toEvict.isEmpty()) return
+        toEvict.forEach { saveMessagesToStorage(it) }
+        _messages.update { it - toEvict }
+        toEvict.forEach { groupId ->
+            val droppedIds = messageIdIndex.remove(groupId)
+            if (!droppedIds.isNullOrEmpty()) {
+                _reactions.update { it - droppedIds }
+            }
+            groupMessageRecency.remove(groupId)
+        }
     }
 
     /**
@@ -3009,6 +4040,20 @@ class GroupManager(
             }
         }
 
+        // Threads live in their own stores; remove deleted roots/replies there too so a deleted
+        // thread disappears from the forum list (its own author's delete and admin deletes both
+        // arrive here).
+        _threadRoots.update { current ->
+            val list = current[groupId] ?: return@update current
+            val filtered = list.filterNot { it.id in eventIdsToDelete }
+            if (filtered.size == list.size) current else current + (groupId to filtered)
+        }
+        _threadReplies.update { current ->
+            val list = current[groupId] ?: return@update current
+            val filtered = list.filterNot { it.id in eventIdsToDelete }
+            if (filtered.size == list.size) current else current + (groupId to filtered)
+        }
+
         // Also remove deleted reactions — flush pending first so deletions apply to full state.
         flushPendingReactions()
         _reactions.update { currentReactions ->
@@ -3019,6 +4064,19 @@ class GroupManager(
                 }
             }
             updated
+        }
+
+        // Evict from the persistent cache too. Without this, a deleted event (e.g. a revoked
+        // kind:9009 invite code) rehydrates from cache on the next cold open — the relay no longer
+        // serves it and the 9005 delete is never cached, so nothing re-removes it. Fire-and-forget.
+        val account = currentPubkey
+        if (account != null) {
+            scope.launch {
+                try {
+                    cacheStore.deleteByIds(account, eventIdsToDelete)
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
@@ -3269,6 +4327,11 @@ class GroupManager(
         // (not in clearForRelaySwitch) because relay switch must preserve the
         // user's message history for the active account.
         _messages.value = emptyMap()
+        _threadRoots.value = emptyMap()
+        _threadReplies.value = emptyMap()
+        _threadsLoaded.value = emptySet()
+        openThreadGroups.clear()
+        groupMessageRecency.clear()
         _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()
         // Joined-group sets and restricted-group markers are pubkey-scoped.
@@ -3280,6 +4343,7 @@ class GroupManager(
         // the notification lands in the new account's history.
         _joinedGroupsByRelay.value = emptyMap()
         _restrictedGroups.value = emptyMap()
+        _leftGroups.value = emptyMap()
         // Per-group state from the previous account must be cleared too.
         // Without this, an account switch leaves stale kind:39002/39001/39003
         // caches that don't include the new account's pubkey, so opening a
@@ -3294,8 +4358,10 @@ class GroupManager(
         memberEventTimestamps.clear()
         adminEventTimestamps.clear()
         roleEventTimestamps.clear()
-        pendingApprovalSince.clear()
+        _pendingApprovalSince.value = emptyMap()
         recentlyLeftAt.clear()
+        // Pubkey-scoped: the next account reloads its own set from storage in loadJoinedGroupsFromStorage.
+        deletedGroupIds.clear()
         // The mux tracker remembers what was last sent per relay. Without
         // clearing it on identity swap, refreshMuxSubscriptionsForRelay can
         // see "no change" and skip the REQ. Private-group 39002 then never
@@ -3306,6 +4372,27 @@ class GroupManager(
         // previous account would otherwise block an equivalent REQ from
         // the new account during the swap window.
         recentRequests.clear()
+        // Incrementally-mutated per-group caches and topology maps: only ever updated via
+        // update{}/recompute, so they were never part of the teardown and survived a swap
+        // (B briefly reading A's reaction/loading/subgroup state, plus leaked debounce jobs
+        // on the singleton scope). Reset them here so clear() is a true whole-account reset.
+        _reactions.value = emptyMap()
+        _pendingReactions.clear()
+        reactionFlushJob?.cancel()
+        reactionFlushJob = null
+        _groupStates.value = emptyMap()
+        _isLoadingMore.value = emptyMap()
+        _hasMoreMessages.value = emptyMap()
+        _groupsAwaitingAuthRead.value = emptySet()
+        recentlyJoinedAt.clear()
+        privateGroupFetchAt.clear()
+        pendingTrackCounts.value = emptyMap()
+        muxRefreshJobs.values.forEach { it.cancel() }
+        muxRefreshJobs.clear()
+        // Subgroup topology: recomputeSubgroupTopology reassigns on B's first ingest, but
+        // until then B would render A's parent->children grouping. Reset so it starts empty.
+        _childrenByParent.value = emptyMap()
+        _unverifiedChildren.value = emptySet()
         _activeGroupId = null
         // Reset every per-group loading controller. Without this, controllers
         // left mid-load (InitialLoading / Paginating / HasMore) at logout
@@ -3324,7 +4411,17 @@ class GroupManager(
      */
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
+        SecureStorage.saveDroppedGroupIds(pubKey, emptySet())
         SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
+        SecureStorage.clearGroupMembershipFor(pubKey)
+        // Wipe the persistent history cache and let a re-added account re-seed from its blobs.
+        SecureStorage.clearMessageBlobMigratedFor(pubKey)
+        scope.launch {
+            try {
+                cacheStore.clearAccount(pubKey)
+            } catch (_: Exception) {
+            }
+        }
         _joinedGroupsByRelay.value = emptyMap()
         currentPubkey = null
     }
@@ -3337,29 +4434,35 @@ class GroupManager(
      * Load persisted messages for a group from storage.
      * Called when entering a group to show cached messages while fetching new ones.
      */
+    /** Parse a persisted message blob (JSON array) into messages; empty on any parse error. */
+    private fun parseMessagesBlob(messagesJson: String): List<NostrGroupClient.NostrMessage> = try {
+        json.parseToJsonElement(messagesJson).jsonArray.mapNotNull { element ->
+            try {
+                val obj = element.jsonObject
+                NostrGroupClient.NostrMessage(
+                    id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    content = obj["content"]?.jsonPrimitive?.content ?: "",
+                    createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
+                    kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
+                    tags = obj["tags"]?.jsonArray?.map { tagArray ->
+                        tagArray.jsonArray.map { it.jsonPrimitive.content }
+                    } ?: emptyList(),
+                )
+            } catch (e: Throwable) {
+                null
+            }
+        }
+    } catch (e: Throwable) {
+        emptyList()
+    }
+
     fun loadMessagesFromStorage(groupId: String) {
         val pubkey = currentPubkey ?: return
         val messagesJson = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: return
 
         try {
-            val messagesArray = json.parseToJsonElement(messagesJson).jsonArray
-            val messages = messagesArray.mapNotNull { element ->
-                try {
-                    val obj = element.jsonObject
-                    NostrGroupClient.NostrMessage(
-                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        content = obj["content"]?.jsonPrimitive?.content ?: "",
-                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
-                        kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
-                        tags = obj["tags"]?.jsonArray?.map { tagArray ->
-                            tagArray.jsonArray.map { it.jsonPrimitive.content }
-                        } ?: emptyList(),
-                    )
-                } catch (e: Throwable) {
-                    null
-                }
-            }
+            val messages = parseMessagesBlob(messagesJson)
 
             if (messages.isNotEmpty()) {
                 // Add to deduplicator and persistent message index
@@ -3374,6 +4477,7 @@ class GroupManager(
                     val merged = (existing + newMsgs).sortedBy { it.createdAt }
                     current + (groupId to merged)
                 }
+                touchGroupRecency(groupId)
             }
         } catch (e: Throwable) {
             // Ignore parsing errors - storage may be corrupted

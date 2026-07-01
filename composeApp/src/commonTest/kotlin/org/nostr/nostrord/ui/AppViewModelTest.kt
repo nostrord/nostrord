@@ -65,4 +65,55 @@ class AppViewModelTest {
         fake._isLoggedIn.value = true
         assertTrue(vm.isLoggedIn.value)
     }
+
+    @Test
+    fun `needsOnboarding is true only while the kind10009 group list is empty`() = runTest {
+        val fake = FakeNostrRepository()
+        val vm = AppViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.needsOnboarding.value)
+
+        fake._joinedGroupsByRelay.value = mapOf("wss://relay.example.com" to setOf("group1"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.needsOnboarding.value)
+
+        // Relays listed but every group set empty still counts as "no groups".
+        fake._joinedGroupsByRelay.value = mapOf("wss://relay.example.com" to emptySet())
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.needsOnboarding.value)
+    }
+
+    @Test
+    fun `skipOnboarding flips the session override`() = runTest {
+        val fake = FakeNostrRepository()
+        val vm = AppViewModel(fake)
+        assertFalse(vm.onboardingSkipped.value)
+        vm.skipOnboarding()
+        assertTrue(vm.onboardingSkipped.value)
+    }
+
+    @Test
+    fun `switching account re-pends the onboarding decision until the new list resolves`() = runTest {
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
+        val vm = AppViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Account A has groups: resolved, so neither pending (loading) nor onboarding.
+        assertFalse(vm.onboardingDecisionPending.value)
+        assertFalse(vm.needsOnboarding.value)
+
+        // Switch to B whose list is empty and unresolved: the decision re-pends (loading
+        // screen), never flashing the wizard. runCurrent so the resolve grace doesn't fire.
+        fake._activePubkey.value = "b".repeat(64)
+        fake._joinedGroupsByRelay.value = emptyMap()
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(vm.onboardingDecisionPending.value)
+        assertFalse(vm.needsOnboarding.value)
+
+        // B's list resolves still-empty (grace elapses): now onboarding, no longer pending.
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.onboardingDecisionPending.value)
+        assertTrue(vm.needsOnboarding.value)
+    }
 }

@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.components
 
+import js.objects.unsafeJso
 import kotlinx.browser.document
 import react.FC
 import react.Props
@@ -9,6 +10,11 @@ import web.cssom.ClassName
 
 external interface ChatImageProps : Props {
     var imageUrl: String
+
+    /** NIP-68 imeta (width, height) hint. When present the slot is reserved at the exact
+     *  aspect ratio before the bitmap decodes, so the row never grows on load. When absent
+     *  the CSS min-height floor bounds the growth and the list's re-pin absorbs the rest. */
+    var dimensions: Pair<Int, Int>?
 }
 
 /**
@@ -42,6 +48,17 @@ val ChatImage =
 
         img {
             className = ClassName("msg-image" + (backdrop?.let { " $it" } ?: ""))
+            // With an imeta dim hint, reserve the exact box before load so the row keeps its
+            // height (no reflow under the reader) and drop the placeholder floor that would
+            // distort a small image. Without a hint, the CSS min-height floor stays and the
+            // list's ResizeObserver re-pins as the image grows.
+            props.dimensions?.let { (w, h) ->
+                style = unsafeJso {
+                    asDynamic().aspectRatio = "$w / $h"
+                    asDynamic().minHeight = "auto"
+                    asDynamic().minWidth = "auto"
+                }
+            }
             // Sample-readable load. data: URIs are same-origin so crossOrigin is a no-op there.
             if (!corsBlocked) asDynamic().crossOrigin = "anonymous"
             src = props.imageUrl
@@ -49,13 +66,8 @@ val ChatImage =
             onClick = { ImageViewer.show(props.imageUrl, backdrop) }
             onLoad = { event ->
                 if (!corsBlocked) setBackdrop(analyzeBackdrop(event.currentTarget))
-                // Dispatch when the image resolves dimensions so the chat feed can
-                // re-pin to bottom if the user was already there — otherwise media
-                // arriving after the initial scroll-to-bottom pushes the user
-                // mid-feed. (issue #74)
-                document.asDynamic().dispatchEvent(
-                    js("new CustomEvent('chat-content-loaded')"),
-                )
+                // Re-pinning the feed on media load is handled by the list's ResizeObserver
+                // (and, for imeta media, by the reserved box), so nothing is needed here.
                 Unit
             }
             onError = {

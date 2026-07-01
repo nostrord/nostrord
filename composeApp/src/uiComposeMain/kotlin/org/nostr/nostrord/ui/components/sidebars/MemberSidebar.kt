@@ -1,5 +1,10 @@
 package org.nostr.nostrord.ui.components.sidebars
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -9,15 +14,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,20 +30,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,12 +47,15 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
+import org.nostr.nostrord.ui.components.forms.AppSearchField
+import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Enhanced member sidebar with online/offline status, avatars, role badges, and search.
@@ -69,20 +67,24 @@ fun MemberSidebar(
     isLoading: Boolean = false,
     isPendingApproval: Boolean = false,
     isGroupRestricted: Boolean = false,
+    isPublic: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     currentUserPubkey: String? = null,
     onRemoveMember: (MemberInfo) -> Unit = {},
     onAddMember: (String) -> Unit = {},
+    onManage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showAddMemberModal by remember { mutableStateOf(false) }
 
-    // Hide the member list while the user is pending approval or the group is
-    // restricted — the lock placeholder rendered below should be authoritative,
-    // not whatever pubkeys leaked in via the message-sender fallback.
-    val visibleMembers = if (isPendingApproval || isGroupRestricted) emptyList() else members
+    // A public group's member list (kind:39002) is served to everyone, so show it even while
+    // pending approval. Hide only for PRIVATE groups (where the relay serves no member list and
+    // `members` would otherwise be just the pubkeys that leaked in via the message-sender
+    // fallback); the lock placeholder below is authoritative there.
+    val membersHidden = (isPendingApproval || isGroupRestricted) && !isPublic
+    val visibleMembers = if (membersHidden) emptyList() else members
     val filteredMembers =
         remember(visibleMembers, searchQuery) {
             if (searchQuery.isBlank()) {
@@ -119,27 +121,21 @@ fun MemberSidebar(
             .fillMaxHeight()
             .background(NostrordColors.Surface),
     ) {
-        // Header
+        // Header (prototype MembersPanel): muted uppercase label on the sidebar
+        // surface, action buttons grouped on the right, 1px bottom border.
         Row(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                .background(NostrordColors.BackgroundDark)
+                // Same band as GroupHeader (Spacing.headerHeight) so the top edge lines up.
+                .height(Spacing.headerHeight)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Members (${visibleMembers.size})",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
+                text = "MEMBERS · ${visibleMembers.size}",
+                color = NostrordColors.TextMuted,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
@@ -159,8 +155,23 @@ fun MemberSidebar(
                         modifier = Modifier.size(18.dp),
                     )
                 }
+                if (onManage != null) {
+                    // Prototype MembersPanel gear: opens member management.
+                    IconButton(
+                        onClick = onManage,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Manage members",
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
         }
+        HorizontalDivider(color = NostrordColors.Divider, thickness = 1.dp)
 
         // Add member modal
         if (showAddMemberModal) {
@@ -170,10 +181,31 @@ fun MemberSidebar(
             )
         }
 
-        // Search field
-        MemberSearchField(
-            query = searchQuery,
-            onQueryChange = { searchQuery = it },
+        // Search field (shared standardized input, compact density)
+        AppSearchField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = "Search members...",
+            size = InputSize.Compact,
+            trailing =
+            if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+            onEscape = { searchQuery = "" },
             modifier =
             Modifier
                 .fillMaxWidth()
@@ -215,8 +247,6 @@ fun MemberSidebar(
                                 member = member,
                                 isOnline = true,
                                 onClick = { onMemberClick(member) },
-                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                                onRemove = { onRemoveMember(member) },
                             )
                         }
                     }
@@ -240,8 +270,6 @@ fun MemberSidebar(
                                 member = member,
                                 isOnline = false,
                                 onClick = { onMemberClick(member) },
-                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                                onRemove = { onRemoveMember(member) },
                             )
                         }
                     }
@@ -262,8 +290,6 @@ fun MemberSidebar(
                             member = member,
                             isOnline = null,
                             onClick = { onMemberClick(member) },
-                            showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
-                            onRemove = { onRemoveMember(member) },
                         )
                     }
                 }
@@ -291,7 +317,7 @@ fun MemberSidebar(
                 if (!isLoading &&
                     filteredMembers.isEmpty() &&
                     searchQuery.isBlank() &&
-                    (isPendingApproval || isGroupRestricted)
+                    membersHidden
                 ) {
                     item {
                         Column(
@@ -357,7 +383,7 @@ private fun MemberSectionHeader(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = "$title ($count)",
+            text = "$title · $count",
             color = NostrordColors.TextMuted,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelSmall,
@@ -370,8 +396,6 @@ private fun MemberItem(
     member: MemberInfo,
     isOnline: Boolean?,
     onClick: () -> Unit,
-    showRemove: Boolean = false,
-    onRemove: () -> Unit = {},
 ) {
     Row(
         modifier =
@@ -416,7 +440,7 @@ private fun MemberItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = member.displayName,
-                    color = if (isOnline == false) NostrordColors.TextMuted else Color.White,
+                    color = if (isOnline == false) NostrordColors.TextMuted else NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -437,21 +461,6 @@ private fun MemberItem(
                             ).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
-            }
-        }
-
-        // Remove button (visible to admins only, not for self)
-        if (showRemove) {
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(28.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Remove member",
-                    tint = NostrordColors.Error.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp),
-                )
             }
         }
     }
@@ -479,10 +488,10 @@ private fun MemberAvatar(
                 imageState is AsyncImagePainter.State.Loading ||
                 imageState is AsyncImagePainter.State.Error
 
-        // Show Jdenticon when no picture, loading, or error
+        // Show the gradient fallback when no picture, loading, or error
         if (showPlaceholder) {
-            Jdenticon(
-                value = member.pubkey,
+            UserGradientAvatar(
+                seed = member.pubkey,
                 size = size,
                 modifier = Modifier.graphicsLayer { this.alpha = alpha },
             )
@@ -513,92 +522,35 @@ private fun MemberAvatar(
 }
 
 /**
- * Search field for filtering members by name or pubkey.
+ * Right slide-over hosting the members panel (member sheet on compact / medium widths).
+ * Native counterpart of the web `.member-sidebar` drawer (`transform: translateX` from the
+ * right with a backdrop). Must be called inside a fill-size [BoxScope]; [content] is usually a
+ * [MemberSidebar] left at its default 240dp width.
  */
 @Composable
-private fun MemberSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
+fun BoxScope.MemberDrawerOverlay(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    val focusRequester = remember { FocusRequester() }
-
-    Box(
-        modifier =
-        modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(NostrordColors.BackgroundDark)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { focusRequester.requestFocus() }
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onDismiss() },
+        )
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it }),
+        modifier = Modifier.align(Alignment.CenterEnd),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search",
-                tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(16.dp),
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (query.isEmpty()) {
-                    Text(
-                        text = "Search members...",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 13.sp,
-                    )
-                }
-
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle =
-                    TextStyle(
-                        color = Color.White,
-                        fontSize = 13.sp,
-                    ),
-                    cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .onPreviewKeyEvent { event ->
-                            if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && query.isNotEmpty()) {
-                                onQueryChange("")
-                                true
-                            } else {
-                                false
-                            }
-                        },
-                )
-            }
-
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.size(20.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear search",
-                        tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            }
-        }
+        content()
     }
 }

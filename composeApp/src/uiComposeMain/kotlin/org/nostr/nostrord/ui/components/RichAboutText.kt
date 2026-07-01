@@ -11,8 +11,11 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
@@ -120,8 +123,22 @@ fun RichAboutText(
                                 }
                             }
                         }
+                        is MessageContentParser.ParsedPart.Bold ->
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(part.content) }
+                        is MessageContentParser.ParsedPart.Italic ->
+                            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(part.content) }
+                        is MessageContentParser.ParsedPart.Monospace ->
+                            withStyle(
+                                SpanStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    background = NostrordColors.SurfaceVariant,
+                                ),
+                            ) { append(part.content) }
+                        is MessageContentParser.ParsedPart.CodeBlock ->
+                            withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(part.code) }
                         else -> {
-                            // All other types (text, image, video, etc.) render as plain text
+                            // All other types (text, image, video, etc.) render as plain
+                            // text; newlines inside text parts flow through to BasicText.
                             append(partToPlainText(part))
                         }
                     }
@@ -165,6 +182,8 @@ private fun partToPlainText(part: MessageContentParser.ParsedPart): String = whe
     is MessageContentParser.ParsedPart.Bold -> part.content
     is MessageContentParser.ParsedPart.Italic -> part.content
     is MessageContentParser.ParsedPart.Monospace -> part.content
+    is MessageContentParser.ParsedPart.Strikethrough -> part.content
+    is MessageContentParser.ParsedPart.Spoiler -> part.content
     is MessageContentParser.ParsedPart.CodeBlock -> part.code
     is MessageContentParser.ParsedPart.Hashtag -> "#${part.tag}"
     is MessageContentParser.ParsedPart.Cashu -> part.token

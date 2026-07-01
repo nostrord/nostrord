@@ -11,10 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,9 +30,9 @@ import androidx.compose.ui.unit.sp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
+import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.Spacing
 
 @Composable
 fun OnboardingScreen(
@@ -52,18 +48,10 @@ fun OnboardingScreen(
         // Mobile gets a menu button to reach the navigation drawer; without it
         // there's no way out of onboarding on a compact layout (no shell).
         if (onOpenDrawer != null) {
-            IconButton(
+            FrameMenuButton(
                 onClick = onOpenDrawer,
-                modifier = Modifier
-                    .padding(start = 4.dp, top = 4.dp)
-                    .size(Spacing.touchTargetMin),
-            ) {
-                Icon(
-                    Icons.Default.Menu,
-                    contentDescription = "Open sidebar",
-                    tint = NostrordColors.TextSecondary,
-                )
-            }
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+            )
         }
         BoxWithConstraints(
             modifier = Modifier.weight(1f).fillMaxWidth(),

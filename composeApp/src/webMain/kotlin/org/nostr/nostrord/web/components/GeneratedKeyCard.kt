@@ -14,6 +14,10 @@ import web.cssom.ClassName
 
 external interface GeneratedKeyCardProps : Props {
     var privateKey: String
+
+    /** Optional header overrides (defaults describe a freshly generated plain key). */
+    var title: String?
+    var subtitle: String?
 }
 
 /**
@@ -31,12 +35,12 @@ val GeneratedKeyCard =
                 icon(Ic.Warning)
                 span {
                     className = ClassName("genkey-title")
-                    +"SAVE YOUR PRIVATE KEY"
+                    +(props.title ?: "SAVE YOUR PRIVATE KEY")
                 }
             }
             p {
                 className = ClassName("genkey-sub")
-                +"This is a copy of your key, not your only copy. Save it somewhere safe."
+                +(props.subtitle ?: "This is a copy of your key, not your only copy. Save it somewhere safe.")
             }
             div {
                 className = ClassName("genkey-value-row")

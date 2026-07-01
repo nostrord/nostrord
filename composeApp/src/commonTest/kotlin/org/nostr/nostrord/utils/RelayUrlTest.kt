@@ -34,6 +34,14 @@ class RelayUrlTest {
     }
 
     @Test
+    fun `toRelayUrl downgrades wss to ws for loopback`() {
+        // A local relay has no TLS, so wss never connects: force ws even if typed.
+        assertEquals("ws://127.0.0.1:9888", "wss://127.0.0.1:9888".toRelayUrl())
+        assertEquals("ws://127.0.0.1:9888", "127.0.0.1:9888".toRelayUrl())
+        assertEquals("ws://localhost:7777", "wss://localhost:7777".toRelayUrl())
+    }
+
+    @Test
     fun `isValidRelayUrl accepts wss public host`() {
         assertTrue(isValidRelayUrl("wss://relay.damus.io"))
     }

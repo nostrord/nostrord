@@ -17,12 +17,11 @@ class AdaptiveConfigTest {
      * Helper: creates an AdaptiveConfig with a TestScope, runs assertions,
      * then cancels the background adaptation loop to avoid UncompletedCoroutinesError.
      */
-    private fun adaptiveTest(block: suspend TestScope.(AdaptiveConfig, ConnectionStats) -> Unit) = runTest {
-        val stats = ConnectionStats()
+    private fun adaptiveTest(block: suspend TestScope.(AdaptiveConfig) -> Unit) = runTest {
         val childScope = TestScope(testScheduler)
-        val config = AdaptiveConfig(connStats = stats, scope = childScope)
+        val config = AdaptiveConfig(scope = childScope)
         try {
-            block(config, stats)
+            block(config)
         } finally {
             childScope.cancel()
         }
@@ -33,7 +32,7 @@ class AdaptiveConfigTest {
     // ========================================================================
 
     @Test
-    fun `defaults are safe starting values`() = adaptiveTest { config, _ ->
+    fun `defaults are safe starting values`() = adaptiveTest { config ->
         assertEquals(AdaptiveConfig.DEFAULT_COOLDOWN_MS, config.requestCooldownMs)
         assertEquals(AdaptiveConfig.DEFAULT_BUFFER_MS, config.bufferWindowMs)
         assertFalse(config.prefetchEnabled)
@@ -41,7 +40,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `stable network yields low cooldown and prefetch enabled`() = adaptiveTest { config, _ ->
+    fun `stable network yields low cooldown and prefetch enabled`() = adaptiveTest { config ->
         // Simulate low-latency relay connections
         config.recordRelayLatency("wss://fast.relay", 50)
         config.recordRelayLatency("wss://fast.relay", 60)
@@ -57,7 +56,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `frequent reconnects increase cooldown and disable prefetch`() = adaptiveTest { config, _ ->
+    fun `frequent reconnects increase cooldown and disable prefetch`() = adaptiveTest { config ->
         // Simulate 5 reconnects in rapid succession (unstable)
         repeat(5) { config.recordReconnect() }
 
@@ -70,7 +69,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `high event throughput increases buffer window`() = adaptiveTest { config, _ ->
+    fun `high event throughput increases buffer window`() = adaptiveTest { config ->
         // Simulate burst: 50+ events per second
         repeat(6) { config.recordEventBurst(50) }
 
@@ -80,7 +79,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `low event rate reduces buffer window for near-instant render`() = adaptiveTest { config, _ ->
+    fun `low event rate reduces buffer window for near-instant render`() = adaptiveTest { config ->
         // Simulate idle: very few events
         config.recordEventBurst(2)
 
@@ -90,7 +89,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `degraded network yields moderate cooldown`() = adaptiveTest { config, _ ->
+    fun `degraded network yields moderate cooldown`() = adaptiveTest { config ->
         // 3 reconnects = degraded
         repeat(3) { config.recordReconnect() }
 
@@ -106,7 +105,7 @@ class AdaptiveConfigTest {
     // ========================================================================
 
     @Test
-    fun `fastestRelay returns relay with lowest latency`() = adaptiveTest { config, _ ->
+    fun `fastestRelay returns relay with lowest latency`() = adaptiveTest { config ->
         config.recordRelayLatency("wss://slow.relay", 500)
         config.recordRelayLatency("wss://fast.relay", 50)
         config.recordRelayLatency("wss://medium.relay", 200)
@@ -117,7 +116,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `relay latency uses rolling average`() = adaptiveTest { config, _ ->
+    fun `relay latency uses rolling average`() = adaptiveTest { config ->
         config.recordRelayLatency("wss://relay.test", 100)
         config.recordRelayLatency("wss://relay.test", 200)
         config.recordRelayLatency("wss://relay.test", 300)
@@ -128,7 +127,7 @@ class AdaptiveConfigTest {
     }
 
     @Test
-    fun `unknown relay returns MAX_VALUE latency`() = adaptiveTest { config, _ ->
+    fun `unknown relay returns MAX_VALUE latency`() = adaptiveTest { config ->
         assertEquals(Long.MAX_VALUE, config.getRelayLatency("wss://unknown.relay"))
     }
 
@@ -137,7 +136,7 @@ class AdaptiveConfigTest {
     // ========================================================================
 
     @Test
-    fun `network recovers after unstable period stabilizes`() = adaptiveTest { config, _ ->
+    fun `network recovers after unstable period stabilizes`() = adaptiveTest { config ->
         // Make it unstable
         repeat(5) { config.recordReconnect() }
         advanceTimeBy(AdaptiveConfig.TUNE_INTERVAL_MS + 100)

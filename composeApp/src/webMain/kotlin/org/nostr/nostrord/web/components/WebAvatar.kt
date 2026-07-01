@@ -1,5 +1,10 @@
 package org.nostr.nostrord.web.components
 
+import js.objects.unsafeJso
+import kotlinx.browser.window
+import kotlinx.coroutines.awaitCancellation
+import org.nostr.nostrord.ui.theme.AvatarGradients
+import org.nostr.nostrord.ui.theme.Hsl
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -8,6 +13,7 @@ import react.dom.html.ReactHTML.img
 import react.useEffect
 import react.useRef
 import react.useState
+import web.cssom.Background
 import web.cssom.ClassName
 import web.html.HTMLImageElement
 import kotlin.math.abs
@@ -27,7 +33,7 @@ external interface WebAvatarProps : Props {
     var seed: String?
 
     /**
-     * USER → Jdenticon identicon + circle; GROUP → initial letter on a deterministic colour +
+     * USER → duotone gradient + circle; GROUP → initial letter on a conic-swirl gradient +
      * rounded square; RELAY → initial letter on a colour (shape left to [cls]). Defaults to USER.
      */
     var kind: AvatarKind?
@@ -39,16 +45,45 @@ external interface WebAvatarProps : Props {
 
 /**
  * Avatar that always shows the fallback first and overlays the real picture once it loads (fading
- * in); if the image is missing or fails, the fallback stays. Users fall back to a Jdenticon
- * identicon (circle); groups and relays to an initial letter on a deterministic colour, with
- * groups forced to a rounded square — mirroring the native scheme.
+ * in); if the image is missing or fails, the fallback stays. Users fall back to a seeded duotone
+ * gradient (circle); groups to an initial letter on a seeded conic gradient, forced to a rounded
+ * square; relays to an initial letter on a deterministic colour — mirroring the native scheme
+ * (see AvatarGradients in commonMain).
  */
 val WebAvatar =
     FC<WebAvatarProps> { props ->
         val (loaded, setLoaded) = useState { false }
-        val (failed, setFailed) = useState { false }
+        // `errored` is the current load's failure; `attempts` counts retries. A transient failure
+        // self-heals (remount + backoff) up to MAX_AVATAR_RETRIES, only then giving up to the
+        // fallback, so avatars no longer latch to their placeholder for the rest of the session.
+        val (errored, setErrored) = useState { false }
+        val (attempts, setAttempts) = useState { 0 }
         val imgRef = useRef<HTMLImageElement>(null)
-        useEffect(props.url) {
+        val lastUrlRef = useRef<String>(null)
+        val lastSeedRef = useRef<String>(null)
+        val gaveUp = errored && attempts >= MAX_AVATAR_RETRIES
+
+        val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
+        val kind = props.kind ?: AvatarKind.USER
+        // Drop the retained URL when this component is reused for a DIFFERENT identity (list
+        // slot reuse): without this, a member row recycled for another user would briefly show
+        // the previous user's avatar (leaked picture).
+        if (lastSeedRef.current != seed) {
+            lastSeedRef.current = seed
+            lastUrlRef.current = null
+        }
+        // Keep the last good picture if the URL transiently drops to null/blank for the SAME
+        // identity (metadata churn, an LRU eviction that briefly removes the entry, or a parent
+        // remount): a once-loaded avatar must not blank out mid-session. Only fall back when we
+        // never had a picture for this identity.
+        val incoming = props.url?.takeIf { it.isNotBlank() }
+        if (incoming != null) lastUrlRef.current = incoming
+        // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
+        // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
+        // the letter/gradient fallback below — only relays have a brand image worth seeding.
+        val url = incoming ?: lastUrlRef.current ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
+
+        useEffect(url) {
             // A browser-cached image can already be `complete` before React attaches onLoad —
             // common when a second component mounts with a URL an earlier avatar already fetched.
             // onLoad then never fires, leaving the photo at opacity:0 with only the fallback
@@ -56,16 +91,28 @@ val WebAvatar =
             // synchronously so the photo is shown immediately.
             val el = imgRef.current
             val cached = el != null && el.complete && el.naturalWidth > 0
-            setFailed(false)
+            setErrored(false)
+            setAttempts(0)
             setLoaded(cached)
         }
 
-        val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
-        val kind = props.kind ?: AvatarKind.USER
-        // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
-        // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
-        // the letter/identicon fallback below — only relays have a brand image worth seeding.
-        val url = props.url ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
+        // Retry pump: when the current load errors and retries remain, wait an exponential backoff
+        // (2s, 4s, 8s) then bump `attempts`, which changes the <img> key and remounts it to re-issue
+        // the fetch. Mirrors the native rememberAvatarImageState helper. The timer is cleared on
+        // unmount / dep change via awaitCancellation + finally.
+        useEffect(errored, attempts) {
+            if (errored && attempts < MAX_AVATAR_RETRIES) {
+                val timer = window.setTimeout({
+                    setErrored(false)
+                    setAttempts { it + 1 }
+                }, 2_000 shl attempts)
+                try {
+                    awaitCancellation()
+                } finally {
+                    window.clearTimeout(timer)
+                }
+            }
+        }
 
         div {
             className = ClassName("avatar-tile ${props.cls} avatar-stack" + if (kind == AvatarKind.GROUP) " group" else "")
@@ -80,28 +127,44 @@ val WebAvatar =
 
             // Fallback underneath while the photo loads. Removed once it has loaded so a
             // transparent avatar shows the tile's solid background instead of the
-            // identicon/letter bleeding through. Stays if the photo is missing or fails.
+            // gradient/letter bleeding through. Stays if the photo is missing or fails.
             if (!loaded) {
-                if (kind == AvatarKind.USER) {
-                    identicon(seed)
-                } else {
-                    letterAvatar(seed, props.name)
+                when (kind) {
+                    AvatarKind.USER ->
+                        div {
+                            className = ClassName("avatar-gradient")
+                            style = unsafeJso { background = userGradientCss(seed).unsafeCast<Background>() }
+                        }
+                    AvatarKind.GROUP -> letterAvatar(seed, props.name, background = groupGradientCss(seed))
+                    AvatarKind.RELAY -> letterAvatar(seed, props.name, background = relayGradientCss(seed))
                 }
             }
 
-            // Real picture on top: hidden until it loads, removed on error so the fallback shows.
-            if (!url.isNullOrBlank() && !failed) {
+            // Real picture on top: hidden until it loads, removed only once retries are exhausted
+            // so the fallback shows. Each retry changes `key` to remount and re-fetch.
+            if (!url.isNullOrBlank() && !gaveUp) {
+                // White backdrop for transparent user/group pictures (PNG with alpha) so they
+                // sit on white, not the surface colour. Relays keep a transparent backdrop: a
+                // white-on-transparent relay logo would vanish on white.
+                val whiteBg = if (kind != AvatarKind.RELAY) " avatar-photo-white" else ""
                 img {
+                    key = "$url#$attempts"
                     ref = imgRef
-                    className = ClassName(if (loaded) "avatar-photo loaded" else "avatar-photo")
+                    className = ClassName((if (loaded) "avatar-photo loaded" else "avatar-photo") + whiteBg)
                     src = url
                     alt = props.name
-                    onLoad = { setLoaded(true) }
-                    onError = { setFailed(true) }
+                    onLoad = {
+                        setErrored(false)
+                        setLoaded(true)
+                    }
+                    onError = { setErrored(true) }
                 }
             }
         }
     }
+
+/** Self-healing avatar load: at most this many retries per URL before giving up to the fallback. */
+private const val MAX_AVATAR_RETRIES = 3
 
 // Number of colours in the native NostrordColors.AvatarColors palette (see .avatar-color-N CSS).
 private const val AVATAR_COLOR_COUNT = 8
@@ -118,8 +181,11 @@ private fun bundledRelayFallback(relayUrl: String): String? = when {
     else -> null
 }
 
-/** Initial-letter fallback on a deterministic colour — matches the native group avatar. */
-private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
+/**
+ * Initial-letter fallback. With [background] (a CSS gradient) the letter sits on it (groups);
+ * otherwise on a deterministic palette colour (relays).
+ */
+private fun ChildrenBuilder.letterAvatar(seed: String, name: String, background: String? = null) {
     val index = abs(seed.hashCode()) % AVATAR_COLOR_COUNT
     // Skip whitespace / invisible chars (some NIP-29 groups have a leading space or
     // zero-width char in `name`, which made `.take(1)` produce an empty pill); fall
@@ -130,7 +196,40 @@ private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
             ?: '?'
         ).uppercaseChar().toString()
     div {
-        className = ClassName("avatar-letter avatar-color-$index")
+        className = ClassName(if (background != null) "avatar-letter" else "avatar-letter avatar-color-$index")
+        if (background != null) {
+            style = unsafeJso { this.background = background.unsafeCast<Background>() }
+        }
         +letter
     }
+}
+
+private fun hsl(c: Hsl): String = "hsl(${c.hue} ${c.saturation}% ${c.lightness}%)"
+
+/**
+ * Prototype groupGradient: the group avatar's hue pair, darkened, at 135deg.
+ * Shared by every banner/cover surface (group sidebar banner, info modal cover).
+ */
+internal fun bannerGradientCss(seed: String): String {
+    val g = AvatarGradients.banner(seed)
+    return "linear-gradient(135deg, ${hsl(g.start)}, ${hsl(g.end)})"
+}
+
+/** Prototype gradientAvatar: diagonal duotone + soft top sheen (math in AvatarGradients). */
+private fun userGradientCss(seed: String): String {
+    val g = AvatarGradients.user(seed)
+    return "radial-gradient(circle at ${g.sheenX}% 12%, hsl(0 0% 100% / 0.28) 0%, hsl(0 0% 100% / 0) 42%), " +
+        "linear-gradient(${g.angleDeg}deg, ${hsl(g.start)}, ${hsl(g.end)})"
+}
+
+/** Prototype gradientGroupAvatar: conic swirl seeded by the group id. */
+private fun groupGradientCss(seed: String): String {
+    val g = AvatarGradients.group(seed)
+    return "conic-gradient(from ${g.fromDeg}deg, ${hsl(g.c1)}, ${hsl(g.c2)}, ${hsl(g.c3)}, ${hsl(g.c1)})"
+}
+
+/** Relay fallback: a three-stop diagonal band seeded by the relay URL (gradientRelayAvatar). */
+private fun relayGradientCss(seed: String): String {
+    val g = AvatarGradients.relay(seed)
+    return "linear-gradient(${g.angleDeg}deg, ${hsl(g.start)} 0%, ${hsl(g.mid)} 50%, ${hsl(g.end)} 100%)"
 }

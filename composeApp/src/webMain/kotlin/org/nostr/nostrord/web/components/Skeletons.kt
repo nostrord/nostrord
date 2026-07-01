@@ -23,15 +23,6 @@ fun ChildrenBuilder.groupCardSkeleton() {
     }
 }
 
-/** Groups-sidebar row placeholder (matches .sidebar-group). */
-fun ChildrenBuilder.groupNavSkeleton() {
-    div {
-        className = ClassName("skel-nav-row")
-        skel("skel-nav-icon")
-        skel("skel-line w-60")
-    }
-}
-
 /** Member-sidebar row placeholder (matches .member-row). */
 fun ChildrenBuilder.memberSkeleton() {
     div {

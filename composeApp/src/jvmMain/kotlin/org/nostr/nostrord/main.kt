@@ -21,6 +21,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
+import coil3.svg.SvgDecoder
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpRedirect
@@ -31,6 +32,7 @@ import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.UnlockState
 import org.nostr.nostrord.ui.PassphraseGate
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
@@ -124,8 +126,12 @@ fun main(args: Array<String> = emptyArray()) {
             }
         ImageLoader
             .Builder(context)
+            // Logs load failures (NOSTRORD_IMG) so avatar/photo regressions are visible in logs.
+            .eventListener(ImageLoadEventListener)
             .components {
                 add(KtorNetworkFetcherFactory(httpClient))
+                // Decodes data:image/svg+xml avatars (the data: fetcher is built in since 3.1).
+                add(SvgDecoder.Factory())
             }.memoryCache {
                 MemoryCache
                     .Builder()

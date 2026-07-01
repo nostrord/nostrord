@@ -12,6 +12,7 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
 
@@ -30,6 +31,8 @@ val AddMemberModal =
         val (value, setValue) = useState { "" }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        // Submit only unlocks for a key that actually parses (npub/nprofile/hex).
+        val isValidKey = Nip19.parsePubkeyInput(value) is Nip19.PubkeyParse.Ok
 
         fun submit() {
             val pubkey =
@@ -76,10 +79,17 @@ val AddMemberModal =
                 div {
                     className = ClassName("modal-header")
                     div {
-                        className = ClassName("modal-header-text")
+                        className = ClassName("modal-header-lead")
+                        span {
+                            className = ClassName("modal-title-icon")
+                            icon(Ic.PersonAdd)
+                        }
                         div {
-                            className = ClassName("modal-title")
-                            +"Add Member"
+                            className = ClassName("modal-header-text")
+                            div {
+                                className = ClassName("modal-title")
+                                +"Add Member"
+                            }
                         }
                     }
                     button {
@@ -90,8 +100,8 @@ val AddMemberModal =
                 }
 
                 div {
-                    className = ClassName("field-label")
-                    +"npub"
+                    className = ClassName("modal-subtitle tight")
+                    +"Enter the user's npub or hex public key to add them to this group."
                 }
                 input {
                     className = ClassName("modal-input")
@@ -119,7 +129,7 @@ val AddMemberModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = value.isBlank() || busy
+                        disabled = !isValidKey || busy
                         onClick = { submit() }
                         +(if (busy) "Adding…" else "Add Member")
                     }

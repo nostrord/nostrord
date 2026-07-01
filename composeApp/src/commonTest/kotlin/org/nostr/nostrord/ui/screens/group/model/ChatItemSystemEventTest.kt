@@ -140,4 +140,45 @@ class ChatItemSystemEventTest {
         assertEquals(SystemEventType.ROLE_CHANGED, events[1].type)
         assertEquals("is now moderator", events[1].action)
     }
+
+    @Test
+    fun newMessagesDivider_anchorsOnChatNotZap() {
+        // A zap (kind 9321) from another user is newer than lastRead but is NOT a chat
+        // message, so it must not anchor the "New messages" divider. The divider sits
+        // immediately before the first kind:9 chat message (web/native parity guard).
+        val items = buildChatItems(
+            messages = listOf(
+                msg(9321, pubkey = "bob", createdAt = 1000, tags = listOf(listOf("amount", "100"), listOf("p", "alice"))),
+                msg(9, pubkey = "bob", createdAt = 2000),
+            ),
+            lastReadTimestamp = 500,
+            currentUserPubkey = "me",
+        )
+        val dividerIdx = items.indexOfFirst { it is ChatItem.NewMessagesDivider }
+        assertTrue(dividerIdx >= 0)
+        assertTrue(items[dividerIdx + 1] is ChatItem.Message)
+        // The zap was emitted before the divider, proving it did not anchor it.
+        assertTrue(items.indexOfFirst { it is ChatItem.ZapEvent } < dividerIdx)
+    }
+
+    @Test
+    fun newMessagesDivider_skipsOwnMessages() {
+        // Own messages never count as unread, so no divider appears for them.
+        val items = buildChatItems(
+            messages = listOf(msg(9, pubkey = "me", createdAt = 2000)),
+            lastReadTimestamp = 500,
+            currentUserPubkey = "me",
+        )
+        assertTrue(items.none { it is ChatItem.NewMessagesDivider })
+    }
+
+    @Test
+    fun newMessagesDivider_absentWhenAllRead() {
+        val items = buildChatItems(
+            messages = listOf(msg(9, pubkey = "bob", createdAt = 100)),
+            lastReadTimestamp = 500,
+            currentUserPubkey = "me",
+        )
+        assertTrue(items.none { it is ChatItem.NewMessagesDivider })
+    }
 }

@@ -25,6 +25,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.shortNpub
 
 /**
  * Zap event item (kind 9321 - nutzap) displaying Lightning payment.
@@ -47,7 +48,7 @@ fun ZapEventItem(
     // Sender display name
     val senderDisplayName =
         remember(senderMetadata?.displayName, senderMetadata?.name, senderPubkey) {
-            senderMetadata?.displayName ?: senderMetadata?.name ?: senderPubkey.take(8) + "..."
+            senderMetadata?.displayName ?: senderMetadata?.name ?: shortNpub(senderPubkey)
         }
 
     // Recipient display name

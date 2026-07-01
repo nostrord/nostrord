@@ -106,6 +106,11 @@ sealed class AppError(
             override val cause: Throwable? = null,
         ) : Group("Failed to leave group: $groupId", cause)
 
+        data class DeleteFailed(
+            val groupId: String,
+            override val cause: Throwable? = null,
+        ) : Group("Failed to delete group: ${cause?.message ?: groupId}", cause)
+
         data class SendFailed(
             val groupId: String,
             override val cause: Throwable? = null,
@@ -123,6 +128,11 @@ sealed class AppError(
         data class CreateFailed(
             override val cause: Throwable? = null,
         ) : Group("Failed to create group", cause)
+
+        data class EditFailed(
+            val groupId: String,
+            override val cause: Throwable? = null,
+        ) : Group("Failed to update group" + (cause?.message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""), cause)
     }
 
     /** Generic/unknown errors */
@@ -144,15 +154,6 @@ fun <T> Result<T>.toKotlinResult(): kotlin.Result<T> = when (this) {
  * Execute a block and wrap the result in Result.Success or Result.Error
  */
 inline fun <T> runCatching(block: () -> T): Result<T> = try {
-    Result.Success(block())
-} catch (e: Throwable) {
-    Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
-}
-
-/**
- * Execute a suspending block and wrap the result in Result.Success or Result.Error
- */
-suspend inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
     Result.Success(block())
 } catch (e: Throwable) {
     Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))

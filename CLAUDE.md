@@ -343,11 +343,25 @@ when you next touch its screen is in-scope, not a separate task.
 
 ## Shared UI Components — Use, Don't Recreate
 
-- `ProfileAvatar` / `OptimizedSmallAvatar` — user avatar with fallback to Jdenticon
-- `Jdenticon` — deterministic identicon from pubkey
-- `ShimmerEffect` / `SkeletonLoader` — loading placeholders
-- `AppButton` — standard button (respects design tokens)
-- `InfoCard`, `KeyCard`, `WarningCard` — content cards
+**Before building any new UI element, check the catalogue: `docs/components-index.md`.** It
+lists every reusable Compose `@Composable` (under `ui/components`) and web React `FC`
+(under `web/components` / `web/modals`) with a one-line purpose. Reuse the closest match, or
+extend it; only add a new component when nothing fits. Regenerate the index whenever you add
+or remove a component:
+
+```bash
+./scripts/gen-component-index.sh
+```
+
+**Supersede, don't duplicate.** When a new component/screen replaces an old one, delete (or
+redirect to) the old one in the SAME change. Most of the dead code removed in the cleanup
+sweeps was old screens left behind when their replacements shipped (EditProfile, RelaySettings,
+BackupScreen, the web OnboardingScreen / AccountChooserModal). A stale duplicate is worse than
+no component: it splits behavior and gets picked up by the next search.
+
+Canonical examples: `ProfileAvatar` / `OptimizedSmallAvatar` (avatars), `Jdenticon`
+(identicon), `ShimmerEffect` / `SkeletonLoader` (loading), `AppButton` (button),
+`InfoCard` / `WarningCard` (cards).
 
 ## Key Dependencies
 
@@ -366,12 +380,18 @@ when you next touch its screen is in-scope, not a separate task.
 
 ## Working preferences
 
-- Diagnose, fix, compile once. Avoid reading "neighbouring" files just to be thorough.
+- Diagnose, fix, compile once. Avoid reading "neighbouring" files just to be thorough. The one
+  exception that is never "fishing": before creating a UI component, grep `docs/components-index.md`
+  for an existing one. That check is cheap and prevents the duplicate-then-dead-code cycle.
 - One concern per commit, one concern per PR. Ship the PR the same day when possible.
 - Commit message size proportional to diff size: trivial diffs get subject-line only.
 - Stage files by name; never `git add -A` (the working tree often has untracked screenshots and planning docs that must not be versioned).
 - When asked to plan, show the plan inline in the chat. Do not write plans to files unless asked.
 - All user-facing strings must be in English. No Portuguese in UI text.
+- **Comments: terse, present-tense, current behavior + the why.** Never narrate the diff (no
+  "previously" / "no longer" / "used to" / "we now"); keep a past state only when it is
+  load-bearing rationale that prevents a regression. Don't restate what the next line obviously
+  does. Guardrails read as invariants.
 - **Search online early for toolchain errors.** For anything about the external toolchain —
   kotlin-wrappers / React, Gradle, Compose Multiplatform, Ktor, Kotlin/JS — use WebSearch /
   WebFetch BEFORE guessing, and always before a *second* attempt at the same error. The web is

@@ -16,15 +16,16 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
-import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
-import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
 import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
-import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
+import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
+import org.nostr.nostrord.ui.screens.group.components.ManageTab
+import org.nostr.nostrord.ui.screens.group.components.OrphanedGroupContent
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -32,6 +33,8 @@ import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.shortNpub
 
 // Unit separator — safe field delimiter for encoding GroupInfo into the platform-agnostic
 // String values the shared MessageDraftStore holds. It cannot appear in ids, names or URLs.
@@ -53,7 +56,8 @@ fun GroupScreen(
     groupName: String?,
     onNavigateHome: () -> Unit = {},
     onNavigateHomeManageRelay: () -> Unit = onNavigateHome,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
+    onOpenRelay: (relayUrl: String) -> Unit = {},
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onOpenDrawer: () -> Unit = {},
     forceDesktop: Boolean = false,
@@ -89,6 +93,7 @@ fun GroupScreen(
     val sendError by vm.sendError.collectAsState()
     val deleteMessageError by vm.deleteMessageError.collectAsState()
     val reactionError by vm.reactionError.collectAsState()
+    val joinError by vm.joinError.collectAsState()
     val moderationError by vm.moderationError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     // Cross-relay membership view. `vm.joinedGroups` is filtered by
@@ -102,7 +107,6 @@ fun GroupScreen(
             joinedGroupsByRelay.values.flatten().toSet()
         }
     val groups by vm.groups.collectAsState()
-    val groupsByRelay by vm.groupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
@@ -113,8 +117,13 @@ fun GroupScreen(
     val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val allRestrictedGroups by vm.restrictedGroups.collectAsState()
+    // Orphaned: pinned in kind:10009 but no kind:39000 from the relay (deleted / gone). Shows a
+    // "no longer available" panel instead of the perpetual loading skeletons.
+    val isOrphaned by vm.isOrphaned.collectAsState()
     val childrenByParent by vm.childrenByParent.collectAsState()
-    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    // Subgroup UI is gated on the relay advertising nip29:{subgroups:true} in its NIP-11 (mirrors GroupSidebar).
+    val supportsSubgroups =
+        (relayMetadata[currentRelayUrl] ?: relayMetadata[currentRelayUrl.normalizeRelayUrl()])?.supportsSubgroups == true
     val currentUserPubkey = vm.getPublicKey()
 
     val currentGroupMetadata =
@@ -122,13 +131,19 @@ fun GroupScreen(
             groups.find { it.id == groupId }
         }
 
+    // %group mention candidates: only joined + friends' groups (the new discovery),
+    // not every group the relay served.
+    val mentionableGroups by vm.mentionableGroups.collectAsState()
     val availableGroups =
-        remember(groupsByRelay) {
-            groupsByRelay
-                .flatMap { (relay, relayGroups) ->
-                    relayGroups.map { g ->
-                        GroupInfo(id = g.id, name = g.name ?: g.id, picture = g.picture, relay = relay)
-                    }
+        remember(mentionableGroups) {
+            mentionableGroups
+                .map { mg ->
+                    GroupInfo(
+                        id = mg.meta.id,
+                        name = mg.meta.name ?: mg.meta.id,
+                        picture = mg.meta.picture,
+                        relay = mg.relayUrl,
+                    )
                 }.distinctBy { it.id }
         }
 
@@ -150,6 +165,7 @@ fun GroupScreen(
 
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
+    val awaitingAuthReadSet by vm.groupsAwaitingAuthRead.collectAsState()
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
 
@@ -175,6 +191,9 @@ fun GroupScreen(
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
+
+    // Desktop members column visibility, toggled from the header (prototype behavior).
+    var membersVisible by remember { mutableStateOf(true) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
@@ -230,7 +249,7 @@ fun GroupScreen(
                         displayName =
                         metadata?.displayName
                             ?: metadata?.name
-                            ?: pubkey.take(8) + "...",
+                            ?: shortNpub(pubkey),
                         picture = metadata?.picture,
                         isAdmin = pubkey in adminPubkeys,
                     )
@@ -238,55 +257,32 @@ fun GroupScreen(
         }
     }
 
-    val pendingJoinRequests by remember(groupId) {
+    // Shares the Manage > Requests logic (pendingJoinRequests) so the header badge and the list
+    // never disagree; resolvedRequestPubkeys drops requests approved/rejected this session before
+    // the relay echo lands. Open groups count too: some relays leave a kind:9021 pending when a
+    // member leaves and asks to rejoin, and the admin clears it from Manage > Requests.
+    val pendingRequests by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
             val members = (allGroupMembers[groupId] ?: emptyList()).toSet()
-            val lastLeave: Map<String, Long> =
-                msgs
-                    .filter { it.kind == 9022 }
-                    .groupBy { it.pubkey }
-                    .mapValues { (_, events) -> events.maxOf { it.createdAt } }
-            msgs
-                .filter { it.kind == 9021 && it.pubkey !in members && it.pubkey !in resolvedRequestPubkeys }
-                .filter { req ->
-                    val leave = lastLeave[req.pubkey]
-                    leave == null || req.createdAt > leave
-                }.distinctBy { it.pubkey }
-                .sortedByDescending { it.createdAt }
+            pendingJoinRequests(msgs, members).filterNot { it.pubkey in resolvedRequestPubkeys }
         }
     }
 
-    val isPendingApproval by remember(groupId) {
-        derivedStateOf {
-            val joined = joinedGroups.contains(groupId)
-            val pubkey = currentUserPubkey
-            if (!joined || pubkey == null) return@derivedStateOf false
-            val k39002 = allGroupMembers[groupId] ?: emptyList()
-            val isClosed = groups.find { it.id == groupId }?.isOpen == false
-            when {
-                k39002.isNotEmpty() -> pubkey !in k39002
-                isClosed -> true // closed group, no member list yet → assume pending
-                else -> false // open group, no list yet → don't block
-            }
-        }
-    }
+    // Membership standing (None / Resolving / Pending / Member / Admin) is derived once in the
+    // shared GroupViewModel so the Compose and web UIs can't drift on the rules. The pending bar
+    // and its "Requested ..." line both read from it.
+    val membership by vm.membershipState.collectAsState()
+    val isPendingApproval = membership.status == GroupMembership.PENDING
+    val pendingRequestedAtSeconds = membership.requestedAtSeconds
 
-    // Timestamp of the user's most recent pending join request (kind:9021),
-    // so the input banner can show "Requested Xh ago" — a quiet signal that
-    // the request has been seen by the relay.
-    val pendingRequestedAtSeconds by remember(groupId, currentUserPubkey) {
-        derivedStateOf {
-            val pubkey = currentUserPubkey ?: return@derivedStateOf null
-            (allMessages[groupId] ?: emptyList())
-                .asSequence()
-                .filter { it.kind == 9021 && it.pubkey == pubkey }
-                .maxOfOrNull { it.createdAt }
-        }
-    }
+    // Switching accounts while a group is open leaves groupId unchanged, so the
+    // per-session REQ effects must also key on the active account; otherwise the new
+    // session never subscribes and the chat sits in skeletons until a reload.
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
 
-    // Refresh group data on join; poll while pending approval
-    LaunchedEffect(isPendingApproval, isJoined, groupId) {
+    // Refresh group data on join / account switch; poll while pending approval
+    LaunchedEffect(isPendingApproval, isJoined, groupId, activeAccountId) {
         if (!isJoined) return@LaunchedEffect
         vm.refreshGroupData()
         if (isPendingApproval) {
@@ -340,15 +336,11 @@ fun GroupScreen(
     // anchors on this value and stays in place even after markAsRead updates storage,
     // so the user keeps visual context for the session.
     //
-    // Mutable so we can clear it once the user has clearly read the new messages —
-    // see `wasNotAtBottom` below and the onReachedBottom hooks at the call sites.
-    // (issue #83)
+    // The group opens at the bottom (newest), with the divider above. It is consumed
+    // (see consumeDivider) only once the user acknowledges it: scrolls it into view
+    // (onDividerSeen), sends a message, or taps the jump pill to the bottom. Reaching
+    // the bottom on the entry settle must NOT clear it (issue #83).
     var lastReadSnapshot by remember(groupId) { mutableStateOf<Long?>(vm.getLastReadTimestamp()) }
-    // True once the user has scrolled up away from the bottom in this session. The
-    // round-trip check is what distinguishes "user actually read the new messages"
-    // from "screen auto-pinned to bottom on entry" — only the former should clear
-    // the divider.
-    var wasNotAtBottom by remember(groupId) { mutableStateOf(false) }
 
     val chatItems =
         remember(messages, lastReadSnapshot) {
@@ -368,14 +360,61 @@ fun GroupScreen(
     }
 
     // Unread-from-others count for the FAB badge (Telegram pattern). Mirrors
-    // the divider's filter — own messages don't count as unread.
+    // the divider's filter — own messages and membership/moderation events (9021
+    // join, 9022 leave, 9000/9001) don't count as unread, only kind:9 chat. Without
+    // the kind guard a single chat plus a join would read as "3 new".
     val unreadFromOthersCount =
         remember(messages, lastReadSnapshot, currentUserPubkey) {
             val snapshot = lastReadSnapshot ?: return@remember 0
-            messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey }
+            messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey && it.kind == 9 }
         }
 
-    val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
+    // Consume the "New messages" divider: the user has acknowledged the boundary
+    // (sent a message, scrolled it into view, or tapped the jump pill to it). Re-anchor
+    // the snapshot to the newest loaded message so the current divider disappears AND a
+    // later arrival still re-arms a fresh divider + "N new" count without depending on a
+    // leave-bottom event. markAsRead persists it so the divider does not return next entry.
+    val consumeDivider: () -> Unit = {
+        lastReadSnapshot = messages.maxOfOrNull { it.createdAt }
+        vm.markAsRead()
+    }
+
+    // Bottom-follow tracking for the divider. atBottomNow mirrors the list's pin state;
+    // engagedThisEntry latches once the user has genuinely scrolled away this entry.
+    var atBottomNow by remember(groupId) { mutableStateOf(true) }
+    var engagedThisEntry by remember(groupId) { mutableStateOf(false) }
+    val handleReachedBottom: () -> Unit = {
+        atBottomNow = true
+        // Persist read state when caught up; the entry divider itself is NOT cleared here
+        // (issue #83) — only consumeDivider does that, via scroll-to-it / send / jump.
+        vm.markAsRead()
+    }
+    val handleLeftBottom: () -> Unit = {
+        atBottomNow = false
+        engagedThisEntry = true
+        // Re-arm the unread baseline when leaving the bottom already caught up, so a later
+        // arrival while scrolled up still shows "N new". Anchor to the current newest.
+        if (lastReadSnapshot == null) {
+            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+        }
+    }
+
+    // While following at the bottom after the user engaged the scroll this entry, keep the read
+    // snapshot at the newest message. The divider is an entry artifact (consumed by scroll-up,
+    // send, or jump); messages watched as they land are already read, so they must not flash a
+    // fresh divider above the latest while sitting at the bottom.
+    LaunchedEffect(messages, atBottomNow, engagedThisEntry) {
+        if (atBottomNow && engagedThisEntry) {
+            messages.maxOfOrNull { it.createdAt }?.let { lastReadSnapshot = it }
+        }
+    }
+
+    // `awaitingAuthReadSet` keeps the skeleton up while a private group's initial read waits on
+    // NIP-42 AUTH (relay challenges in response to the read, e.g. opened from the homepage); the
+    // controller briefly bounces through Idle during resubscribeAfterAuth, so without this the
+    // empty-state would flash before the authenticated read lands.
+    val isInitialLoading =
+        (isLoadingMoreMap[groupId] == true || groupId in awaitingAuthReadSet) && chatItems.isEmpty()
     // Pending/restricted relays never deliver the member list, so the skeleton
     // would spin forever — force-off so the sidebar can render its empty state.
     val isMembersLoading =
@@ -384,7 +423,7 @@ fun GroupScreen(
             !isPendingApproval &&
             !isGroupRestricted
 
-    LaunchedEffect(groupId) {
+    LaunchedEffect(groupId, activeAccountId) {
         vm.requestGroupMessages(selectedChannel)
         // Entering the group persists the current time as the last read point and
         // clears the in-memory counter. Runs after `remember(groupId)` captured
@@ -428,10 +467,18 @@ fun GroupScreen(
             groupId = groupId,
             groupName = groupName,
             groupMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
+            onOpenRelay = onOpenRelay,
+            isMember = isJoined,
+            memberCount = groupMembers.size,
             userMetadata = userMetadata,
             onUserClick = { pubkey ->
                 showGroupInfoModal = false
                 selectedUserPubkey = pubkey
+            },
+            onLeave = {
+                showGroupInfoModal = false
+                vm.leaveGroup { onNavigateHome() }
             },
             onDismiss = { showGroupInfoModal = false },
         )
@@ -442,21 +489,27 @@ fun GroupScreen(
             currentRelayUrl = currentRelayUrl,
             parentGroupId = groupId,
             onDismiss = { showCreateSubgroupModal = false },
-            onGroupCreated = { newId, newName ->
+            onGroupCreated = { _, newId, newName ->
                 showCreateSubgroupModal = false
-                onNavigateToGroup(newId, newName, null)
+                onNavigateToGroup(newId, newName, null, null)
             },
         )
     }
 
-    // Edit group modal (admin only)
+    // "Edit group" opens the unified Manage group modal on its Info tab (admin only), so editing
+    // shares the same surface as members / requests instead of a separate modal.
     if (showEditGroupModal) {
-        EditGroupModal(
+        ManageGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showEditGroupModal = false },
-            onGroupUpdated = { showEditGroupModal = false },
-            showSubgroupControls = subgroupsEnabled,
+            onDeleted = {
+                showEditGroupModal = false
+                onNavigateHome()
+            },
+            initialTab = ManageTab.Info,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
@@ -470,15 +523,20 @@ fun GroupScreen(
         )
     }
 
-    // Member management modal (admin only)
+    // Managing members opens the unified Manage group modal on its Members tab (admin only),
+    // so there is a single members surface across the app instead of a separate modal.
     if (showMemberManagementModal) {
-        MemberManagementModal(
-            members = groupMembers,
-            currentUserPubkey = currentUserPubkey,
-            onPromoteToAdmin = { pubkey -> vm.promoteToAdmin(pubkey) },
-            onDemoteFromAdmin = { pubkey -> vm.demoteFromAdmin(pubkey) },
-            onRemoveMember = { member -> vm.removeUser(member.pubkey) },
+        ManageGroupModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showMemberManagementModal = false },
+            onDeleted = {
+                showMemberManagementModal = false
+                onNavigateHome()
+            },
+            initialTab = ManageTab.Members,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
@@ -577,119 +635,106 @@ fun GroupScreen(
 
     // Delete message confirmation dialog
     messageToDelete?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { messageToDelete = null },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Delete Message") },
-            text = { Text("Are you sure you want to delete this message? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteMessage(msg.id)
-                    messageToDelete = null
-                }) {
-                    Text("Delete", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Delete Message",
+            message = "Are you sure you want to delete this message? This action cannot be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                vm.deleteMessage(msg.id)
+                messageToDelete = null
             },
-            dismissButton = {
-                TextButton(onClick = { messageToDelete = null }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { messageToDelete = null },
         )
     }
 
     // Delete message error dialog (relay rejected the deletion)
     deleteMessageError?.let { error ->
-        AlertDialog(
-            onDismissRequest = { vm.clearDeleteMessageError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Could Not Delete Message") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(onClick = { vm.clearDeleteMessageError() }) {
-                    Text("OK", color = NostrordColors.Primary)
-                }
-            },
+        ConfirmDialog(
+            title = "Could Not Delete Message",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearDeleteMessageError() },
+            onDismiss = { vm.clearDeleteMessageError() },
         )
     }
 
     // Reaction error dialog (relay rejected kind 7)
     reactionError?.let { error ->
         val isUnknownMember = error.contains("unknown member", ignoreCase = true)
-        AlertDialog(
-            onDismissRequest = { vm.clearReactionError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text(if (isUnknownMember) "Join Required" else "Cannot React") },
-            text = {
-                Text(
-                    if (isUnknownMember) {
-                        "You need to join this group before you can react to messages."
-                    } else {
-                        "This relay does not support reactions.\n\n$error"
-                    },
-                )
-            },
-            confirmButton = {
-                if (isUnknownMember) {
-                    TextButton(onClick = {
-                        vm.clearReactionError()
-                        if (currentGroupMetadata?.isOpen == false) {
-                            // Closed group — show invite code modal instead of direct join
-                        } else {
-                            vm.joinGroup()
-                        }
-                    }) {
-                        Text("Join Group", color = NostrordColors.Primary)
-                    }
-                } else {
-                    TextButton(onClick = { vm.clearReactionError() }) {
-                        Text("OK", color = NostrordColors.Primary)
-                    }
-                }
-            },
-            dismissButton =
+        ConfirmDialog(
+            title = if (isUnknownMember) "Join Required" else "Cannot React",
+            message =
             if (isUnknownMember) {
-                {
-                    TextButton(onClick = { vm.clearReactionError() }) {
-                        Text("Cancel", color = NostrordColors.TextSecondary)
-                    }
-                }
+                "You need to join this group before you can react to messages."
             } else {
-                null
+                "This relay does not support reactions.\n\n$error"
             },
+            confirmLabel = if (isUnknownMember) "Join Group" else "OK",
+            cancelLabel = if (isUnknownMember) "Cancel" else null,
+            onConfirm = {
+                vm.clearReactionError()
+                // Closed groups surface the invite-code modal elsewhere; only open groups join here.
+                if (isUnknownMember && currentGroupMetadata?.isOpen != false) vm.joinGroup()
+            },
+            onDismiss = { vm.clearReactionError() },
+        )
+    }
+
+    // Join error dialog (relay rejected the kind:9021 join request)
+    joinError?.let { error ->
+        ConfirmDialog(
+            title = "Could Not Join",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearJoinError() },
+            onDismiss = { vm.clearJoinError() },
         )
     }
 
     // Send message error dialog
     sendError?.let { error ->
         val isPendingError = error.contains("pending admin approval", ignoreCase = true)
-        AlertDialog(
-            onDismissRequest = { vm.clearSendError() },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text(if (isPendingError) "Pending Approval" else "Message Not Sent") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(onClick = { vm.clearSendError() }) {
-                    Text("OK", color = NostrordColors.Primary)
-                }
-            },
+        ConfirmDialog(
+            title = if (isPendingError) "Pending Approval" else "Message Not Sent",
+            message = error,
+            confirmLabel = "OK",
+            cancelLabel = null,
+            onConfirm = { vm.clearSendError() },
+            onDismiss = { vm.clearSendError() },
         )
     }
 
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
+        val targetMember = groupMembers.firstOrNull { it.pubkey == pubkey }
         UserProfileModal(
             pubkey = pubkey,
             metadata = userMetadata[pubkey],
             userMetadata = userMetadata,
+            iAmAdmin = isAdmin,
+            targetIsAdmin = targetMember?.isAdmin == true,
+            // Pipes into the existing remove-member confirmation dialog below.
+            onRemoveFromGroup =
+            targetMember?.let { member ->
+                {
+                    selectedUserPubkey = null
+                    memberToRemove = member
+                }
+            },
+            // Inserts a resolved @mention into the composer draft (prototype behavior).
+            onMention = { pk ->
+                val meta = userMetadata[pk]
+                val name =
+                    meta?.displayName?.takeIf { it.isNotBlank() }
+                        ?: meta?.name?.takeIf { it.isNotBlank() }
+                        ?: (Nip19.encodeNpub(pk).take(12) + "…")
+                messageInput = (if (messageInput.isBlank()) "" else messageInput.trimEnd() + " ") + "@$name "
+                mentions = mentions + (name to pk)
+                selectedUserPubkey = null
+            },
             onUserClick = { clickedPubkey ->
                 selectedUserPubkey = clickedPubkey
             },
@@ -699,74 +744,49 @@ fun GroupScreen(
 
     // Remove member confirmation dialog
     memberToRemove?.let { member ->
-        AlertDialog(
-            onDismissRequest = { memberToRemove = null },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Remove Member") },
-            text = { Text("Remove ${member.displayName} from this group?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.removeUser(member.pubkey)
-                        memberToRemove = null
-                    },
-                ) {
-                    Text("Remove", color = NostrordColors.Error)
-                }
+        ConfirmDialog(
+            title = "Remove Member",
+            message = "Remove ${member.displayName} from this group?",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                vm.removeUser(member.pubkey)
+                memberToRemove = null
             },
-            dismissButton = {
-                TextButton(onClick = { memberToRemove = null }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { memberToRemove = null },
         )
     }
 
-    // Join requests modal (admin only)
+    // Join requests open the unified Manage group modal on its Requests tab (parity with the
+    // web requests badge, which opens ManageGroupModal at "requests").
     if (showJoinRequestsModal) {
-        JoinRequestsModal(
-            pendingRequests = pendingJoinRequests,
-            userMetadata = userMetadata,
-            onApprove = { pubkey: String ->
-                vm.approveJoinRequest(pubkey)
-                resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
-            },
-            onReject = { eventId: String ->
-                val pubkey = pendingJoinRequests.find { it.id == eventId }?.pubkey
-                vm.rejectJoinRequest(eventId)
-                if (pubkey != null) resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
-            },
+        ManageGroupModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
             onDismiss = { showJoinRequestsModal = false },
+            onDeleted = {
+                showJoinRequestsModal = false
+                onNavigateHome()
+            },
+            initialTab = ManageTab.Requests,
+            supportsSubgroups = supportsSubgroups,
         )
     }
 
     if (showLeaveDialog) {
-        AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
-            containerColor = NostrordColors.Surface,
-            titleContentColor = NostrordColors.TextPrimary,
-            textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Leave Group") },
-            text = { Text("Are you sure you want to leave ${groupName ?: "this group"}? You can rejoin later if you change your mind.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.leaveGroup {
-                            showLeaveDialog = false
-                            onNavigateHome()
-                        }
-                    },
-                ) {
-                    Text("Leave", color = NostrordColors.Error)
+        ConfirmDialog(
+            title = "Leave Group",
+            message = "Are you sure you want to leave ${groupName ?: "this group"}? You can rejoin later if you change your mind.",
+            confirmLabel = "Leave",
+            destructive = true,
+            onConfirm = {
+                vm.leaveGroup {
+                    showLeaveDialog = false
+                    onNavigateHome()
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showLeaveDialog = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                }
-            },
+            onDismiss = { showLeaveDialog = false },
         )
     }
 
@@ -790,7 +810,9 @@ fun GroupScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val isCompact = !forceDesktop
 
-            if (isCompact) {
+            if (isOrphaned) {
+                OrphanedGroupContent(onForget = { vm.forget { onNavigateHome() } })
+            } else if (isCompact) {
                 GroupScreenMobile(
                     groupId = groupId,
                     groupName = groupName,
@@ -835,6 +857,8 @@ fun GroupScreen(
                         groupMentions = emptyMap()
                         replyingToMessage = null
                         pendingUploads = emptyList()
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
                         vm.sendMessage(
                             content,
                             selectedChannel,
@@ -860,12 +884,12 @@ fun GroupScreen(
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
                     onManageChildren = { showManageChildrenModal = true },
-                    showSubgroupControls = subgroupsEnabled,
+                    showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent
                         if (!parentId.isNullOrBlank()) {
-                            onNavigateToGroup(parentId, parentGroupName, null)
+                            onNavigateToGroup(parentId, parentGroupName, null, null)
                         }
                     },
                     subgroupCount = childrenByParent[groupId]?.size ?: 0,
@@ -906,7 +930,7 @@ fun GroupScreen(
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
                     onAddMember = { pubkey -> vm.addUser(pubkey) },
-                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
                     pendingRequestedAtSeconds = pendingRequestedAtSeconds,
@@ -917,18 +941,10 @@ fun GroupScreen(
                     isClosed = currentGroupMetadata?.isOpen == false,
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
-                    onReachedBottom = {
-                        vm.markAsRead()
-                        // Round-trip dismissal: only clear the divider if the user
-                        // had scrolled up first. Otherwise the entry auto-pin would
-                        // wipe it before the user ever saw it. (issue #83)
-                        if (wasNotAtBottom) {
-                            lastReadSnapshot = null
-                            wasNotAtBottom = false
-                        }
-                    },
-                    onLeftBottom = { wasNotAtBottom = true },
+                    onReachedBottom = handleReachedBottom,
+                    onLeftBottom = handleLeftBottom,
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
+                    onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
@@ -979,6 +995,8 @@ fun GroupScreen(
                         groupMentions = emptyMap()
                         replyingToMessage = null
                         pendingUploads = emptyList()
+                        // Sending acknowledges the "New messages" boundary: drop the divider.
+                        consumeDivider()
                         vm.sendMessage(
                             content,
                             selectedChannel,
@@ -1004,12 +1022,12 @@ fun GroupScreen(
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
                     onManageChildren = { showManageChildrenModal = true },
-                    showSubgroupControls = subgroupsEnabled,
+                    showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
                         val parentId = currentGroupMetadata?.parent
                         if (!parentId.isNullOrBlank()) {
-                            onNavigateToGroup(parentId, parentGroupName, null)
+                            onNavigateToGroup(parentId, parentGroupName, null, null)
                         }
                     },
                     subgroupCount = childrenByParent[groupId]?.size ?: 0,
@@ -1047,13 +1065,20 @@ fun GroupScreen(
                             pendingUploads = pendingUploads + upload
                         }
                     },
-                    showMemberSidebar = maxWidth >= 1080.dp,
+                    showMemberSidebar = maxWidth >= 1024.dp && membersVisible,
+                    onToggleMembers = {
+                        if (maxWidth >= 1024.dp) {
+                            membersVisible = !membersVisible
+                        } else {
+                            showMemberSheet = true
+                        }
+                    },
                     showMemberSheet = showMemberSheet,
                     onShowMemberSheet = { showMemberSheet = it },
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
                     onAddMember = { pubkey -> vm.addUser(pubkey) },
-                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
                     pendingRequestedAtSeconds = pendingRequestedAtSeconds,
@@ -1064,18 +1089,10 @@ fun GroupScreen(
                     isClosed = currentGroupMetadata?.isOpen == false,
                     isGroupRestricted = isGroupRestricted,
                     initialInviteCode = effectiveInviteCode,
-                    onReachedBottom = {
-                        vm.markAsRead()
-                        // Round-trip dismissal: only clear the divider if the user
-                        // had scrolled up first. Otherwise the entry auto-pin would
-                        // wipe it before the user ever saw it. (issue #83)
-                        if (wasNotAtBottom) {
-                            lastReadSnapshot = null
-                            wasNotAtBottom = false
-                        }
-                    },
-                    onLeftBottom = { wasNotAtBottom = true },
+                    onReachedBottom = handleReachedBottom,
+                    onLeftBottom = handleLeftBottom,
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
+                    onDividerSeen = { consumeDivider() },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,

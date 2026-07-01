@@ -11,6 +11,11 @@ private fun jsGetPublicKeyPromise(): dynamic = js("window.nostr.getPublicKey()")
 
 private fun jsSignEventPromise(eventJson: String): dynamic = js("window.nostr.signEvent(JSON.parse(eventJson))")
 
+// Wrapped in Promise.resolve so both sync and promise-returning extension impls work.
+private fun jsNip44EncryptPromise(peer: String, plaintext: String): dynamic = js("Promise.resolve(window.nostr.nip44.encrypt(peer, plaintext))")
+
+private fun jsNip44DecryptPromise(peer: String, ciphertext: String): dynamic = js("Promise.resolve(window.nostr.nip44.decrypt(peer, ciphertext))")
+
 private fun jsStringify(obj: dynamic): String = js("JSON.stringify(obj)").unsafeCast<String>()
 
 actual object Nip07 {
@@ -57,6 +62,49 @@ actual object Nip07 {
                         }
                     } else {
                         "Signing request was rejected"
+                    }
+                cont.resumeWithException(Exception(message))
+                null
+            },
+        )
+    }
+
+    actual suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = nip44Call({ jsNip44EncryptPromise(peerPubkeyHex, plaintext) })
+
+    actual suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = nip44Call({ jsNip44DecryptPromise(peerPubkeyHex, ciphertext) })
+
+    private suspend fun nip44Call(start: () -> dynamic): String = suspendCoroutine { cont ->
+        val available = js("typeof window !== 'undefined' && window.nostr && window.nostr.nip44").unsafeCast<Boolean>()
+        if (!available) {
+            cont.resumeWithException(Exception("This extension does not support NIP-44 (window.nostr.nip44)"))
+            return@suspendCoroutine
+        }
+        val promise =
+            try {
+                start()
+            } catch (e: Throwable) {
+                cont.resumeWithException(Exception("NIP-44 request failed: ${e.message}"))
+                return@suspendCoroutine
+            }
+        promise.then(
+            { result: dynamic ->
+                if (result == null) {
+                    cont.resumeWithException(Exception("NIP-44 request was rejected"))
+                } else {
+                    cont.resume(result.toString())
+                }
+                null
+            },
+            { err: dynamic ->
+                val message =
+                    if (err != null && err != undefined) {
+                        try {
+                            err.message?.toString() ?: err.toString()
+                        } catch (_: Throwable) {
+                            "NIP-44 request was rejected"
+                        }
+                    } else {
+                        "NIP-44 request was rejected"
                     }
                 cont.resumeWithException(Exception(message))
                 null

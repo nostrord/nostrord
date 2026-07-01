@@ -1,4 +1,18 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileKotlinJvm)",
+      "Bash(./gradlew compileKotlinJvm *)",
+      "Bash(./gradlew compileKotlinJs)",
+      "Bash(./gradlew compileKotlinJs *)",
+      "Bash(./gradlew :composeApp:compileKotlinJvm *)",
+      "Bash(./gradlew :composeApp:compileKotlinJs *)",
+      "Bash(./gradlew :composeApp:jvmTest)",
+      "Bash(./gradlew :composeApp:jvmTest *)",
+      "Bash(./gradlew detekt)",
+      "Bash(./gradlew detekt *)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {

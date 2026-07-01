@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.screens.login.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -21,17 +20,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.isAndroid
 import org.nostr.nostrord.ui.components.QrCode
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
+import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.SegmentedTab
+import org.nostr.nostrord.ui.components.forms.appFieldColors
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -72,55 +77,15 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Mode toggle: QR Code vs Bunker URL
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.shapeMedium,
-            color = NostrordColors.SurfaceVariant,
-        ) {
-            Row(modifier = Modifier.padding(4.dp)) {
-                val modes =
-                    listOf(
-                        BunkerMode.QR to "QR Code" to Icons.Default.QrCode,
-                        BunkerMode.URL to "Bunker URL" to Icons.Default.TextFields,
-                    )
-                for ((pair, icon) in modes) {
-                    val (m, label) = pair
-                    val isSelected = mode == m
-                    val bgColor by animateColorAsState(
-                        if (isSelected) NostrordColors.Primary else Color.Transparent,
-                    )
-                    Surface(
-                        modifier =
-                        Modifier
-                            .weight(1f)
-                            .clip(NostrordShapes.shapeSmall)
-                            .clickable { mode = m },
-                        shape = NostrordShapes.shapeSmall,
-                        color = bgColor,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (isSelected) Color.White else NostrordColors.TextMuted,
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (isSelected) Color.White else NostrordColors.TextMuted,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        AppSegmentedTabs(
+            tabs =
+            listOf(
+                SegmentedTab("QR Code", Icons.Default.QrCode),
+                SegmentedTab("Bunker URL", Icons.Default.TextFields),
+            ),
+            selectedIndex = if (mode == BunkerMode.QR) 0 else 1,
+            onSelect = { mode = if (it == 0) BunkerMode.QR else BunkerMode.URL },
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -148,7 +113,7 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         "Why use a Bunker?",
-                        color = Color.White,
+                        color = NostrordColors.TextPrimary,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -272,7 +237,7 @@ private fun QrCodeLoginContent(
                 readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextMuted),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextMuted, fontSize = 14.sp),
                 trailingIcon = {
                     IconButton(onClick = {
                         clipboardManager.setText(AnnotatedString(uri))
@@ -287,13 +252,7 @@ private fun QrCodeLoginContent(
                     }
                 },
                 shape = NostrordShapes.inputShape,
-                colors =
-                OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NostrordColors.Primary,
-                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground,
-                ),
+                colors = appFieldColors(),
             )
         }
 
@@ -364,27 +323,13 @@ private fun QrCodeLoginContent(
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
+            AppButton(
+                text = "Try Again",
                 onClick = { sessionKey++ },
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = NostrordShapes.buttonShape,
-                colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = NostrordColors.Primary,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Try Again", fontWeight = FontWeight.SemiBold)
-            }
+                size = AppButtonSize.Large,
+                fullWidth = true,
+                icon = Icons.Default.QrCode,
+            )
         }
     }
 }
@@ -474,11 +419,11 @@ private fun NostrConnectRelaysSection(
                 value = newRelay,
                 onValueChange = { newRelay = it },
                 placeholder = {
-                    Text("wss://relay.example.com", color = NostrordColors.TextMuted)
+                    Text("wss://relay.example.com", color = NostrordColors.TextMuted, fontSize = 14.sp)
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(color = Color.White),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent, fontSize = 14.sp),
                 trailingIcon = {
                     IconButton(
                         onClick = {
@@ -498,38 +443,17 @@ private fun NostrConnectRelaysSection(
                     }
                 },
                 shape = NostrordShapes.inputShape,
-                colors =
-                OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NostrordColors.Primary,
-                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground,
-                ),
+                colors = appFieldColors(),
             )
 
             Spacer(modifier = Modifier.height(8.dp))
-            Button(
+            AppButton(
+                text = "Apply & regenerate QR",
                 onClick = { onApply(editable) },
                 enabled = dirty && editable.isNotEmpty(),
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                shape = NostrordShapes.buttonShape,
-                colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = NostrordColors.Primary,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Apply & regenerate QR", fontWeight = FontWeight.SemiBold)
-            }
+                fullWidth = true,
+                icon = Icons.Default.QrCode,
+            )
         }
     }
 }
@@ -557,103 +481,52 @@ private fun BunkerUrlLoginContent(
         }
     }
 
+    fun connect() {
+        if (bunkerUrl.isBlank() || isConnecting) return
+        isConnecting = true
+        errorMessage = null
+        connectionStatus = "Connecting..."
+        vm.clearAuthUrl()
+        vm.loginWithBunker(bunkerUrl) { result ->
+            isConnecting = false
+            if (result.isSuccess) {
+                connectionStatus = "Connected!"
+                onLoginSuccess()
+            } else {
+                errorMessage = "Connection failed: ${result.exceptionOrNull()?.message}"
+                connectionStatus = null
+            }
+        }
+    }
+
     Column {
-        // Input field
-        OutlinedTextField(
+        // Input field (shared form component); Enter connects
+        AppTextField(
             value = bunkerUrl,
             onValueChange = {
                 bunkerUrl = it
                 errorMessage = null
             },
-            placeholder = {
-                Text(
-                    "bunker://<pubkey>?relay=wss://...",
-                    color = NostrordColors.TextMuted,
-                )
-            },
-            singleLine = false,
+            placeholder = "bunker://<pubkey>?relay=wss://...",
+            hint = "Get your bunker URL from nsec.app, Amber, or other NIP-46 signers",
+            leadingIcon = Icons.Default.Link,
             maxLines = 3,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = LocalTextStyle.current.copy(color = Color.White),
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Link,
-                    contentDescription = null,
-                    tint = NostrordColors.TextMuted,
-                )
-            },
-            shape = NostrordShapes.inputShape,
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NostrordColors.Primary,
-                unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                cursorColor = NostrordColors.Primary,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
-            ),
             enabled = !isConnecting,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            "Get your bunker URL from nsec.app, Amber, or other NIP-46 signers",
-            color = NostrordColors.TextMuted,
-            style = MaterialTheme.typography.labelSmall,
+            onDone = { connect() },
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // Connect button
-        Button(
-            onClick = {
-                isConnecting = true
-                errorMessage = null
-                connectionStatus = "Connecting..."
-                vm.clearAuthUrl()
-                vm.loginWithBunker(bunkerUrl) { result ->
-                    isConnecting = false
-                    if (result.isSuccess) {
-                        connectionStatus = "Connected!"
-                        onLoginSuccess()
-                    } else {
-                        errorMessage = "Connection failed: ${result.exceptionOrNull()?.message}"
-                        connectionStatus = null
-                    }
-                }
-            },
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp),
+        AppButton(
+            text = if (isConnecting) "Connecting..." else "Connect to Bunker",
+            onClick = { connect() },
             enabled = bunkerUrl.isNotBlank() && !isConnecting,
-            shape = NostrordShapes.buttonShape,
-            colors =
-            ButtonDefaults.buttonColors(
-                containerColor = NostrordColors.Primary,
-                contentColor = Color.White,
-                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                disabledContentColor = Color.White.copy(alpha = 0.7f),
-            ),
-        ) {
-            if (isConnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Connecting...", fontWeight = FontWeight.SemiBold)
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Link,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Connect to Bunker", fontWeight = FontWeight.SemiBold)
-            }
-        }
+            size = AppButtonSize.Large,
+            fullWidth = true,
+            loading = isConnecting,
+            icon = Icons.Default.Link,
+        )
 
         // Show auth URL if waiting for approval
         authUrl?.let { url ->

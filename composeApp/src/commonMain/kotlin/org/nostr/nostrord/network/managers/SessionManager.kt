@@ -1,8 +1,8 @@
 package org.nostr.nostrord.network.managers
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.BunkerState
 import org.nostr.nostrord.network.NostrGroupClient
@@ -16,12 +16,16 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class SessionManager(
     private val authManager: AuthManager,
-    private val scope: CoroutineScope,
 ) {
-    // Tracks relay URLs for which an AUTH challenge is already being processed,
-    // to prevent double-signing when the relay sends a second challenge because
-    // a REQ arrived before the first AUTH completed.
-    private val authInProgress = mutableSetOf<String>()
+    // Clients whose AUTH challenge is already being signed, to prevent double-signing
+    // when the relay sends a second challenge before the first completed.
+    //
+    // Keyed on the client INSTANCE, not the relay URL: each reconnect creates a fresh
+    // NostrGroupClient, and a URL-keyed guard let an in-flight sign on a now-replaced
+    // socket block the NEW socket's challenge. With a slow NIP-46 bunker (signing a
+    // single AUTH takes seconds) a reconnect routinely lands mid-sign, so the live
+    // connection never authenticated and its private groups stayed permanently empty.
+    private val authInProgress = mutableSetOf<NostrGroupClient>()
 
     // Delegate auth state to AuthManager
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
@@ -29,6 +33,9 @@ class SessionManager(
     val isBunkerVerifying: StateFlow<Boolean> = authManager.isBunkerVerifying
     val bunkerState: StateFlow<BunkerState> = authManager.bunkerState
     val authUrl: StateFlow<String?> = authManager.authUrl
+    val pendingUnlock: StateFlow<Account?> = authManager.pendingUnlock
+
+    fun clearPendingUnlock() = authManager.clearPendingUnlock()
 
     /**
      * Restore session from storage
@@ -41,10 +48,11 @@ class SessionManager(
     suspend fun loginWithBunker(bunkerUrl: String): String = authManager.loginWithBunker(bunkerUrl)
 
     /**
-     * Login with private key
+     * Login with private key. [ncryptsec] marks the account password-protected
+     * (only the encrypted key is persisted; unlock asks the password at startup).
      */
-    suspend fun loginWithPrivateKey(privKey: String, pubKey: String) {
-        authManager.loginWithPrivateKey(privKey, pubKey)
+    suspend fun loginWithPrivateKey(privKey: String, pubKey: String, ncryptsec: String? = null) {
+        authManager.loginWithPrivateKey(privKey, pubKey, ncryptsec)
     }
 
     /**
@@ -156,10 +164,10 @@ class SessionManager(
     suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String): Boolean {
         val relayUrl = client.getRelayUrl()
         if (!client.isConnected()) return false // race-condition loser: already disconnected
-        if (!authInProgress.add(relayUrl)) return false // already in progress for this relay
+        if (!authInProgress.add(client)) return false // already signing for THIS socket
 
         val pubKey = getPublicKey() ?: run {
-            authInProgress.remove(relayUrl)
+            authInProgress.remove(client)
             return false
         }
 
@@ -184,17 +192,23 @@ class SessionManager(
                 add(signedEvent.toJsonObject())
             }.toString()
 
+            // The bunker sign above can take seconds; if the socket was replaced by a
+            // reconnect meanwhile, sending AUTH to the dead session is wasted and would
+            // fool the caller into firing resubscribeAfterAuth on a client that can't
+            // read. Bail so the live socket's own challenge drives AUTH instead.
+            if (!client.isConnected()) return false
+
             client.send(message)
 
             // Give the relay 500 ms to process the AUTH before we send subscriptions.
             // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only
-            // fires when this client is the primary relay.
+            // fires when this client is the focused relay.
             kotlinx.coroutines.delay(500)
             true
         } catch (_: Throwable) {
             false
         } finally {
-            authInProgress.remove(relayUrl)
+            authInProgress.remove(client)
         }
     }
 }

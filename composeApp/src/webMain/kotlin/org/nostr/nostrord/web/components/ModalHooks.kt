@@ -6,29 +6,46 @@ import react.useRef
 import web.dom.document
 
 /**
+ * Stack of the active Escape handlers, innermost (most recently opened modal) last. Escape only ever
+ * closes the topmost modal, so a confirm dialog stacked over the manage modal closes by itself
+ * instead of taking the modal underneath down with it.
+ */
+private val escStack = mutableListOf<() -> Unit>()
+private var escListenerInstalled = false
+
+private fun ensureEscListener() {
+    if (escListenerInstalled) return
+    escListenerInstalled = true
+    val handler: (dynamic) -> Unit = { e ->
+        if (e.key == "Escape") escStack.lastOrNull()?.invoke()
+    }
+    document.asDynamic().addEventListener("keydown", handler)
+}
+
+/**
  * Closes a modal/overlay when the Escape key is pressed.
  *
- * Registers a single document-level keydown listener for the lifetime of the calling component, so
- * it works regardless of which element currently holds focus (a backdrop `onClick` only fires when
- * the backdrop itself is clicked). The latest [onClose] is read through a ref so the listener never
- * goes stale without re-registering on every render.
+ * Pushes [onClose] onto a shared [escStack] for the lifetime of the calling component; a single
+ * document-level keydown listener fires only the topmost handler, so Escape closes just the
+ * innermost open modal (not every modal that happens to be mounted). Document-level (not element
+ * focus) so it works no matter where focus sits. The latest [onClose] is read through a ref so it
+ * never goes stale without re-pushing on every render.
  *
  * Cleanup follows this wrappers version's model: `useEffect` runs a suspend block whose scope is
- * cancelled on unmount, so [awaitCancellation] + `finally` removes the listener (same pattern as
- * `useStateFlow`'s `flow.collect`).
+ * cancelled on unmount, so [awaitCancellation] + `finally` pops this handler off the stack (same
+ * pattern as `useStateFlow`'s `flow.collect`).
  */
 fun useEscClose(onClose: () -> Unit) {
     val cb = useRef(onClose)
     cb.current = onClose
     useEffect(Unit) {
-        val handler: (dynamic) -> Unit = { e ->
-            if (e.key == "Escape") cb.current?.invoke()
-        }
-        document.asDynamic().addEventListener("keydown", handler)
+        ensureEscListener()
+        val entry: () -> Unit = { cb.current?.invoke() }
+        escStack.add(entry)
         try {
             awaitCancellation()
         } finally {
-            document.asDynamic().removeEventListener("keydown", handler)
+            escStack.remove(entry)
         }
     }
 }

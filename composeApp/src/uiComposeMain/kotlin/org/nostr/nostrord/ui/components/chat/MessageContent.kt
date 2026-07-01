@@ -42,6 +42,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -67,13 +68,12 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
 import org.nostr.nostrord.ui.components.media.AudioPlayerContent
 import org.nostr.nostrord.ui.components.media.PlatformVideoPlayer
 import org.nostr.nostrord.ui.components.media.YouTubeLinkCard
-import org.nostr.nostrord.ui.components.media.rememberAudioPlayer
+import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
-import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.getImageUrl
@@ -81,6 +81,7 @@ import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.isBlockedImageHost
 import org.nostr.nostrord.utils.proxyViaWeserv
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.shortNpub
 
 // Type alias to bridge new parser to existing rendering code
 private typealias ContentPart = MessageContentParser.ParsedPart
@@ -94,6 +95,8 @@ private typealias CustomEmojiPart = MessageContentParser.ParsedPart.CustomEmoji
 private typealias BoldPart = MessageContentParser.ParsedPart.Bold
 private typealias ItalicPart = MessageContentParser.ParsedPart.Italic
 private typealias MonospacePart = MessageContentParser.ParsedPart.Monospace
+private typealias StrikethroughPart = MessageContentParser.ParsedPart.Strikethrough
+private typealias SpoilerPart = MessageContentParser.ParsedPart.Spoiler
 private typealias CodeBlockPart = MessageContentParser.ParsedPart.CodeBlock
 private typealias HashtagPart = MessageContentParser.ParsedPart.Hashtag
 private typealias VideoPart = MessageContentParser.ParsedPart.Video
@@ -220,7 +223,7 @@ fun MessageContent(
     onHashtagClick: (String) -> Unit = {},
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -369,11 +372,7 @@ fun MessageContent(
                                 autoLoad = autoLoadMedia,
                                 label = "audio",
                             ) {
-                                val audioPlayer = rememberAudioPlayer()
-                                AudioPlayerContent(
-                                    url = firstPart.url,
-                                    player = audioPlayer,
-                                )
+                                AudioPlayerContent(url = firstPart.url)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
@@ -572,8 +571,11 @@ private fun InlineContentWithEmojis(
 
     // Build the annotated string — each emoji references its shortcode key
     val emojiFontFamily = rememberEmojiFontFamily()
+    // Spoilers start hidden; tapping one toggles its index here (Discord-style).
+    var revealedSpoilers by remember(parts) { mutableStateOf(emptySet<Int>()) }
     val annotatedString =
-        remember(parts, userMetadata, emojiFontFamily) {
+        remember(parts, userMetadata, emojiFontFamily, revealedSpoilers) {
+            var spoilerIndex = 0
             buildAnnotatedString {
                 parts.forEach { part ->
                     when (part) {
@@ -612,6 +614,9 @@ private fun InlineContentWithEmojis(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(pubkey) },
@@ -629,6 +634,9 @@ private fun InlineContentWithEmojis(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),
@@ -665,6 +673,21 @@ private fun InlineContentWithEmojis(
                                 append(part.content)
                             }
                         }
+                        is StrikethroughPart -> {
+                            withStyle(
+                                SpanStyle(
+                                    textDecoration = TextDecoration.LineThrough,
+                                    color = NostrordColors.TextMuted,
+                                ),
+                            ) {
+                                append(part.content)
+                            }
+                        }
+                        is SpoilerPart -> {
+                            appendSpoiler(part.content, spoilerIndex++, revealedSpoilers) { i ->
+                                revealedSpoilers = revealedSpoilers.toggle(i)
+                            }
+                        }
                         is HashtagPart -> {
                             withLink(
                                 LinkAnnotation.Clickable(
@@ -694,6 +717,37 @@ private fun InlineContentWithEmojis(
     )
 }
 
+private fun Set<Int>.toggle(i: Int): Set<Int> = if (i in this) this - i else this + i
+
+/**
+ * Append a spoiler span: hidden as a muted block with transparent text until tapped,
+ * then revealed with a floating background. Tap toggles it (LinkAnnotation.Clickable,
+ * same tap path as mentions). Mirrors the prototype Discord-style spoiler.
+ */
+private fun AnnotatedString.Builder.appendSpoiler(
+    content: String,
+    index: Int,
+    revealed: Set<Int>,
+    onToggle: (Int) -> Unit,
+) {
+    val shown = index in revealed
+    val style =
+        if (shown) {
+            SpanStyle(background = NostrordColors.BackgroundFloating, color = NostrordColors.TextContent)
+        } else {
+            SpanStyle(background = NostrordColors.TextMuted.copy(alpha = 0.3f), color = Color.Transparent)
+        }
+    withLink(
+        LinkAnnotation.Clickable(
+            tag = "spoiler_$index",
+            styles = TextLinkStyles(style = style),
+            linkInteractionListener = { onToggle(index) },
+        ),
+    ) {
+        append(content)
+    }
+}
+
 /**
  * Renders inline content WITHOUT custom emojis.
  * Supports full text selection.
@@ -707,8 +761,10 @@ private fun InlineContentTextOnly(
     onHashtagClick: (String) -> Unit = {},
 ) {
     val emojiFontFamily = rememberEmojiFontFamily()
+    var revealedSpoilers by remember(parts) { mutableStateOf(emptySet<Int>()) }
     val annotatedString =
-        remember(parts, userMetadata, emojiFontFamily) {
+        remember(parts, userMetadata, emojiFontFamily, revealedSpoilers) {
+            var spoilerIndex = 0
             buildAnnotatedString {
                 parts.forEach { part ->
                     when (part) {
@@ -747,6 +803,9 @@ private fun InlineContentTextOnly(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(pubkey) },
@@ -764,6 +823,9 @@ private fun InlineContentTextOnly(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),
@@ -792,6 +854,21 @@ private fun InlineContentTextOnly(
                                 ),
                             ) {
                                 append(part.content)
+                            }
+                        }
+                        is StrikethroughPart -> {
+                            withStyle(
+                                SpanStyle(
+                                    textDecoration = TextDecoration.LineThrough,
+                                    color = NostrordColors.TextMuted,
+                                ),
+                            ) {
+                                append(part.content)
+                            }
+                        }
+                        is SpoilerPart -> {
+                            appendSpoiler(part.content, spoilerIndex++, revealedSpoilers) { i ->
+                                revealedSpoilers = revealedSpoilers.toggle(i)
                             }
                         }
                         is HashtagPart -> {
@@ -869,12 +946,12 @@ fun processMentionsInContent(
                 is Nip19.Entity.Npub -> {
                     val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
-                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                    if (name != null) "@$name" else "@" + shortNpub(entity.pubkey)
                 }
                 is Nip19.Entity.Nprofile -> {
                     val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
-                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                    if (name != null) "@$name" else "@" + shortNpub(entity.pubkey)
                 }
                 is Nip19.Entity.Note -> "[note]"
                 is Nip19.Entity.Nevent -> "[event]"
@@ -1145,7 +1222,7 @@ private fun QuotedEventBlock(
     modifier: Modifier = Modifier,
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onMentionClick: (String) -> Unit = {},
 ) {
     val entity = mention.reference.entity
@@ -1230,7 +1307,7 @@ fun ForwardedEventCard(
     sourceGroupPicture: String?,
     sourceRelayUrl: String?,
     onClick: () -> Unit,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
 ) {
@@ -1240,7 +1317,7 @@ fun ForwardedEventCard(
     var showMenu by remember { mutableStateOf(false) }
 
     val authorMetadata = userMetadata[event.pubkey]
-    val authorName = authorMetadata?.displayName ?: authorMetadata?.name ?: event.pubkey.take(8) + "..."
+    val authorName = authorMetadata?.displayName ?: authorMetadata?.name ?: shortNpub(event.pubkey)
 
     // Check for reply (q tag) - indicates this event is a reply to another
     val replyEventId = event.tags.find { it.firstOrNull() == "q" }?.getOrNull(1)
@@ -1277,7 +1354,7 @@ fun ForwardedEventCard(
             Modifier
                 .fillMaxWidth()
                 .clickable {
-                    onNavigateToGroup(sourceGroupId, sourceGroupName, sourceRelayUrl)
+                    onNavigateToGroup(sourceGroupId, sourceGroupName, sourceRelayUrl, event.id)
                 }.pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -1294,26 +1371,15 @@ fun ForwardedEventCard(
                 color = NostrordColors.TextMuted,
                 style = NostrordTypography.Caption,
             )
-            // Group avatar (small)
-            if (sourceGroupPicture != null) {
-                AsyncImage(
-                    model =
-                    ImageRequest
-                        .Builder(LocalPlatformContext.current)
-                        .data(sourceGroupPicture)
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .size(Size(32, 32))
-                        .build(),
-                    contentDescription = "Group avatar",
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                    Modifier
-                        .size(16.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                )
-            }
+            // Group avatar (small). Seeded-gradient fallback when there's no picture, so the
+            // group always shows an avatar (parity with the web card / GroupLinkCard).
+            GroupHeaderIcon(
+                pictureUrl = sourceGroupPicture,
+                groupId = sourceGroupId,
+                displayName = sourceGroupName ?: sourceGroupId,
+                size = 16.dp,
+                cornerRadius = 4.dp,
+            )
             // Group name (with underline on hover style)
             Text(
                 text = sourceGroupName ?: sourceGroupId.take(12) + "...",
@@ -1474,7 +1540,7 @@ private fun ReplyPreview(
     val parentAuthorName =
         parentAuthorMetadata?.displayName
             ?: parentAuthorMetadata?.name
-            ?: parentEvent.pubkey.take(8) + "..."
+            ?: shortNpub(parentEvent.pubkey)
 
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentEvent.content) {
@@ -1546,12 +1612,13 @@ private fun QuotedEvent(
     modifier: Modifier = Modifier,
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onMentionClick: (String) -> Unit = {},
 ) {
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val groups by AppModule.nostrRepository.groups.collectAsState()
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val event = cachedEvents[eventId]
 
     // Track if event was not found after timeout
@@ -1586,7 +1653,7 @@ private fun QuotedEvent(
     // Check if this is a kind 30040 (book) event - render as BookCard
     if (event?.kind == 30040) {
         val metadata = userMetadata[event.pubkey]
-        val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+        val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(event.pubkey)
 
         BookCard(
             event = event,
@@ -1619,15 +1686,28 @@ private fun QuotedEvent(
                 }
 
             if (isFromDifferentGroup) {
-                // Look up group metadata for source group
-                val sourceGroup = groups.find { it.id == sourceGroupId }
+                // Look up the source group across ALL relays (not just the current one) so a
+                // cross-relay forwarded group still shows its name + avatar; fetch a preview from
+                // the relay hint when we don't know it yet (parity with web / GroupLinkCard).
+                val sourceGroup =
+                    groupsByRelay.values.flatten().find { it.id == sourceGroupId }
+                        ?: groups.find { it.id == sourceGroupId }
+                val previewRelay = sourceRelayUrl ?: relayHints.firstOrNull()
+                LaunchedEffect(sourceGroupId, previewRelay, sourceGroup?.name) {
+                    if (sourceGroup?.name == null && previewRelay != null) {
+                        AppModule.nostrRepository.fetchGroupPreview(sourceGroupId, previewRelay)
+                    }
+                }
 
                 ForwardedEventCard(
                     event = event,
                     sourceGroupId = sourceGroupId,
                     sourceGroupName = sourceGroup?.name,
                     sourceGroupPicture = sourceGroup?.picture,
-                    sourceRelayUrl = sourceRelayUrl,
+                    // The `h` tag rarely carries a relay; fall back to the nevent's relay hint so
+                    // the click opens the group on the relay the event actually lives on (the nav
+                    // effect connects it on demand), matching web.
+                    sourceRelayUrl = sourceRelayUrl ?: relayHints.firstOrNull(),
                     onClick = onClick,
                     onNavigateToGroup = onNavigateToGroup,
                     modifier = modifier,
@@ -1764,7 +1844,7 @@ private fun QuotedEvent(
 
     // Default rendering for other event kinds
     val metadata = userMetadata[event.pubkey]
-    val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+    val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(event.pubkey)
     val uriHandler = LocalUriHandler.current
     val copyToClipboard = rememberClipboardWriter()
     // Linux desktop (GNOME/Wayland) can't reliably raise the browser to the front, so copy the
@@ -1956,6 +2036,75 @@ private fun QuotedEventContent(
                             },
                         )
                     }
+                    is VideoPart -> {
+                        // Quoted event with a video: same players as the main message
+                        // (these were silently dropped before, so a nevent pointing at a
+                        // video rendered as an empty card).
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (firstPart.videoId != null) {
+                            YouTubeLinkCard(
+                                videoId = firstPart.videoId!!,
+                                url = firstPart.url,
+                                onClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                            )
+                        } else {
+                            PlatformVideoPlayer(
+                                url = firstPart.url,
+                                thumbnailUrl = null,
+                                aspectRatio = 16f / 9f,
+                                onFallbackClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                modifier = Modifier
+                                    .widthIn(max = 280.dp)
+                                    .heightIn(max = 220.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is AudioPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        AudioPlayerContent(url = firstPart.url)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CodeBlockPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CodeBlockContent(code = firstPart.code, language = firstPart.language)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is RelayPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        RelayContent(
+                            url = firstPart.url,
+                            onClick = {
+                                try {
+                                    uriHandler.openUri(
+                                        firstPart.url.replace("wss://", "https://").replace("ws://", "http://"),
+                                    )
+                                } catch (_: Exception) {
+                                }
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CashuContent(token = firstPart.token, isRequest = false)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuRequestPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CashuContent(token = firstPart.request, isRequest = true)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     else -> {}
                 }
             } else {
@@ -2088,6 +2237,9 @@ private fun QuotedInlineContentGroup(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(mentionPubkey) },
@@ -2105,6 +2257,9 @@ private fun QuotedInlineContentGroup(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),
@@ -2264,136 +2419,6 @@ private fun CodeBlockContent(
 }
 
 /**
- * Renders a video thumbnail with play button overlay.
- * For YouTube, shows the thumbnail; for other videos, shows a placeholder.
- */
-@Composable
-private fun VideoContent(
-    url: String,
-    videoId: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalPlatformContext.current
-    val thumbnailUrl = videoId?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
-
-    Box(
-        modifier =
-        modifier
-            .fillMaxWidth()
-            .heightIn(max = 300.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(NostrordColors.SurfaceVariant)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (thumbnailUrl != null) {
-            // YouTube video - show thumbnail
-            AsyncImage(
-                model =
-                ImageRequest
-                    .Builder(context)
-                    .data(thumbnailUrl)
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = "Video thumbnail",
-                contentScale = ContentScale.Crop,
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f),
-            )
-        } else {
-            // Generic video - show placeholder with aspect ratio
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(NostrordColors.SurfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = url.substringAfterLast("/").take(50),
-                    style = NostrordTypography.Caption,
-                    color = NostrordColors.TextMuted,
-                )
-            }
-        }
-
-        // Play button overlay
-        Box(
-            modifier =
-            Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(NostrordColors.Background.copy(alpha = 0.8f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "▶",
-                style = NostrordTypography.MessageBody,
-                color = NostrordColors.TextPrimary,
-            )
-        }
-    }
-}
-
-/**
- * Renders an audio file link with a simple player-style UI.
- */
-@Composable
-private fun AudioContent(
-    url: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(NostrordColors.SurfaceVariant)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Audio icon
-        Box(
-            modifier =
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(NostrordColors.Primary.copy(alpha = 0.2f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "♪",
-                style = NostrordTypography.MessageBody,
-                color = NostrordColors.Primary,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        // File name
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = url.substringAfterLast("/").take(40),
-                style = NostrordTypography.MessageBody,
-                color = NostrordColors.TextContent,
-                maxLines = 1,
-            )
-            Text(
-                text = "Tap to open",
-                style = NostrordTypography.Caption,
-                color = NostrordColors.TextMuted,
-            )
-        }
-    }
-}
-
-/**
  * Renders a Nostr relay URL with a relay icon.
  */
 @Composable
@@ -2520,7 +2545,7 @@ private fun CashuContent(
 private fun GroupLinkCard(
     groupId: String,
     relayUrl: String?,
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val repo = AppModule.nostrRepository
@@ -2539,59 +2564,30 @@ private fun GroupLinkCard(
 
     val displayName = groupMeta?.name ?: groupId
     val relayDisplay = relayUrl?.removePrefix("wss://")?.removePrefix("ws://")
-    var imageState by remember(groupMeta?.picture) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    val pictureUrl = groupMeta?.picture
-    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     DisableSelection {
         Row(
             modifier =
             modifier
                 .fillMaxWidth()
+                // Match the web group-link-card cap (.group-link-card max-width: 380px).
+                .widthIn(max = 380.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(NostrordColors.Surface)
-                .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl) }
+                .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl, null) }
                 .pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Box(
-                modifier =
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!showImage) {
-                    Text(
-                        text = displayName.take(1).uppercase(),
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                if (!pictureUrl.isNullOrBlank()) {
-                    val context = LocalPlatformContext.current
-                    AsyncImage(
-                        model =
-                        ImageRequest
-                            .Builder(context)
-                            .data(getImageUrl(pictureUrl))
-                            .crossfade(true)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build(),
-                        contentDescription = displayName,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        onState = { imageState = it },
-                    )
-                }
-            }
+            // Seeded-gradient group avatar (or the group picture), same object as the web card.
+            GroupHeaderIcon(
+                pictureUrl = groupMeta?.picture,
+                groupId = groupId,
+                displayName = displayName,
+                size = 36.dp,
+                cornerRadius = 8.dp,
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -2781,7 +2777,7 @@ private fun AddressableEvent(
     }
 
     val metadata = userMetadata[pubkey]
-    val authorName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+    val authorName = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey)
 
     // Render different card styles based on kind
     when (kind) {
@@ -2862,7 +2858,7 @@ private fun ProfileCard(
         // Profile info
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "...",
+                text = metadata?.displayName ?: metadata?.name ?: shortNpub(pubkey),
                 color = NostrordColors.TextPrimary,
                 style = NostrordTypography.MessageBody,
                 fontWeight = FontWeight.Bold,

@@ -23,6 +23,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.Identifier
+import org.nostr.nostrord.ui.components.IdentifierRow
+import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.toHash
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -54,6 +60,9 @@ fun InviteCodesModal(
     onClearError: () -> Unit = {},
 ) {
     val copyToClipboard = rememberClipboardWriter()
+    // Author = the relay's own pubkey (NIP-11) for the naddr share format.
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -73,7 +82,7 @@ fun InviteCodesModal(
             Card(
                 modifier =
                 Modifier
-                    .widthIn(max = 420.dp)
+                    .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = 500.dp)
                     .clickable(
@@ -96,7 +105,7 @@ fun InviteCodesModal(
                     ) {
                         Text(
                             text = "Invite Codes",
-                            color = Color.White,
+                            color = NostrordColors.TextPrimary,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f),
@@ -249,11 +258,8 @@ fun InviteCodesModal(
                                 items(inviteCodes, key = { it.eventId }) { invite ->
                                     InviteCodeItem(
                                         invite = invite,
+                                        shareIds = groupIdentifiers(relayUrl, groupId, relayPubkey, invite.code),
                                         onCopyCode = { copyToClipboard(invite.code) },
-                                        onCopyUrl = {
-                                            val url = buildInviteUrl(relayUrl, groupId, invite.code)
-                                            copyToClipboard(url)
-                                        },
                                         onRevoke = { onRevokeInviteCode(invite.eventId) },
                                     )
                                 }
@@ -281,137 +287,57 @@ fun InviteCodesModal(
 @Composable
 private fun InviteCodeItem(
     invite: InviteCode,
+    shareIds: List<Identifier>,
     onCopyCode: () -> Unit,
-    onCopyUrl: () -> Unit,
     onRevoke: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier =
         Modifier
             .fillMaxWidth()
             .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = invite.code,
-            style = NostrordTypography.Caption,
-            color = NostrordColors.TextPrimary,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onCopyCode, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.ContentCopy,
-                contentDescription = "Copy code",
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = invite.code,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = onCopyCode, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = "Copy code",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            IconButton(onClick = onRevoke, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Revoke",
+                    tint = NostrordColors.Error,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
-        IconButton(onClick = onCopyUrl, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Link,
-                contentDescription = "Copy URL",
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        IconButton(onClick = onRevoke, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Revoke",
-                tint = NostrordColors.Error,
-                modifier = Modifier.size(16.dp),
-            )
-        }
+        // Shareable forms with the ?invite= suffix (address / naddr / link);
+        // parseGroupJoinInput auto-joins from any of them.
+        IdentifierRow(ids = shareIds)
     }
 }
 
 /**
- * Builds an invite URL with code appended to the share link.
+ * Invite URL in the canonical hash-route form: the ?invite= rides inside #/g/.
  */
 private fun buildInviteUrl(
     relayUrl: String,
     groupId: String,
     code: String,
-): String = org.nostr.nostrord.ui.util
-    .buildShareGroupLink(relayUrl, groupId) + "&code=$code"
-
-/**
- * Dialog for entering an invite code to join a closed group.
- */
-@Composable
-fun InviteCodeInputDialog(
-    onSubmit: (code: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var code by remember { mutableStateOf("") }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
-        ) {
-            Column(
-                modifier = Modifier.padding(Spacing.lg),
-            ) {
-                Text(
-                    text = "Enter Invite Code",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NostrordColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                Text(
-                    text = "This group requires an invite code to join.",
-                    style = NostrordTypography.Caption,
-                    color = NostrordColors.TextSecondary,
-                )
-                Spacer(modifier = Modifier.height(Spacing.md))
-                OutlinedTextField(
-                    value = code,
-                    onValueChange = { code = it.trim() },
-                    placeholder = {
-                        Text("Paste invite code", color = NostrordColors.TextMuted)
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors =
-                    OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = NostrordColors.TextPrimary,
-                        unfocusedTextColor = NostrordColors.TextPrimary,
-                        focusedBorderColor = NostrordColors.Primary,
-                        unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                        cursorColor = NostrordColors.Primary,
-                    ),
-                    textStyle = NostrordTypography.MessageBody.copy(fontFamily = FontFamily.Monospace),
-                )
-                Spacer(modifier = Modifier.height(Spacing.md))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = NostrordColors.TextSecondary)
-                    }
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                    Button(
-                        onClick = { onSubmit(code) },
-                        enabled = code.isNotBlank(),
-                        colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = NostrordColors.Primary,
-                            contentColor = Color.White,
-                            disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text("Join", style = NostrordTypography.Button)
-                    }
-                }
-            }
-        }
-    }
-}
+): String = "https://web.nostrord.com/" + GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = code).toHash()

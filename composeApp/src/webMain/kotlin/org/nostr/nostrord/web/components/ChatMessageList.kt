@@ -14,16 +14,18 @@ import react.useRef
 import web.cssom.ClassName
 import web.html.HTMLDivElement
 
+// How long after opening a group the view is kept pinned to the bottom unconditionally and
+// auto-pagination is suppressed. Covers the window where late media decode / streaming system
+// events grow the content, so the open settles at the true bottom and entering a group never
+// triggers a history load on its own.
+private const val SETTLE_MS = 1500.0
+
 external interface ChatMessageListProps : Props {
     /** Opaque rows; index 0 = oldest/top, last = newest/bottom. */
     var items: Array<dynamic>
 
     /** Render one row directly into the list (the row element carries its own key). */
     var renderRow: (ChildrenBuilder, dynamic) -> Unit
-
-    /** Stable identity per row — used to detect prepend (first row changed) vs a new
-     *  message (last row changed), so pagination never gets mistaken for a new arrival. */
-    var keyOf: (dynamic) -> String
 
     /** Changing this (the group id) re-opens the list at the bottom. */
     var resetKey: String
@@ -39,6 +41,11 @@ external interface ChatMessageListProps : Props {
 
     /** Fired (debounced) with the index of the bottom-most fully-visible row — mark-as-read. */
     var onRangeChange: (Int) -> Unit
+
+    /** Fired (debounced) when the "New messages" divider row is within the viewport. The caller
+     *  gates on a genuine scroll-away before consuming it, so the entry settle never dismisses
+     *  the divider unseen (issue #83). Null when there is no divider dismissal wiring. */
+    var onDividerVisible: (() -> Unit)?
 
     /** A DOM id to scroll into view (deep-link / reply); cleared via [onScrolledToKey]. */
     var scrollToKey: String?
@@ -68,30 +75,66 @@ val ChatMessageList =
         val atBottom = useRef(true)
         val openedFor = useRef<String>(null)
         val wasLoading = useRef(false)
+        // Set once the user deliberately scrolls up (a real upward gesture, detected as a
+        // scrollTop decrease — NOT a content-growth-induced latch flicker); cleared when they
+        // return to the bottom or re-open the group. Gates the ResizeObserver's near-bottom
+        // catch-up pin so growth above the fold (history prepend, a live message, late media)
+        // can never yank a reader back to the tail. The at-bottom follow and open settle still
+        // pin as normal — native gates its single pin purely on the at-bottom latch.
+        val userScrolledUp = useRef(false)
+        val lastScrollTop = useRef(0.0)
         val markDebounce = useRef<Int>(null)
+        val prevScrollHeight = useRef(0.0)
+        val openedAt = useRef(0.0)
+        // True for SETTLE_MS after the group opened: keep pinning to the bottom and hold off
+        // pagination so the open lands at the true bottom and entry never auto-loads history.
+        val settling = { window.performance.now() - (openedAt.current ?: 0.0) < SETTLE_MS }
+
+        // Report the "New messages" divider as seen whenever its row is within the viewport.
+        // Called from the scroll handler AND from an entry effect, so the small-unread case
+        // (divider already on screen at the bottom on open, no scroll) latches too.
+        val reportDividerIfVisible = {
+            val node = el.current
+            val divider = document.getElementById("new-msg-divider")
+            if (node != null && divider != null && props.onDividerVisible != null) {
+                val containerRect = node.getBoundingClientRect()
+                val containerTop = (containerRect.top as Number).toDouble()
+                val containerBottom = (containerRect.bottom as Number).toDouble()
+                val dr = divider.getBoundingClientRect()
+                val dTop = (dr.top as Number).toDouble()
+                val dBottom = (dr.bottom as Number).toDouble()
+                if (dBottom > containerTop && dTop < containerBottom) props.onDividerVisible?.invoke()
+            }
+        }
 
         // Following the feed: pin to bottom, scroll-anchoring OFF. Reading history:
         // anchoring ON and never touch scrollTop, so the browser holds position across
         // prepends and late image/avatar layout (a manual scrollTop delta could not).
         useLayoutEffect(items.size, props.resetKey) {
             val node = el.current ?: return@useLayoutEffect
+            val newHeight = node.scrollHeight.toDouble()
 
             if (openedFor.current != props.resetKey) {
                 // First render of this group: open at the bottom, anchoring off.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
                 openedFor.current = props.resetKey
+                openedAt.current = window.performance.now()
                 loadingOlder.current = false
+                userScrolledUp.current = false
+                lastScrollTop.current = node.scrollTop.toDouble()
                 if (atBottom.current != true) {
                     atBottom.current = true
                     props.onAtBottomChange(true)
                 }
+                prevScrollHeight.current = node.scrollHeight.toDouble()
                 return@useLayoutEffect
             }
 
-            if (atBottom.current == true) {
-                // Following: stay pinned to the bottom as content streams in. Anchor OFF
-                // so it doesn't re-anchor to a row above and drift us up.
+            if ((atBottom.current == true || settling()) && userScrolledUp.current != true) {
+                // Following (or inside the open settle window) AND the user has not scrolled up:
+                // stay pinned to the bottom as content streams in / media decodes. Anchor OFF so it
+                // doesn't re-anchor to a row above and drift us up.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
             } else {
@@ -103,9 +146,27 @@ val ChatMessageList =
                 // fire-time count) so continued scrolling loads the next page without
                 // waiting out the settle timer. isLoadingMore still guards a double fire.
                 if (loadingOlder.current == true && items.size > (firedSize.current ?: 0)) {
+                    // overflow-anchor holds the position only when scrollTop > 0. At the very top
+                    // (scrollTop ~0) the browser does NOT shift the viewport on a prepend, so the
+                    // user stays pinned to the new top and pagination auto-fires page after page.
+                    // Nudge scrollTop down by the height that was just prepended so the rows being
+                    // read stay put and the user must scroll up again to load the next page.
+                    val delta = newHeight - (prevScrollHeight.current ?: newHeight)
+                    if (node.scrollTop.toDouble() < 4.0 && delta > 0.0) {
+                        node.scrollTop = node.scrollTop + delta
+                    }
                     loadingOlder.current = false
                 }
             }
+            prevScrollHeight.current = node.scrollHeight.toDouble()
+        }
+
+        // Latch the divider as seen when it sits within the viewport at the bottom on open
+        // (a small unread batch shows it without any scroll). The scroll handler only checks
+        // on scroll, so without this the entry-at-bottom case never reports the divider and the
+        // line survives the later scroll-away (issue #83).
+        useEffect(items.size) {
+            reportDividerIfVisible()
         }
 
         // Fallback latch release: the layout effect frees the latch as soon as the page
@@ -133,8 +194,28 @@ val ChatMessageList =
         useEffect(Unit) {
             val inner = innerEl.current ?: return@useEffect
             val onResize: () -> Unit = {
-                if (atBottom.current == true && loadingOlder.current != true) {
-                    el.current?.let { it.scrollTop = it.scrollHeight.toDouble() }
+                // While following the feed, ANY content growth re-pins to the bottom: late
+                // media (including imeta-less images that grow from the placeholder floor),
+                // reactions, system rows. Not gated by loadingOlder: when at the bottom there
+                // is no prepend-restore to protect, so the pin must always win, otherwise a
+                // group whose tail has unsized media opens parked just above the true bottom.
+                // During the open settle window we re-pin even if the latch briefly read false.
+                el.current?.let { node ->
+                    // Also re-pin when the viewport is still within ~1.5 screens of the bottom: a
+                    // burst of image messages grows scrollHeight as each image decodes, and the
+                    // atBottom latch can read false mid-growth, stranding the view above the new tail
+                    // (live messages then land below the fold and look "not received"). A genuine
+                    // scroll-up past this band clears the intent and stops the pin.
+                    val distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight)
+                    val nearBottom = distanceFromBottom < node.clientHeight * 1.5
+                    // A deliberate scroll-up disables every auto-pin: growth above the fold (history
+                    // prepend, a live message, late media) must not yank the reader back to the tail.
+                    // While following / settling / near the bottom and NOT scrolled up, re-pin.
+                    if (userScrolledUp.current != true &&
+                        (atBottom.current == true || settling() || nearBottom)
+                    ) {
+                        node.scrollTop = node.scrollHeight.toDouble()
+                    }
                 }
             }
             val factory =
@@ -197,10 +278,12 @@ val ChatMessageList =
             props.onScrolledToKey()
         }
 
-        // Jump-to-bottom (FAB).
+        // Jump-to-bottom (FAB). Clear the scroll-up intent so the smooth scroll lands at the true
+        // bottom even if content grows mid-animation, and following resumes once it arrives.
         useEffect(props.jumpNonce) {
             if ((props.jumpNonce ?: 0) <= 0) return@useEffect
             val node = el.current ?: return@useEffect
+            userScrolledUp.current = false
             node.asDynamic().scrollTo(js("({ top: node.scrollHeight, behavior: 'smooth' })"))
         }
 
@@ -213,12 +296,17 @@ val ChatMessageList =
             // one page per load cycle, and stopping the wheel stops loading (no burst).
             onWheel = { ev ->
                 if ((ev.deltaY as Double) < 0.0) {
+                    // A wheel-up at the very top fires no scroll event (scrollTop is already 0), so
+                    // record the scroll-up intent here too — otherwise the near-bottom pin could
+                    // re-grab a reader parked at the top when the next page lands.
+                    userScrolledUp.current = true
                     val node = ev.currentTarget
                     val sh = node.scrollHeight.toDouble()
                     val st = node.scrollTop.toDouble()
                     val ch = node.clientHeight.toDouble()
                     val mayPaginate = atBottom.current != true || sh <= ch + 4.0
-                    if (st < ch * 2.5 &&
+                    if (!settling() &&
+                        st < ch * 2.5 &&
                         mayPaginate &&
                         props.hasMore &&
                         !props.isLoadingMore &&
@@ -235,9 +323,23 @@ val ChatMessageList =
                 val sh = node.scrollHeight.toDouble()
                 val st = node.scrollTop.toDouble()
                 val ch = node.clientHeight.toDouble()
-                val isAtBottom = (sh - st - ch) < 48.0
-                if (atBottom.current != isAtBottom) {
+                // A scrollTop decrease is a real upward gesture (works for wheel AND touch); a pin
+                // or an overflow-anchor restore only ever increases it, so this never trips on
+                // content growth. Marks the reader as scrolled-up so every auto-pin lets go.
+                val scrolledUpNow = st < (lastScrollTop.current ?: 0.0) - 1.0
+                if (scrolledUpNow) userScrolledUp.current = true
+                lastScrollTop.current = st
+                // 80px threshold matches the prototype: the jump pill appears once the
+                // user is more than ~80px up from the bottom.
+                val isAtBottom = (sh - st - ch) < 80.0
+                // During the open settle window, ignore a transient "not at bottom" reading caused
+                // by content still growing/reflowing — flipping the latch there would disarm the pin
+                // and strand the open above the true bottom. But a genuine scroll-up (scrollTop
+                // decreased) is NOT reflow: honor it even during settle, otherwise the latch sticks
+                // `true` and the next growth snaps the reader back to the bottom.
+                if (!(settling() && !isAtBottom && !scrolledUpNow) && atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
+                    if (isAtBottom) userScrolledUp.current = false
                     props.onAtBottomChange(isAtBottom)
                     // Anchoring ON while reading history (holds position across prepends and
                     // late image layout), OFF at the bottom where it would fight the pin.
@@ -248,7 +350,8 @@ val ChatMessageList =
                 // at the bottom, except when the feed doesn't fill the viewport (sh <= ch)
                 // and the user can't scroll up to ask for more.
                 val mayPaginate = atBottom.current != true || sh <= ch + 4.0
-                if (st < ch * 2.5 &&
+                if (!settling() &&
+                    st < ch * 2.5 &&
                     mayPaginate &&
                     props.hasMore &&
                     !props.isLoadingMore &&
@@ -263,7 +366,8 @@ val ChatMessageList =
                 markDebounce.current =
                     window.setTimeout(
                         {
-                            val containerBottom = (node.getBoundingClientRect().bottom as Number).toDouble()
+                            val containerRect = node.getBoundingClientRect()
+                            val containerBottom = (containerRect.bottom as Number).toDouble()
                             val kids = (innerEl.current?.asDynamic()?.children) ?: node.asDynamic().children
                             val n = kids.length as Int
                             var lastVisible = -1
@@ -272,6 +376,9 @@ val ChatMessageList =
                                 if (kb <= containerBottom + 1.0) lastVisible = i
                             }
                             if (lastVisible >= 0) props.onRangeChange(lastVisible)
+                            // Report the "New messages" divider entering the viewport so the screen
+                            // can dismiss it once the user has scrolled to look at it (issue #83).
+                            reportDividerIfVisible()
                         },
                         400,
                     )

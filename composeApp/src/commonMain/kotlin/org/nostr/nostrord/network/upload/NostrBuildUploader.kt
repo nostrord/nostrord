@@ -156,6 +156,21 @@ object NostrBuildUploader {
 
         // Extract NIP-68 metadata from the response
         val dimensions = entry["dimensions"]?.jsonObject
+        val resolvedMime =
+            entry["mime"]?.jsonPrimitive?.contentOrNull
+                ?: entry["type"]?.jsonPrimitive?.contentOrNull
+                ?: mimeType
+        var width = dimensions?.get("width")?.jsonPrimitive?.intOrNull
+        var height = dimensions?.get("height")?.jsonPrimitive?.intOrNull
+        // Fallback: some hosts omit dimensions. Decode them client-side from the bytes we
+        // already have so our media always carries a NIP-68 `dim` and never shifts the feed
+        // on the receiving end. Images only; videos keep their server poster.
+        if ((width == null || height == null) && resolvedMime?.startsWith("image/") == true) {
+            decodeImageDimensions(bytes, resolvedMime)?.let { (w, h) ->
+                width = w
+                height = h
+            }
+        }
         return Result.Success(
             UploadResult(
                 url = url,
@@ -165,8 +180,8 @@ object NostrBuildUploader {
                 sha256 =
                 entry["original_sha256"]?.jsonPrimitive?.contentOrNull
                     ?: entry["sha256"]?.jsonPrimitive?.contentOrNull,
-                width = dimensions?.get("width")?.jsonPrimitive?.intOrNull,
-                height = dimensions?.get("height")?.jsonPrimitive?.intOrNull,
+                width = width,
+                height = height,
                 size = entry["size"]?.jsonPrimitive?.longOrNull,
                 // nostr.build v2 returns a generated poster for video uploads.
                 // Field name observed as "thumbnail"; fall back to "thumb".

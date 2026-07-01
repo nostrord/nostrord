@@ -1,9 +1,11 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
@@ -45,10 +47,9 @@ val InviteCodesModal =
                 }
                 .sortedByDescending { it.third }
 
-        fun inviteUrl(code: String): String {
-            val relay = relayUrl.removePrefix("wss://").removePrefix("ws://")
-            return "https://nostrord.com/open/?relay=$relay&group=${props.groupId}&code=$code"
-        }
+        // Author = the relay's own pubkey (NIP-11) for the naddr format.
+        val relayMetadata = useStateFlow(repo.relayMetadata)
+        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
 
         useEscClose { props.onClose() }
 
@@ -107,29 +108,30 @@ val InviteCodesModal =
                     codes.forEach { (code, eventId, _) ->
                         div {
                             key = eventId
-                            className = ClassName("mod-row")
-                            span {
-                                className = ClassName("mod-code")
-                                +code
-                            }
+                            className = ClassName("mod-row invite-code-row")
                             div {
-                                className = ClassName("mod-actions")
-                                button {
-                                    className = ClassName("mod-btn")
-                                    onClick = { copyToClipboard(inviteUrl(code)) }
-                                    +"Copy URL"
+                                className = ClassName("invite-code-head")
+                                span {
+                                    className = ClassName("mod-code")
+                                    +code
                                 }
-                                button {
-                                    className = ClassName("mod-btn")
-                                    onClick = { copyToClipboard(code) }
-                                    +"Copy code"
-                                }
-                                button {
-                                    className = ClassName("mod-btn danger")
-                                    onClick = { launchApp { repo.revokeInviteCode(props.groupId, eventId) } }
-                                    +"Revoke"
+                                div {
+                                    className = ClassName("mod-actions")
+                                    button {
+                                        className = ClassName("mod-btn")
+                                        onClick = { copyToClipboard(code) }
+                                        +"Copy code"
+                                    }
+                                    button {
+                                        className = ClassName("mod-btn danger")
+                                        onClick = { launchApp { repo.revokeInviteCode(props.groupId, eventId) } }
+                                        +"Revoke"
+                                    }
                                 }
                             }
+                            // Shareable forms with the ?invite= suffix (address / naddr / link);
+                            // parseGroupJoinInput auto-joins from any of them.
+                            IdentifierRow { ids = groupIdentifiers(relayUrl, props.groupId, relayPubkey, code) }
                         }
                     }
                 }

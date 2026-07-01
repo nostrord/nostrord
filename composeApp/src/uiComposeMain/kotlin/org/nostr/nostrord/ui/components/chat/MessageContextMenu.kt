@@ -20,13 +20,16 @@ import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -90,6 +93,8 @@ sealed class MessageContextAction {
     data object CopyMessageLink : MessageContextAction()
 
     data object ShareMessageLink : MessageContextAction()
+
+    data object CopyNevent : MessageContextAction()
 
     data object CopyEventJson : MessageContextAction()
 
@@ -234,7 +239,7 @@ private fun ContextMenuContent(
         modifier =
         Modifier
             // 210dp + 6dp padding + 1dp border, mirroring the web `.ctx-menu`.
-            .width(210.dp)
+            .width(214.dp)
             .shadow(
                 elevation = 12.dp,
                 shape = NostrordShapes.shapeMedium,
@@ -266,7 +271,6 @@ private fun ContextMenuContent(
 
         ContextMenuDivider()
 
-        // Reply
         ContextMenuItem(
             icon = Icons.AutoMirrored.Outlined.Reply,
             label = "Reply",
@@ -274,6 +278,15 @@ private fun ContextMenuContent(
                 onAction(MessageContextAction.Reply)
                 onDismiss()
             },
+        )
+
+        // Threads are not implemented yet (prototype "Iniciar thread aqui");
+        // shown disabled so the menu shape matches the prototype.
+        ContextMenuItem(
+            icon = Icons.Outlined.Forum,
+            label = "Start thread here",
+            enabled = false,
+            onClick = {},
         )
 
         // Zap (only when the author has a Lightning address and zaps are enabled)
@@ -289,12 +302,27 @@ private fun ContextMenuContent(
             )
         }
 
+        // Saved-for-later and NIP-56 reports are not implemented yet.
+        ContextMenuItem(
+            icon = Icons.Outlined.Bookmark,
+            label = "Save for later",
+            enabled = false,
+            onClick = {},
+        )
+        if (!isAuthor) {
+            ContextMenuItem(
+                icon = Icons.Outlined.Shield,
+                label = "Report",
+                enabled = false,
+                onClick = {},
+            )
+        }
+
         ContextMenuDivider()
 
-        // Copy Text
         ContextMenuItem(
             icon = Icons.Outlined.ContentCopy,
-            label = "Copy Text",
+            label = "Copy text",
             onClick = {
                 onAction(MessageContextAction.CopyText)
                 onDismiss()
@@ -304,7 +332,7 @@ private fun ContextMenuContent(
         if (!supportsNativeShare) {
             ContextMenuItem(
                 icon = Icons.Outlined.Link,
-                label = "Copy Message Link",
+                label = "Copy link",
                 onClick = {
                     onAction(MessageContextAction.CopyMessageLink)
                     onDismiss()
@@ -315,7 +343,7 @@ private fun ContextMenuContent(
         if (supportsNativeShare) {
             ContextMenuItem(
                 icon = Icons.Outlined.Share,
-                label = "Share Message Link",
+                label = "Share link",
                 onClick = {
                     onAction(MessageContextAction.ShareMessageLink)
                     onDismiss()
@@ -323,37 +351,45 @@ private fun ContextMenuContent(
             )
         }
 
-        // Copy Event JSON
+        // Copy nevent (prototype: shareable NIP-19 event reference)
         ContextMenuItem(
             icon = Icons.Outlined.Code,
-            label = "Copy Event JSON",
+            label = "Copy nevent",
+            onClick = {
+                onAction(MessageContextAction.CopyNevent)
+                onDismiss()
+            },
+        )
+
+        ContextMenuItem(
+            icon = Icons.Outlined.Code,
+            label = "Copy event JSON",
             onClick = {
                 onAction(MessageContextAction.CopyEventJson)
                 onDismiss()
             },
         )
 
-        // Pin Message (admin only)
+        // Pin message (admin only): disabled until the pinning backend exists
+        // (the action was never wired to anything).
         if (isAdmin) {
             ContextMenuDivider()
 
             ContextMenuItem(
                 icon = Icons.Outlined.PushPin,
-                label = "Pin Message",
-                onClick = {
-                    onAction(MessageContextAction.PinMessage)
-                    onDismiss()
-                },
+                label = "Pin message",
+                enabled = false,
+                onClick = {},
             )
         }
 
-        // Delete Message (author or admin)
+        // Delete message (author or admin)
         if (isAuthor || isAdmin) {
             ContextMenuDivider()
 
             ContextMenuItem(
                 icon = Icons.Outlined.Delete,
-                label = "Delete Message",
+                label = "Delete message",
                 onClick = {
                     onAction(MessageContextAction.DeleteMessage)
                     onDismiss()
@@ -442,12 +478,14 @@ private fun ContextMenuItem(
     onClick: () -> Unit,
     isDestructive: Boolean = false,
     isZap: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val textColor =
         when {
+            !enabled -> NostrordColors.TextMuted
             isDestructive -> NostrordColors.Error
             // Zap highlights amber on hover, matching the hover toolbar's zap button.
             isZap && isHovered -> NostrordColors.Warning
@@ -456,12 +494,13 @@ private fun ContextMenuItem(
 
     val iconColor =
         when {
+            !enabled -> NostrordColors.TextMuted
             isDestructive -> NostrordColors.Error
             isZap && isHovered -> NostrordColors.Warning
             else -> NostrordColors.TextSecondary
         }
 
-    val backgroundColor = if (isHovered) NostrordColors.HoverBackground else Color.Transparent
+    val backgroundColor = if (isHovered && enabled) NostrordColors.HoverBackground else Color.Transparent
 
     Row(
         modifier =
@@ -473,8 +512,8 @@ private fun ContextMenuItem(
             .height(Spacing.channelItemHeight + Spacing.xs) // 36dp
             .background(backgroundColor)
             .hoverable(interactionSource)
-            .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
             .padding(horizontal = Spacing.md - Spacing.xxs), // 10dp
         verticalAlignment = Alignment.CenterVertically,
     ) {

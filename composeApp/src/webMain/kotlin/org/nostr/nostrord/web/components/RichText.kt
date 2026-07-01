@@ -4,7 +4,10 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import react.ChildrenBuilder
 import react.dom.html.ReactHTML.a
+import react.dom.html.ReactHTML.code
+import react.dom.html.ReactHTML.em
 import react.dom.html.ReactHTML.span
+import react.dom.html.ReactHTML.strong
 import web.cssom.ClassName
 
 // Web links + NIP-27 entities in an about/description string. Mirrors the chat
@@ -39,14 +42,67 @@ fun aboutMentionPubkeys(text: String): Set<String> = ABOUT_REGEX
         }
     }.toSet()
 
+// Markdown subset mirrored from native MessageContentParser: *bold* (any content,
+// non-greedy), _italic_ (word-bounded) and `inline code` (opaque: no entities inside).
+private val INLINE_CODE_REGEX = Regex("`([^`]+)`")
+private val BOLD_REGEX = Regex("\\*([\\s\\S]*?)\\*")
+private val ITALIC_REGEX = Regex("(?:^|(?<=\\s))_([^_]+)_(?=\\s|\$|[.,!?;:])")
+
 /**
- * Render an about / description string with clickable web links and NIP-27
- * mentions, mirroring native RichAboutText. http(s) URLs become links, npub /
- * nprofile become @name chips (resolved from [userMetadata], click → [onUser]),
- * other entities (note / nevent / naddr) link to njump.me, and everything else
- * is plain text. Reuses the chat's `msg-link` / `msg-mention` styles.
+ * Render an about / description string with clickable web links, NIP-27 mentions
+ * and the markdown subset the chat understands (*bold*, _italic_, `code`),
+ * mirroring native RichAboutText. http(s) URLs become links, npub / nprofile
+ * become @name chips (resolved from [userMetadata], click → [onUser]), other
+ * entities (note / nevent / naddr) link to njump.me, and everything else is
+ * plain text. Newlines flow through (the host element needs `white-space:
+ * pre-wrap`). Reuses the chat's `msg-link` / `msg-mention` / `msg-code` styles.
  */
 fun ChildrenBuilder.renderAboutText(
+    text: String,
+    userMetadata: Map<String, UserMetadata>,
+    onUser: (String) -> Unit,
+) {
+    var last = 0
+    for (m in INLINE_CODE_REGEX.findAll(text)) {
+        if (m.range.first > last) renderAboutMarkdown(text.substring(last, m.range.first), userMetadata, onUser)
+        code {
+            className = ClassName("msg-code")
+            +m.groupValues[1]
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) renderAboutMarkdown(text.substring(last), userMetadata, onUser)
+}
+
+private fun ChildrenBuilder.renderAboutMarkdown(
+    text: String,
+    userMetadata: Map<String, UserMetadata>,
+    onUser: (String) -> Unit,
+) {
+    var last = 0
+    for (m in BOLD_REGEX.findAll(text)) {
+        if (m.range.first > last) renderAboutItalic(text.substring(last, m.range.first), userMetadata, onUser)
+        strong { renderAboutEntities(m.groupValues[1], userMetadata, onUser) }
+        last = m.range.last + 1
+    }
+    if (last < text.length) renderAboutItalic(text.substring(last), userMetadata, onUser)
+}
+
+private fun ChildrenBuilder.renderAboutItalic(
+    text: String,
+    userMetadata: Map<String, UserMetadata>,
+    onUser: (String) -> Unit,
+) {
+    var last = 0
+    for (m in ITALIC_REGEX.findAll(text)) {
+        if (m.range.first > last) renderAboutEntities(text.substring(last, m.range.first), userMetadata, onUser)
+        em { renderAboutEntities(m.groupValues[1], userMetadata, onUser) }
+        last = m.range.last + 1
+    }
+    if (last < text.length) renderAboutEntities(text.substring(last), userMetadata, onUser)
+}
+
+private fun ChildrenBuilder.renderAboutEntities(
     text: String,
     userMetadata: Map<String, UserMetadata>,
     onUser: (String) -> Unit,

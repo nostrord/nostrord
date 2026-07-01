@@ -9,6 +9,19 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.sqldelight)
+}
+
+// Bulk message/event history store. The generated CacheDb interface lands in commonMain
+// (pure Kotlin over the SqlDriver abstraction); only the native targets construct a real
+// driver. The web (js) target compiles the generated code but never instantiates it — it
+// uses the IndexedDB CacheStore actual instead, so DCE keeps SQLite out of the web bundle.
+sqldelight {
+    databases {
+        create("CacheDb") {
+            packageName.set("org.nostr.nostrord.storage.cache.db")
+        }
+    }
 }
 
 kotlin {
@@ -68,10 +81,11 @@ kotlin {
             implementation("androidx.security:security-crypto:1.1.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
             // Animated GIF support: provides AnimatedImageDecoder (API 28+) and GifDecoder (API < 28)
-            implementation("io.coil-kt.coil3:coil-gif:3.0.4")
+            implementation("io.coil-kt.coil3:coil-gif:3.3.0")
             // Media3 ExoPlayer for video playback (same stack as Amethyst)
             implementation("androidx.media3:media3-exoplayer:1.6.0")
             implementation("androidx.media3:media3-ui:1.6.0")
+            implementation(libs.sqldelight.android.driver)
         }
 
         commonMain.dependencies {
@@ -99,6 +113,9 @@ kotlin {
             implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
             implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
             implementation("org.jetbrains.kotlinx:atomicfu:0.27.0")
+            // SQLDelight runtime: the generated CacheDb interface lives in commonMain. The
+            // platform SQLite drivers live in the native source sets; web never constructs one.
+            implementation(libs.sqldelight.runtime)
         }
 
         // Compose Multiplatform UI deps — shared by android / jvm / ios only (not js).
@@ -112,8 +129,11 @@ kotlin {
                 implementation(compose.materialIconsExtended)
                 implementation(libs.androidx.lifecycle.viewmodelCompose)
                 implementation(libs.androidx.lifecycle.runtimeCompose)
-                implementation("io.coil-kt.coil3:coil-compose:3.0.4")
-                implementation("io.coil-kt.coil3:coil-network-ktor3:3.0.4")
+                implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+                implementation("io.coil-kt.coil3:coil-network-ktor3:3.3.0")
+                // SVG decoder so inline data:image/svg+xml avatars (some profile/relay
+                // icons) render instead of failing the fetcher on native targets.
+                implementation("io.coil-kt.coil3:coil-svg:3.3.0")
                 implementation("io.github.alexzhirkevich:qrose:1.0.1")
             }
         }
@@ -123,9 +143,14 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
 
+        iosMain.dependencies {
+            implementation(libs.sqldelight.native.driver)
+        }
+
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation(libs.sqldelight.sqlite.driver)
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
             implementation("media.kamel:kamel-image:0.9.5")
             implementation("io.ktor:ktor-client-cio:3.0.0")
@@ -191,6 +216,8 @@ kotlin {
             implementation(project.dependencies.platform("org.jetbrains.kotlin-wrappers:kotlin-wrappers-bom:2025.10.0"))
             implementation("org.jetbrains.kotlin-wrappers:kotlin-react")
             implementation("org.jetbrains.kotlin-wrappers:kotlin-react-dom")
+            // js.objects.unsafeJso, used for per-seed inline styles (gradient avatars).
+            implementation("org.jetbrains.kotlin-wrappers:kotlin-js")
 
             // Pure-JS QR generator for the NIP-46 nostrconnect login (no canvas needed).
             implementation(npm("qrcode-generator", "1.4.4"))

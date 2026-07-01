@@ -2,19 +2,16 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.utils.buildGroupAddress
+import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.copyToClipboard
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
-import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
-import react.dom.html.ReactHTML.input
 import web.cssom.ClassName
 
 external interface ShareGroupModalProps : Props {
@@ -23,20 +20,16 @@ external interface ShareGroupModalProps : Props {
 }
 
 /**
- * Share-group modal — real port of the Compose ShareGroupModal: a shareable web Link
- * (built from the active relay + group id) and the naddr, each with a working Copy button.
+ * Share-group modal — real port of the Compose ShareGroupModal: a single cycling identifier field
+ * (relay'groupId / naddr / nostrord link) instead of one copy input per format.
  */
 val ShareGroupModal =
     FC<ShareGroupModalProps> { props ->
         val group = props.group
         val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
         val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
-        val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
-        val link = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}"
         // Author = the relay's own pubkey (NIP-11), like native; falls back to zero bytes inside encodeNaddr.
         val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
-        val naddr = "nostr:" + Nip19.encodeNaddr(identifier = group.id, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
-        val address = buildGroupAddress(relayUrl, group.id)
 
         useEscClose { props.onClose() }
 
@@ -63,29 +56,11 @@ val ShareGroupModal =
                     }
                 }
 
-                shareField("Link", link)
-                shareField("Group Address", address)
-                shareField("Nostr Address (naddr)", naddr)
+                div {
+                    className = ClassName("settings-section-head")
+                    +"GROUP ADDRESS"
+                }
+                IdentifierRow { ids = groupIdentifiers(relayUrl, group.id, relayPubkey) }
             }
         }
     }
-
-private fun ChildrenBuilder.shareField(label: String, value: String) {
-    div {
-        className = ClassName("field-label")
-        +label
-    }
-    div {
-        className = ClassName("share-field")
-        input {
-            className = ClassName("modal-input flush")
-            readOnly = true
-            this.value = value
-        }
-        button {
-            className = ClassName("btn-primary")
-            onClick = { copyToClipboard(value) }
-            +"Copy"
-        }
-    }
-}

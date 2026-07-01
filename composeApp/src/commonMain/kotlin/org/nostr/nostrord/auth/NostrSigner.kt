@@ -9,6 +9,7 @@ import kotlinx.serialization.json.long
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.nostr.Nip44
 import org.nostr.nostrord.nostr.Nip46Client
 import kotlin.concurrent.Volatile
 
@@ -27,12 +28,31 @@ interface NostrSigner {
     val pubkey: String
 
     /**
+     * True when signing is a remote round-trip (bunker / NIP-07) rather than a local,
+     * effectively-instant secp256k1 sign. Callers use it to budget NIP-42 AUTH waits: a
+     * remote signer needs a much longer window for the AUTH event to be signed, otherwise
+     * the first private-group REQ races the sign and comes back CLOSED "auth-required".
+     */
+    val isRemote: Boolean get() = false
+
+    /**
      * Sign [event] with this account's key material.
      *
      * Throws [SigningException] on permission denial, signer disconnection,
      * or if the signer was already disposed.
      */
     suspend fun signEvent(event: Event): Event
+
+    /**
+     * NIP-44 encrypt [plaintext] for [peerPubkeyHex] using this account's identity key — used to
+     * seal NIP-17 direct messages. [Local] encrypts locally; [Bunker] and [Nip07Extension] delegate
+     * to the remote signer. The interface default throws [SigningException] (unsupported), as it
+     * does after [dispose]. The private key never leaves the signer.
+     */
+    suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = throw SigningException("This signer does not support NIP-44 encryption")
+
+    /** NIP-44 decrypt [ciphertext] from [peerPubkeyHex] with this account's identity key. */
+    suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = throw SigningException("This signer does not support NIP-44 decryption")
 
     /**
      * Release all key material from memory. Called when the owning
@@ -63,6 +83,16 @@ interface NostrSigner {
             return event.sign(kp)
         }
 
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            val kp = _keyPair ?: throw SigningException("Local signer has been disposed")
+            return Nip44.encrypt(plaintext, kp.privateKeyHex, peerPubkeyHex)
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            val kp = _keyPair ?: throw SigningException("Local signer has been disposed")
+            return Nip44.decrypt(ciphertext, kp.privateKeyHex, peerPubkeyHex)
+        }
+
         override fun dispose() {
             _keyPair?.privateKey?.fill(0)
             _keyPair = null
@@ -78,6 +108,8 @@ interface NostrSigner {
         val nip46Client: Nip46Client,
         override val pubkey: String,
     ) : NostrSigner {
+        override val isRemote: Boolean = true
+
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
@@ -88,6 +120,24 @@ interface NostrSigner {
             } catch (e: Exception) {
                 if (e is SigningException) throw e
                 throw SigningException("Bunker signing failed: ${e.message}", e)
+            }
+        }
+
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            if (disposed) throw SigningException("Bunker signer has been disposed")
+            return try {
+                nip46Client.nip44Encrypt(peerPubkeyHex, plaintext)
+            } catch (e: Exception) {
+                throw SigningException("Bunker NIP-44 encryption failed: ${e.message}", e)
+            }
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            if (disposed) throw SigningException("Bunker signer has been disposed")
+            return try {
+                nip46Client.nip44Decrypt(peerPubkeyHex, ciphertext)
+            } catch (e: Exception) {
+                throw SigningException("Bunker NIP-44 decryption failed: ${e.message}", e)
             }
         }
 
@@ -109,12 +159,32 @@ interface NostrSigner {
     class Nip07Extension(
         override val pubkey: String,
     ) : NostrSigner {
+        override val isRemote: Boolean = true
+
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
             if (disposed) throw SigningException("NIP-07 signer has been disposed")
             val signedJson = Nip07.signEvent(event.toJsonString())
             return parseSignedEventJson(signedJson)
+        }
+
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            if (disposed) throw SigningException("NIP-07 signer has been disposed")
+            return try {
+                Nip07.nip44Encrypt(peerPubkeyHex, plaintext)
+            } catch (e: Exception) {
+                throw SigningException("NIP-07 NIP-44 encryption failed: ${e.message}", e)
+            }
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            if (disposed) throw SigningException("NIP-07 signer has been disposed")
+            return try {
+                Nip07.nip44Decrypt(peerPubkeyHex, ciphertext)
+            } catch (e: Exception) {
+                throw SigningException("NIP-07 NIP-44 decryption failed: ${e.message}", e)
+            }
         }
 
         override fun dispose() {

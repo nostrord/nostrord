@@ -14,6 +14,11 @@
 const CACHE_VERSION = '__BUILD_VERSION__';
 const STATIC_CACHE = `nostrord-static-${CACHE_VERSION}`;
 const FONT_CACHE = `nostrord-fonts-${CACHE_VERSION}`;
+// Avatars/images (mostly cross-origin) are cache-first in a deliberately
+// version-INDEPENDENT cache so they persist across reloads AND app deploys without
+// re-downloading. Capped to avoid unbounded growth.
+const IMAGE_CACHE = 'nostrord-images';
+const IMAGE_CACHE_MAX = 400;
 
 // Detect base path (works on GitHub Pages with subdirectory)
 const BASE_PATH = new URL(self.registration.scope).pathname;
@@ -52,7 +57,8 @@ self.addEventListener('activate', (event) => {
                     .filter((name) => {
                         return name.startsWith('nostrord-') &&
                                name !== STATIC_CACHE &&
-                               name !== FONT_CACHE;
+                               name !== FONT_CACHE &&
+                               name !== IMAGE_CACHE;
                     })
                     .map((name) => {
                         console.log('[SW] Deleting old cache:', name);
@@ -126,8 +132,13 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Skip cross-origin requests (except for allowed CDNs)
+    // External images (user/group/relay avatars) are cache-first in a dedicated,
+    // version-independent cache so they survive reloads/deploys without re-downloading.
+    // Other cross-origin requests are left to default browser handling.
     if (url.origin !== self.location.origin) {
+        if (isImageRequest(event.request, url)) {
+            event.respondWith(imageCacheFirst(event.request));
+        }
         return;
     }
 
@@ -183,6 +194,40 @@ function isHtmlRequest(request, url) {
            url.pathname.endsWith('/') ||
            url.pathname.endsWith('.html') ||
            !url.pathname.includes('.');
+}
+
+function isImageRequest(request, url) {
+    // `destination` is the reliable signal (set by <img>/CSS); the extension test is a
+    // fallback for avatar hosts that serve images from extensionless URLs.
+    return request.destination === 'image' ||
+           /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i.test(url.pathname);
+}
+
+// Cache-first for images (incl. opaque cross-origin no-cors responses), capped FIFO.
+// Once an avatar is cached it is served without a network round-trip; a changed avatar
+// has a new URL, so this never serves the wrong picture.
+async function imageCacheFirst(request) {
+    const cache = await caches.open(IMAGE_CACHE);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    try {
+        const response = await fetch(request);
+        if (response && (response.ok || response.type === 'opaque')) {
+            cache.put(request, response.clone()).then(() => trimCache(cache, IMAGE_CACHE_MAX));
+        }
+        return response;
+    } catch (error) {
+        return cached || Response.error();
+    }
+}
+
+// Bound the image cache: delete the oldest entries (insertion order) past the cap.
+async function trimCache(cache, max) {
+    const keys = await cache.keys();
+    const overflow = keys.length - max;
+    for (let i = 0; i < overflow; i++) {
+        await cache.delete(keys[i]);
+    }
 }
 
 // Cache-first strategy (for immutable content like WASM and fonts)

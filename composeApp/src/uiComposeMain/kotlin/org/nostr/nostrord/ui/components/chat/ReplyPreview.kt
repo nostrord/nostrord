@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +31,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.shortNpub
 
 // Regex to match nostr:nevent, nostr:note, or nostr:naddr references
 private val NOSTR_EVENT_REGEX = Regex("""nostr:(nevent1[a-zA-Z0-9]+|note1[a-zA-Z0-9]+|naddr1[a-zA-Z0-9]+)""")
@@ -130,11 +132,6 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
 }
 
 /**
- * Check if a message is a reply to another message.
- */
-fun isReply(message: NostrGroupClient.NostrMessage): Boolean = getReplyParentId(message) != null
-
-/**
  * Compact reply preview shown above a message that is replying to another message.
  * Shows the parent message author and a truncated preview of the content.
  */
@@ -165,7 +162,7 @@ fun ReplyPreview(
     val authorName =
         parentMetadata?.displayName
             ?: parentMetadata?.name
-            ?: parentMessage.pubkey.take(8) + "..."
+            ?: shortNpub(parentMessage.pubkey)
 
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentMessage.content) {
@@ -189,7 +186,6 @@ fun ReplyPreview(
         onClick = onReplyClick,
         modifier = modifier,
     ) {
-        // Author name
         Text(
             text = authorName,
             color = NostrordColors.Primary,
@@ -201,7 +197,6 @@ fun ReplyPreview(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        // Content preview (truncated)
         Text(
             text = processedContent.take(100),
             color = NostrordColors.TextSecondary,
@@ -226,13 +221,20 @@ private fun ReplyPreviewContainer(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .background(NostrordColors.Surface.copy(alpha = 0.5f))
+            // Reply background, matching the web .msg-reply: keep the good translucent dark
+            // (rgba(47,49,54,0.5)) in the dark theme, and the lighter floating surface in light.
+            .background(
+                if (NostrordColors.IsDark) {
+                    Color(0xFF2F3136).copy(alpha = 0.5f)
+                } else {
+                    NostrordColors.BackgroundFloating
+                },
+            )
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true)
             .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Left accent bar
         Box(
             modifier =
             Modifier
@@ -246,7 +248,6 @@ private fun ReplyPreviewContainer(
 
         Spacer(modifier = Modifier.width(Spacing.sm))
 
-        // Content
         Column(
             modifier =
             Modifier

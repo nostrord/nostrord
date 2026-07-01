@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.group.model
 
 import androidx.compose.runtime.Immutable
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.ui.screens.group.clampSystemEventsToLoadedWindow
 import org.nostr.nostrord.utils.getDateLabel
 
 // Time window for grouping consecutive messages from the same author (5 minutes)
@@ -50,7 +51,6 @@ sealed class ChatItem {
         val additionalUsers: List<String> = emptyList(), // Additional pubkeys for grouped events
     ) : ChatItem() {
         val totalUsers: Int get() = 1 + additionalUsers.size
-        val isGrouped: Boolean get() = additionalUsers.isNotEmpty()
     }
 
     /**
@@ -97,11 +97,15 @@ fun buildChatItems(
     var lastMessageTime: Long? = null
     var newMessagesDividerInserted = false
 
-    val sortedMessages = messages.sortedBy { it.createdAt }
+    val sortedAll = messages.sortedBy { it.createdAt }
+    // Bound the rendered timeline to the loaded message window (shared with the web list):
+    // hide moderation events older than the oldest loaded kind:9 message so a streamed older
+    // join/leave never inserts mid-list and shifts the reading position (opens above old events).
+    val sortedMessages = clampSystemEventsToLoadedWindow(sortedAll)
 
-    // Map of pubkey → list of timestamps for leave requests (kind 9022).
-    // Used to suppress kind 9001 that is just the relay auto-confirming a leave.
-    val leaveRequestTimestamps: Map<String, List<Long>> = sortedMessages
+    // Map of pubkey → list of timestamps for leave requests (kind 9022). Built from the
+    // unclamped list so a 9022 hidden above the frontier still suppresses its 9001 echo.
+    val leaveRequestTimestamps: Map<String, List<Long>> = sortedAll
         .filter { it.kind == 9022 }
         .groupBy({ it.pubkey }, { it.createdAt })
 
@@ -130,9 +134,12 @@ fun buildChatItems(
             lastMessageTime = null
         }
 
-        // Insert new messages divider before first unread message from another user
+        // Insert new messages divider before first unread chat message from another user.
+        // kind == 9 only (parity with web): a streamed join/leave/zap from another user must
+        // not anchor the divider, or "New messages" would point at a non-chat line.
         if (!newMessagesDividerInserted &&
             lastReadTimestamp != null &&
+            message.kind == 9 &&
             message.createdAt > lastReadTimestamp &&
             message.pubkey != currentUserPubkey
         ) {
