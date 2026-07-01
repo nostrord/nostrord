@@ -2160,7 +2160,7 @@ class NostrRepository(
             connectionManager.setFocusedRelay(newRelayUrl) { msg, client ->
                 enqueueToRelayPipeline(msg, client)
             }
-            connectionManager.setError(restriction)
+            connectionManager.setError(newRelayUrl, restriction)
             return
         }
 
@@ -3819,7 +3819,7 @@ class NostrRepository(
                         _restrictedRelays.value = _restrictedRelays.value + (relayUrl to reason)
                         groupManager.cancelPendingFullFetch(relayUrl)
                         groupManager.markRelayLoaded(relayUrl)
-                        connectionManager.setError(reason)
+                        connectionManager.setError(relayUrl, reason)
                     } else {
                         groupManager.markRelayLoaded(relayUrl)
                     }
