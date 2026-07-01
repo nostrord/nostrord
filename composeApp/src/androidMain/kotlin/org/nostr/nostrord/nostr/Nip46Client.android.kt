@@ -23,6 +23,7 @@ actual class Nip46Client actual constructor(
 
     private var remoteSignerPubkey: String? = null
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
+
     // Guards ensureRelaysConnected's check-then-act (see its own doc comment):
     // without it, concurrent sendRequest calls racing on an empty relayClients
     // (e.g. a DM-decrypt backlog burst) each independently reconnect and append,
