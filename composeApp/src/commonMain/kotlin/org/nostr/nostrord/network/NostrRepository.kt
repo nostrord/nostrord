@@ -144,6 +144,16 @@ class NostrRepository(
      */
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
 
+    // Per "relayUrl|groupId" cooldown for fetchGroupPreviews. Its caller (HomePageViewModel)
+    // deliberately re-emits relayToGroups on every following/userGroupLists/joinedGroupsByRelay/
+    // groupsByRelay change so a group whose metadata hasn't landed yet gets retried instead of
+    // abandoned — but those four flows update independently during login, so several distinct
+    // (and therefore not distinctUntilChanged-suppressed) emissions can land within milliseconds
+    // of each other while a group is still missing, each spawning its own launch that fires the
+    // same batched REQ. Mirrors GroupManager.requestPrivateGroupData's cooldown/mutex fix.
+    private val groupPreviewFetchAt = mutableMapOf<String, Long>()
+    private val groupPreviewFetchMutex = Mutex()
+
     // Caps how many NIP-17 DM decryptions hit the signer at once. A cold load streams
     // every unread kind:1059 (dozens, sometimes 80+), and with a remote signer (NIP-46
     // bunker) each decrypt is a serialized round-trip. Launching them all flooded the
@@ -1233,6 +1243,7 @@ class NostrRepository(
      */
     private suspend fun resetSessionScopedCaches() {
         lastRequestGroupsAt.clear()
+        groupPreviewFetchMutex.withLock { groupPreviewFetchAt.clear() }
         authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
         pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
@@ -2627,13 +2638,25 @@ class NostrRepository(
             if (missing.isEmpty()) return@forEach
             scope.launch {
                 try {
+                    // Claim the cooldown before connecting/sending, not after: the collector
+                    // above can re-emit this same relay+group within milliseconds while the
+                    // metadata is still in flight, and getOrConnectRelay below suspends, so
+                    // checking the cooldown after it would let concurrent re-emissions all
+                    // pass together (the same race GroupManager.requestPrivateGroupData had).
+                    val now = epochSeconds()
+                    val toFetch = groupPreviewFetchMutex.withLock {
+                        missing
+                            .filter { now - (groupPreviewFetchAt["$relayUrl|$it"] ?: 0L) > 10L }
+                            .also { claimed -> claimed.forEach { groupPreviewFetchAt["$relayUrl|$it"] = now } }
+                    }
+                    if (toFetch.isEmpty()) return@launch
                     val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
                         enqueueToRelayPipeline(msg, c)
                     } ?: return@launch
                     connectedPoolRelays.add(relayUrl)
                     // Send immediately: relays that don't gate reads behind NIP-42 serve
                     // this with no added latency (the common case).
-                    client.requestGroupsMetadata(missing)
+                    client.requestGroupsMetadata(toFetch)
                     // AUTH-gated relays (e.g. chat.wisp.talk, nos.lol) reject the pre-AUTH
                     // REQ above with CLOSED "auth-required", and resubscribeAfterAuth replays
                     // only group/mux subs, never one-shot discovery REQs. Re-send once AUTH is
@@ -2641,7 +2664,7 @@ class NostrRepository(
                     // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
                     // returns true only when a challenge was actually answered, so non-auth
                     // relays don't pay a redundant re-send.
-                    if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupsMetadata(missing)
+                    if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupsMetadata(toFetch)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                 }
