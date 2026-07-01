@@ -276,7 +276,8 @@ private fun GroupsStep(
     // lists and member lists. The relay link is disabled here (no relay route in onboarding).
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val friendsGroups by vm.friendsGroups.collectAsState()
-    val friendsGroupsLoading by vm.friendsGroupsLoading.collectAsState()
+    val friendsGroupsResolving by vm.friendsGroupsResolving.collectAsState()
+    val following by AppModule.nostrRepository.following.collectAsState()
     val joinedByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val joinedGroupIds = joinedByRelay.values.flatten().toSet()
 
@@ -310,7 +311,10 @@ private fun GroupsStep(
 
     fun join() = joinRef(input.trim())
 
-    LaunchedEffect(Unit) { vm.loadFriendsGroups() }
+    // Re-fire as the contact list resolves: a fresh login often reaches this step before
+    // kind:3 arrives, so the first call requests nothing; keying on [following] picks up the
+    // follows the moment they land (the VM dedups already-requested pubkeys).
+    LaunchedEffect(following) { vm.loadFriendsGroups() }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -382,11 +386,20 @@ private fun GroupsStep(
 
         // One public group per line; relay row hidden in onboarding. Joining marks the
         // card "Joined" in place rather than removing it (see [shown] accumulation above).
-        if (shown.isEmpty() && friendsGroupsLoading) {
+        if (shown.isEmpty() && friendsGroupsResolving) {
             Spacer(modifier = Modifier.height(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(3) { GroupCardSkeleton() }
             }
+        } else if (shown.isEmpty()) {
+            // Discovery finished with nothing from your follows: say so, so the section
+            // never silently collapses to blank after the skeleton (the reported confusion).
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                "No public groups from people you follow yet. Paste an invite above, or skip.",
+                color = NostrordColors.TextMuted,
+                fontSize = 14.sp,
+            )
         } else if (shown.isNotEmpty()) {
             Spacer(modifier = Modifier.height(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -243,11 +243,15 @@ private val GroupsStep =
         // onboarding has no relay route to open yet.
         val vm = useViewModel { HomePageViewModel(AppModule.nostrRepository) }
         val friendsGroups = useStateFlow(vm.friendsGroups)
-        val friendsGroupsLoading = useStateFlow(vm.friendsGroupsLoading)
+        val friendsGroupsResolving = useStateFlow(vm.friendsGroupsResolving)
         val relayMeta = useStateFlow(vm.relayMetadata)
+        val following = useStateFlow(AppModule.nostrRepository.following)
         val joinedIds = useStateFlow(AppModule.nostrRepository.joinedGroupsByRelay).values.flatten().toSet()
 
-        useEffect(Unit) { vm.loadFriendsGroups() }
+        // Re-fire as the contact list resolves: a fresh login often reaches this step before
+        // kind:3 arrives, so the first call requests nothing; keying on [following] picks up the
+        // follows the moment they land (the VM dedups already-requested pubkeys).
+        useEffect(following) { vm.loadFriendsGroups() }
 
         // Accumulate discovered public groups so a joined one stays on the list (marked
         // "Joined") instead of vanishing: joining removes it from [friendsGroups] (which
@@ -311,10 +315,17 @@ private val GroupsStep =
         }
 
         when {
-            discovered.isEmpty() && friendsGroupsLoading ->
+            discovered.isEmpty() && friendsGroupsResolving ->
                 div {
                     className = ClassName("onb-pack-list onb-groups")
                     repeat(3) { groupCardSkeleton() }
+                }
+            discovered.isEmpty() ->
+                // Discovery finished with nothing from your follows: say so, so the section
+                // never silently collapses to blank after the skeleton (the reported confusion).
+                p {
+                    className = ClassName("onb-skip-note")
+                    +"No public groups from people you follow yet. Paste an invite above, or skip."
                 }
             discovered.isNotEmpty() ->
                 div {

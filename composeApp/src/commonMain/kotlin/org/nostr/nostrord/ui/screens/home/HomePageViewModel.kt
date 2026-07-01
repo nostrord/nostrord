@@ -540,6 +540,14 @@ class HomePageViewModel(
             !resolved && list.isEmpty() && fr.isNotEmpty()
         }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    // Onboarding step 3 has no "follow someone" empty state, so it must show the skeleton
+    // while discovery is still in-flight even before the contact list resolves (otherwise
+    // the step flashes blank until groups pop in). Resolves via the same grace timer, so it
+    // can neither hang forever nor flash an empty section for a frame.
+    val friendsGroupsResolving: StateFlow<Boolean> =
+        combine(_friendsGroupsResolved, friendsGroups) { resolved, list -> !resolved && list.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     private val _recommendedResolved = MutableStateFlow(false)
     val recommendedGroupsLoading: StateFlow<Boolean> =
         combine(_recommendedResolved, recommendedGroups) { resolved, list -> !resolved && list.isEmpty() }
