@@ -420,7 +420,7 @@ class MetadataManager(
             // lives only on its group's relay, and the hint is often wrong or absent (it points at
             // the relay it was copied from, not the event's home), so querying only the hint misses
             // it while another connected relay actually has it. This is how native effectively
-            // resolves these — it has those relays connected. (Includes the primary + author
+            // resolves these — it has those relays connected. (Includes the focused + author
             // outbox relays already in the pool.)
             connectionManager.getAllConnectedClients().forEach { client ->
                 try {
@@ -497,11 +497,11 @@ class MetadataManager(
                     }
                 }
 
-            // Always also try primary NIP-29 relay — it hosts the addressable events.
-            val primary = connectionManager.getPrimaryClient()
-            if (primary != null && primary.isConnected()) {
+            // Always also try focused NIP-29 relay — it hosts the addressable events.
+            val focused = connectionManager.getFocusedClient()
+            if (focused != null && focused.isConnected()) {
                 try {
-                    primary.requestAddressableEvent(kind, pubkey, identifier)
+                    focused.requestAddressableEvent(kind, pubkey, identifier)
                     sent++
                 } catch (_: Exception) {
                 }

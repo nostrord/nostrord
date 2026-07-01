@@ -24,7 +24,7 @@ import kotlin.random.Random
 
 /**
  * Manages relay connections and connection pooling.
- * Handles primary NIP-29 relay connection and auxiliary relay pool.
+ * Handles focused NIP-29 relay connection and auxiliary relay pool.
  * Includes automatic reconnection with exponential backoff.
  */
 class ConnectionManager(
@@ -32,11 +32,11 @@ class ConnectionManager(
     private val connStats: ConnectionStats? = null,
     private val adaptiveConfig: AdaptiveConfig? = null,
 ) {
-    private var primaryClient: NostrGroupClient? = null
+    private var focusedClient: NostrGroupClient? = null
     private var reconnectJob: Job? = null
     private var currentMessageHandler: ((String, NostrGroupClient) -> Unit)? = null
 
-    // Serialises connectPrimary so two coroutines cannot both pass the "already connecting"
+    // Serialises connectFocused so two coroutines cannot both pass the "already connecting"
     // guard simultaneously (Dispatchers.Default is multi-threaded).
     private val connectMutex = Mutex()
 
@@ -89,7 +89,7 @@ class ConnectionManager(
     private val pendingConnects = mutableMapOf<String, kotlinx.coroutines.CompletableDeferred<NostrGroupClient?>>()
 
     /**
-     * Called when the primary connection drops unexpectedly.
+     * Called when the focused connection drops unexpectedly.
      * Set by NostrRepository to also notify GroupManager.
      */
     var onConnectionDropped: (() -> Unit)? = null
@@ -143,7 +143,7 @@ class ConnectionManager(
                     when (event) {
                         NetworkEvent.CHANGED -> {
                             // IP changed — kill stale socket and reconnect immediately.
-                            if (primaryClient != null) {
+                            if (focusedClient != null) {
                                 reconnectImmediate()
                             }
                         }
@@ -154,7 +154,7 @@ class ConnectionManager(
                         }
                         NetworkEvent.CONNECTED -> {
                             autoReconnectEnabled = true
-                            if (primaryClient == null && _currentRelayUrl.value.isNotBlank()) {
+                            if (focusedClient == null && _currentRelayUrl.value.isNotBlank()) {
                                 reconnectImmediate()
                             }
                         }
@@ -171,18 +171,18 @@ class ConnectionManager(
         reconnectJob?.cancel()
         reconnectAttempts = 0
 
-        val dead = primaryClient
+        val dead = focusedClient
         dead?.onConnectionLost = null
-        primaryClient = null
+        focusedClient = null
         dead?.cancelAndClose()
 
         onConnectionDropped?.invoke()
 
         val handler = currentMessageHandler ?: return
-        val success = connectPrimary(_currentRelayUrl.value, handler)
+        val success = connectFocused(_currentRelayUrl.value, handler)
         if (success) {
             adaptiveConfig?.recordReconnect()
-            primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+            focusedClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
         } else {
             startReconnection()
         }
@@ -211,13 +211,13 @@ class ConnectionManager(
     }
 
     /**
-     * Get the primary NIP-29 client
+     * Get the focused NIP-29 client
      */
-    fun getPrimaryClient(): NostrGroupClient? = primaryClient
+    fun getFocusedClient(): NostrGroupClient? = focusedClient
 
     /**
      * Returns the client for a specific relay URL.
-     * Checks the primary first, then the pool, then any in-flight connect.
+     * Checks the focused first, then the pool, then any in-flight connect.
      * Does not START a new connection, but if one is already in flight for this
      * URL (the [getOrConnectRelay] singleflight, e.g. the bootstrap fan-out)
      * this awaits it instead of reporting "not connected".
@@ -235,7 +235,7 @@ class ConnectionManager(
         // crash the caller; this is a suspend fun, so the parameter null-check is not emitted.
         if (relayUrl.isNullOrBlank()) return null
         val normalized = relayUrl.normalizeRelayUrl()
-        if (_currentRelayUrl.value == normalized) return primaryClient
+        if (_currentRelayUrl.value == normalized) return focusedClient
         val (pooled, pending) =
             poolMutex.withLock { relayPool[normalized] to pendingConnects[normalized] }
         if (pooled != null) return pooled
@@ -243,28 +243,28 @@ class ConnectionManager(
     }
 
     /**
-     * Every currently-connected client (primary + pool), deduped. Used to broadcast a
+     * Every currently-connected client (focused + pool), deduped. Used to broadcast a
      * by-id REQ when a relay hint is wrong or missing: a NIP-29 event lives only on its
      * group's relay, and the hint can point elsewhere, so querying just the hint misses it.
      */
     suspend fun getAllConnectedClients(): List<NostrGroupClient> {
         val pooled = poolMutex.withLock { relayPool.values.toList() }
-        return (listOfNotNull(primaryClient) + pooled)
+        return (listOfNotNull(focusedClient) + pooled)
             .distinct()
             .filter { it.isConnected() }
     }
 
     /**
-     * Connect to the primary NIP-29 relay.
+     * Connect to the focused NIP-29 relay.
      * Serialised by [connectMutex] — concurrent callers block until the in-flight
      * attempt finishes, then return false immediately if a client is already up.
      */
-    suspend fun connectPrimary(
+    suspend fun connectFocused(
         relayUrl: String = _currentRelayUrl.value,
         onMessage: (String, NostrGroupClient) -> Unit,
     ): Boolean = connectMutex.withLock {
         if (relayUrl.isBlank()) return@withLock false
-        if (primaryClient != null) return@withLock false
+        if (focusedClient != null) return@withLock false
 
         currentMessageHandler = onMessage
         _connectionState.value = ConnectionState.Connecting
@@ -272,7 +272,7 @@ class ConnectionManager(
 
         try {
             val newClient = NostrGroupClient(relayUrl)
-            primaryClient = newClient
+            focusedClient = newClient
 
             newClient.onConnectionLost = {
                 scope.launch { handleConnectionLost() }
@@ -281,13 +281,13 @@ class ConnectionManager(
             newClient.connect { msg -> onMessage(msg, newClient) }
             val opened = newClient.waitForConnection()
             if (!opened) {
-                // CRITICAL: detach onConnectionLost BEFORE nulling primaryClient.
+                // CRITICAL: detach onConnectionLost BEFORE nulling focusedClient.
                 // Without this, the orphaned client's WebSocket may open then close later
-                // and fire handleConnectionLost(), killing any primary that was connected
+                // and fire handleConnectionLost(), killing any focused that was connected
                 // in the meantime by the reconnect loop.
                 newClient.onConnectionLost = null
                 newClient.cancelAndClose()
-                primaryClient = null
+                focusedClient = null
                 if (_currentRelayUrl.value == relayUrl.normalizeRelayUrl()) {
                     _connectionState.value = ConnectionState.Error("Connection timed out")
                 }
@@ -308,11 +308,11 @@ class ConnectionManager(
             if (_currentRelayUrl.value == relayUrl.normalizeRelayUrl()) {
                 _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             }
-            primaryClient?.let {
+            focusedClient?.let {
                 it.onConnectionLost = null
                 it.cancelAndClose()
             }
-            primaryClient = null
+            focusedClient = null
             connStats?.onConnectFailed(relayUrl)
             false
         }
@@ -324,20 +324,20 @@ class ConnectionManager(
     private suspend fun handleConnectionLost() {
         // Detach the callback first to prevent re-entrant calls if cancelAndClose()
         // somehow triggers another connection-lost event on the dying client.
-        val dead = primaryClient
+        val dead = focusedClient
         dead?.onConnectionLost = null
 
         connStats?.onDisconnected(_currentRelayUrl.value)
         onConnectionDropped?.invoke()
 
         if (!autoReconnectEnabled) {
-            primaryClient = null
+            focusedClient = null
             dead?.cancelAndClose()
             _connectionState.value = ConnectionState.Disconnected
             return
         }
 
-        primaryClient = null
+        focusedClient = null
         dead?.cancelAndClose() // release HttpClient threads/pool, cancel lingering coroutines
         startReconnection()
     }
@@ -370,12 +370,12 @@ class ConnectionManager(
                     delay(baseMs + jitter)
 
                     val handler = currentMessageHandler ?: break
-                    val success = connectPrimary(_currentRelayUrl.value, handler)
+                    val success = connectFocused(_currentRelayUrl.value, handler)
 
                     if (success) {
                         reconnectAttempts = 0
                         adaptiveConfig?.recordReconnect()
-                        primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+                        focusedClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
                         return@launch
                     }
                 }
@@ -390,12 +390,12 @@ class ConnectionManager(
                     if (!autoReconnectEnabled) break
 
                     val handler = currentMessageHandler ?: break
-                    val success = connectPrimary(_currentRelayUrl.value, handler)
+                    val success = connectFocused(_currentRelayUrl.value, handler)
 
                     if (success) {
                         reconnectAttempts = 0
                         adaptiveConfig?.recordReconnect()
-                        primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+                        focusedClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
                         return@launch
                     }
                 }
@@ -412,15 +412,15 @@ class ConnectionManager(
 
         // Detach onConnectionLost BEFORE disconnecting: the dying socket's close
         // event fires asynchronously and would otherwise run handleConnectionLost
-        // AFTER connectPrimary installs the replacement client — killing the fresh
+        // AFTER connectFocused installs the replacement client — killing the fresh
         // connection and flipping the banner to "Unable to connect" (seen on every
         // account switch, which reconnects through here).
-        primaryClient?.onConnectionLost = null
-        primaryClient?.disconnect()
-        primaryClient = null
+        focusedClient?.onConnectionLost = null
+        focusedClient?.disconnect()
+        focusedClient = null
 
         val handler = currentMessageHandler ?: return false
-        return connectPrimary(_currentRelayUrl.value, handler)
+        return connectFocused(_currentRelayUrl.value, handler)
     }
 
     /**
@@ -435,51 +435,51 @@ class ConnectionManager(
     }
 
     /**
-     * Disconnect the primary relay
+     * Disconnect the focused relay
      */
-    suspend fun disconnectPrimary() {
+    suspend fun disconnectFocused() {
         autoReconnectEnabled = false
         reconnectJob?.cancel()
         reconnectJob = null
 
         // Same orphan-callback hazard as reconnect(): a late close event from this
-        // socket must not tear down whatever primary connects next.
-        primaryClient?.onConnectionLost = null
-        primaryClient?.disconnect()
-        primaryClient = null
+        // socket must not tear down whatever focused connects next.
+        focusedClient?.onConnectionLost = null
+        focusedClient?.disconnect()
+        focusedClient = null
         _connectionState.value = ConnectionState.Disconnected
     }
 
     /**
-     * Switch to a new relay while keeping the old primary alive in the pool.
+     * Switch to a new relay while keeping the old focused alive in the pool.
      *
-     * The old primary is moved into [relayPool] (if not already present) so it
+     * The old focused is moved into [relayPool] (if not already present) so it
      * continues receiving messages and contributing group metadata to the unified
-     * state.  The new relay is then connected as the primary.  If the new relay
-     * URL is already in the pool, that existing connection is promoted to primary.
+     * state.  The new relay is then connected as the focused.  If the new relay
+     * URL is already in the pool, that existing connection is promoted to focused.
      */
     suspend fun switchRelay(
         newRelayUrl: String,
         onMessage: (String, NostrGroupClient) -> Unit,
     ): Boolean {
         val normalizedNewUrl = newRelayUrl.normalizeRelayUrl()
-        // Already primary on this relay: keep the existing socket. Falling through would
-        // null primaryClient and connectPrimary a second one (the same-URL branch below
+        // Already focused on this relay: keep the existing socket. Falling through would
+        // null focusedClient and connectFocused a second one (the same-URL branch below
         // skips moving it to the pool, so it gets orphaned), which on a deep link to a
         // group whose relay initialize() already connected shows as OPEN/CLOSE/OPEN churn
         // and, on a private relay, throws away the AUTH'd socket. Just refresh the handler.
-        if (_currentRelayUrl.value == normalizedNewUrl && primaryClient != null) {
+        if (_currentRelayUrl.value == normalizedNewUrl && focusedClient != null) {
             currentMessageHandler = onMessage
-            return primaryClient?.isConnected() == true
+            return focusedClient?.isConnected() == true
         }
-        // Move the current primary into the pool instead of disconnecting it.
-        val oldPrimary = primaryClient
+        // Move the current focused into the pool instead of disconnecting it.
+        val oldFocused = focusedClient
         val oldUrl = _currentRelayUrl.value
-        if (oldPrimary != null && oldUrl != normalizedNewUrl) {
+        if (oldFocused != null && oldUrl != normalizedNewUrl) {
             // Re-wire onConnectionLost to the pool handler before adding to pool.
-            // Without this, the demoted primary fires handleConnectionLost() on drop,
+            // Without this, the demoted focused fires handleConnectionLost() on drop,
             // which reconnects the WRONG relay (_currentRelayUrl, already the new one).
-            oldPrimary.onConnectionLost = {
+            oldFocused.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(oldUrl) }
                     onPoolRelayLost?.invoke(oldUrl)
@@ -487,22 +487,22 @@ class ConnectionManager(
             }
             poolMutex.withLock {
                 if (!relayPool.containsKey(oldUrl)) {
-                    relayPool[oldUrl] = oldPrimary
+                    relayPool[oldUrl] = oldFocused
                 }
             }
         }
 
-        // If the new relay is already in the pool, promote it to primary. Also capture an
+        // If the new relay is already in the pool, promote it to focused. Also capture an
         // in-flight pool connect (the singleflight deferred in pendingConnects): without
-        // this, switchRelay misses a connection that is mid-handshake and connectPrimary
+        // this, switchRelay misses a connection that is mid-handshake and connectFocused
         // opens a SECOND socket to the same relay. On a private relay that splits the NIP-42
         // handshake across two sockets (challenge on one, reads on the other), so the group
         // never authenticates. Observed as OPEN/CLOSE/OPEN churn on cold-start deep links.
         val (existingPoolClient, pendingConnect) =
             poolMutex.withLock { relayPool.remove(normalizedNewUrl) to pendingConnects[normalizedNewUrl] }
 
-        // Clear the primary slot (without disconnecting the old client).
-        primaryClient = null
+        // Clear the focused slot (without disconnecting the old client).
+        focusedClient = null
         autoReconnectEnabled = true
         reconnectJob?.cancel()
         reconnectJob = null
@@ -513,13 +513,13 @@ class ConnectionManager(
         }
 
         // Reclaim the in-flight connect's client once it lands (its leader parks it in
-        // relayPool on success), so the live socket becomes primary instead of a duplicate.
+        // relayPool on success), so the live socket becomes focused instead of a duplicate.
         val promoted = existingPoolClient
             ?: pendingConnect?.await()?.also { poolMutex.withLock { relayPool.remove(normalizedNewUrl) } }
 
         if (promoted != null) {
-            // Re-use the already-connected pool client as the new primary.
-            primaryClient = promoted
+            // Re-use the already-connected pool client as the new focused.
+            focusedClient = promoted
             promoted.onConnectionLost = {
                 scope.launch { handleConnectionLost() }
             }
@@ -529,11 +529,11 @@ class ConnectionManager(
             return true
         }
 
-        return connectPrimary(normalizedNewUrl, onMessage)
+        return connectFocused(normalizedNewUrl, onMessage)
     }
 
     /**
-     * Disconnect and remove a specific relay, whether it's in the pool or is the primary.
+     * Disconnect and remove a specific relay, whether it's in the pool or is the focused.
      */
     suspend fun disconnectRelay(url: String) {
         val normalized = url.normalizeRelayUrl()
@@ -541,7 +541,7 @@ class ConnectionManager(
             relayPool.remove(normalized)?.disconnect()
         }
         if (_currentRelayUrl.value == normalized) {
-            disconnectPrimary()
+            disconnectFocused()
         }
     }
 
@@ -553,13 +553,13 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit,
     ): NostrGroupClient? {
         val normalized = relayUrl.normalizeRelayUrl()
-        // The primary NIP-29 relay lives in primaryClient, not relayPool. Without
-        // this check a caller asking for the primary's URL (e.g. the mux refresh
-        // for a group hosted on the primary) misses the pool, becomes a connect
+        // The focused NIP-29 relay lives in focusedClient, not relayPool. Without
+        // this check a caller asking for the focused's URL (e.g. the mux refresh
+        // for a group hosted on the focused) misses the pool, becomes a connect
         // leader, and opens a SECOND socket to a relay we are already connected
-        // to. getClientForRelay already short-circuits the primary the same way.
+        // to. getClientForRelay already short-circuits the focused the same way.
         if (_currentRelayUrl.value == normalized) {
-            primaryClient?.let { return it }
+            focusedClient?.let { return it }
         }
         // Fast-path: already pooled.
         poolMutex.withLock {
@@ -688,14 +688,14 @@ class ConnectionManager(
 
     /**
      * Close the relay-scoped group-list subscription on every open socket
-     * (primary + pool). Called on account switch so a late EOSE from the
+     * (focused + pool). Called on account switch so a late EOSE from the
      * previous account's REQ cannot poison the new account's full-fetch
      * bookkeeping after the sub ID is reused.
      */
     suspend fun closeGroupListSubscriptionsOnAllClients() {
         val clients =
             poolMutex.withLock { relayPool.values.toList() } +
-                listOfNotNull(primaryClient)
+                listOfNotNull(focusedClient)
         for (client in clients) {
             val subId = client.groupListSubscriptionId()
             try {
@@ -706,7 +706,7 @@ class ConnectionManager(
     }
 
     /**
-     * CLOSE every live subscription on every open socket (primary + pool). Called on account
+     * CLOSE every live subscription on every open socket (focused + pool). Called on account
      * switch so the outgoing account's mux chat/meta and dm_inbox REQs stop pushing events
      * into the incoming account's freshly-cleared state (those subs are group/kind-filtered,
      * not pubkey-filtered, so they would otherwise re-populate the new account's rail/DM list
@@ -715,7 +715,7 @@ class ConnectionManager(
     suspend fun closeAllSubscriptionsOnAllClients() {
         val clients =
             poolMutex.withLock { relayPool.values.toList() } +
-                listOfNotNull(primaryClient)
+                listOfNotNull(focusedClient)
         for (client in clients) {
             try {
                 client.closeAllSubscriptions()
@@ -733,7 +733,7 @@ class ConnectionManager(
         // right after we drain the pool. resumeConnections() re-opens on login.
         acceptingConnections = false
         scope.coroutineContext.cancelChildren()
-        disconnectPrimary()
+        disconnectFocused()
 
         // Get clients to disconnect while holding lock, then disconnect outside lock
         val clientsToDisconnect =

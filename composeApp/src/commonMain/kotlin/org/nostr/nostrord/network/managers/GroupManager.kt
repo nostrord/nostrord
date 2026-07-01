@@ -739,7 +739,7 @@ class GroupManager(
     fun getRelayForGroup(groupId: String): String? = _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
         // Fallback: private groups may not appear in kind 39000 listing but are
         // tracked in _joinedGroupsByRelay (from kind 10009). Without this,
-        // clientForGroup() falls back to the primary client which may be wrong.
+        // clientForGroup() falls back to the focused client which may be wrong.
         ?: _joinedGroupsByRelay.value.entries.firstOrNull { (_, groupIds) -> groupId in groupIds }?.key
 
     /**
@@ -747,13 +747,13 @@ class GroupManager(
      *
      * A NIP-29 relay rejects a kind:9 ("blocked: group doesn't exist") if it does not
      * host the group in the `h` tag, so once the group's relay is known this never falls
-     * back to the primary. A non-primary pool relay that was evicted is reconnected on
+     * back to the focused. A non-focused pool relay that was evicted is reconnected on
      * demand; a relay that is down (or whose socket is dead) returns null so the send
      * fails honestly instead of being misrouted.
      */
     private suspend fun clientForGroup(groupId: String): NostrGroupClient? {
         val relayUrl = getRelayForGroup(groupId)
-            ?: return connectionManager.getPrimaryClient()
+            ?: return connectionManager.getFocusedClient()
         val client = connectionManager.getClientForRelay(relayUrl)
         return when {
             client != null && client.isConnected() -> client
@@ -930,20 +930,20 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        // Two cost models: on the primary relay we keep the on-demand pattern (only
+        // Two cost models: on the focused relay we keep the on-demand pattern (only
         // groups the user has opened in this session subscribe to live chat) so the
         // hot path stays cheap. On background joined relays we subscribe to live
         // chat for *every* joined group so notifications/sound/unread fire cross-relay
         // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
         // (which lives on a different relay) would silence them entirely.
         //
-        // Exception: during a switch-in catch-up window, the primary relay also
+        // Exception: during a switch-in catch-up window, the focused relay also
         // subscribes to chat for ALL joined groups. Without this, an account that
         // landed on the home screen would only receive notifications for groups
         // it manually opened, defeating the whole point of the catch-up since.
         val catchUp = activeCatchUpSince()
-        val isPrimary = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
-        val chatGroupIds = if (isPrimary && catchUp == null) {
+        val isFocusedRelay = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
+        val chatGroupIds = if (isFocusedRelay && catchUp == null) {
             _openedGroupIds.value
                 .filter { it in allGroupIds }
                 .ifEmpty {
@@ -1216,7 +1216,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1373,7 +1373,7 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit,
     ): Result<String> {
-        val currentClient = connectionManager.getPrimaryClient()
+        val currentClient = connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
 
         return try {
@@ -1489,7 +1489,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1590,7 +1590,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1662,7 +1662,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         // Include current metadata so the relay accepts the kind:9002.
@@ -1753,7 +1753,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1778,7 +1778,7 @@ class GroupManager(
                 val pub = currentClient.sendAndAwaitOk(message, eventId)
                 if (pub is org.nostr.nostrord.network.PublishResult.Timeout && connectionManager.reconnect()) {
                     val freshClient = connectionManager.getClientForRelay(groupRelayUrl)
-                        ?: connectionManager.getPrimaryClient()
+                        ?: connectionManager.getFocusedClient()
                     freshClient?.sendAndAwaitOk(message, eventId)
                 }
             }
@@ -1905,7 +1905,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1950,7 +1950,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -1997,7 +1997,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -2044,7 +2044,7 @@ class GroupManager(
     ): Result<String> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -2093,7 +2093,7 @@ class GroupManager(
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
+            ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
@@ -2156,7 +2156,7 @@ class GroupManager(
             // failed send is swallowed and we still clean the list below. The kind:10009
             // republish goes to the outbox relays, which are independent of this relay.
             val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-                ?: connectionManager.getPrimaryClient()
+                ?: connectionManager.getFocusedClient()
             if (currentClient != null) {
                 try {
                     val event = Event(
@@ -2469,7 +2469,7 @@ class GroupManager(
      * Handle an EOSE from [sourceRelayUrl]'s socket. Passing the source relay
      * explicitly (rather than reverse-mapping from the sub ID) avoids
      * mis-attributing a late EOSE from a torn-down relay to whichever relay is
-     * currently primary — previously such a misattribution could mark the
+     * currently focused — previously such a misattribution could mark the
      * current relay as fully fetched and prune its groups even though it had
      * never received its own EOSE.
      */

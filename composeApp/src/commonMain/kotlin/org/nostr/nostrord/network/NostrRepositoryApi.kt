@@ -101,7 +101,7 @@ interface NostrRepositoryApi {
      * Force-reset the loading state of [groupId] to Idle. Used to recover from
      * controllers stuck in InitialLoading because their underlying socket died
      * (account swap, connection reset) but the natural onConnectionLost path
-     * didn't fire (e.g. explicit primaryClient.disconnect() during a reconnect()
+     * didn't fire (e.g. explicit focusedClient.disconnect() during a reconnect()
      * doesn't always trigger the WebSocket close callback in time).
      */
     suspend fun resetGroupLoadingState(groupId: String)

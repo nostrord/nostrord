@@ -202,7 +202,7 @@ class SessionManager(
 
             // Give the relay 500 ms to process the AUTH before we send subscriptions.
             // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only
-            // fires when this client is the primary relay.
+            // fires when this client is the focused relay.
             kotlinx.coroutines.delay(500)
             true
         } catch (_: Throwable) {

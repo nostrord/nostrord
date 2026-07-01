@@ -1357,8 +1357,8 @@ val ChatScreen =
         //    groupStates, joinedGroups — the new session needs its own REQ.
         //  - isConnected goes false→true: the connectionState transition is the
         //    cleanest "client healthy again" signal. But the state can briefly
-        //    stay Connected while reconnect() has already nulled primaryClient
-        //    (state is updated by connectPrimary, not by disconnect).
+        //    stay Connected while reconnect() has already nulled focusedClient
+        //    (state is updated by connectFocused, not by disconnect).
         //  - relayUrl flips empty → non-empty: clearCurrentRelay sets the URL
         //    to '' under the swap, then loadSavedRelay restores it. The empty
         //    interval is observable through useStateFlow and is the safest

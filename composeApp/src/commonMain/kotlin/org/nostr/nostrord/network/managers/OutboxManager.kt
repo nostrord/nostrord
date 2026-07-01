@@ -274,7 +274,7 @@ class OutboxManager(
                 // kind:10009 is a user list (replaceable) event and must land on a general/outbox
                 // relay that stores it. When none are connected yet (a fresh session, e.g. an
                 // account that just joined via an invite link), connect the publish targets rather
-                // than falling back to the NIP-29 primary below: NIP-29 relays reject kind:10009,
+                // than falling back to the NIP-29 focused below: NIP-29 relays reject kind:10009,
                 // so that fallback silently dropped the list update and the joined group never
                 // appeared in the user's kind:10009.
                 published =
@@ -290,7 +290,7 @@ class OutboxManager(
             }
             val clients =
                 if (published.isEmpty()) {
-                    listOfNotNull(connectionManager.getPrimaryClient())
+                    listOfNotNull(connectionManager.getFocusedClient())
                 } else {
                     published
                 }
