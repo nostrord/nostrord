@@ -580,6 +580,11 @@ class HomePageViewModel(
      * Fetch the public group list (kind:10009) of each followed user not yet
      * requested. Called when the "From friends" tab opens so we don't pay this on
      * cold start; picks up newly followed users on a later call.
+     *
+     * Batched (one REQ per relay, not one per followed user) — a friends list commonly
+     * clusters on the same handful of popular outbox relays, and a per-author loop was
+     * observed opening 20+ concurrent subscriptions against a single relay and tripping
+     * its "too many concurrent REQs" limit.
      */
     fun loadFriendsGroups() {
         if (!friendsGraceStarted) {
@@ -593,7 +598,7 @@ class HomePageViewModel(
             val pks = repo.following.value - requestedFriendLists
             if (pks.isEmpty()) return@launch
             requestedFriendLists.addAll(pks)
-            pks.forEach { repo.requestUserGroupList(it) }
+            repo.fetchUserGroupLists(pks)
         }
     }
 
@@ -730,21 +735,28 @@ class HomePageViewModel(
         // Recommended), so each shows a real "N people" count and member avatars and the
         // people-row skeleton resolves. Each group is requested once; the discovery flows
         // only emit after their tab loads, so this stays off the cold-start path.
+        // Batched per relay (one REQ per relay, not one per group) — a discovery relay's
+        // general directory can list dozens of public groups, and firing an individual
+        // members_ subscription for each one was observed opening 40+ REQ/CLOSE pairs
+        // against a single relay for one tab load.
         viewModelScope.launch {
             combine(myGroups, friendsGroups, recommendedGroups) { a, b, c -> a + b + c }
                 .collect { discovered ->
-                    discovered.forEach { g ->
-                        if (requestedMembers.add(g.meta.id)) {
-                            launch { repo.requestGroupMembers(g.meta.id) }
-                            // Stop the people-row skeleton after a grace period even if
-                            // the relay never returns a member list, so a card never
-                            // shimmers forever.
-                            launch {
-                                delay(MEMBERS_RESOLVE_TIMEOUT_MS)
-                                _membersResolved.update { it + g.meta.id }
-                            }
+                    val toRequest = discovered.filter { requestedMembers.add(it.meta.id) }
+                    if (toRequest.isEmpty()) return@collect
+                    toRequest.forEach { g ->
+                        // Stop the people-row skeleton after a grace period even if
+                        // the relay never returns a member list, so a card never
+                        // shimmers forever.
+                        launch {
+                            delay(MEMBERS_RESOLVE_TIMEOUT_MS)
+                            _membersResolved.update { it + g.meta.id }
                         }
                     }
+                    val relayToGroups = toRequest
+                        .groupBy({ it.relayUrl }, { it.meta.id })
+                        .mapValues { (_, ids) -> ids.toSet() }
+                    launch { repo.fetchGroupsMembers(relayToGroups) }
                 }
         }
         // Resolve kind:0 for the people previewed on every card (members who are not

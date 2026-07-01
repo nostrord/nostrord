@@ -467,6 +467,14 @@ interface NostrRepositoryApi {
      */
     suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>)
 
+    /**
+     * Batched member-list (kind 39002) fetch for discovered groups, same shape and
+     * per-relay batching as [fetchGroupPreviews]: one REQ per relay instead of one per
+     * group, so a discovery tab listing dozens of a relay's public groups doesn't open
+     * dozens of individual member-count subscriptions.
+     */
+    suspend fun fetchGroupsMembers(relayToGroups: Map<String, Set<String>>)
+
     suspend fun loadMoreMessages(
         groupId: String,
         channel: String? = null,
@@ -590,6 +598,16 @@ interface NostrRepositoryApi {
 
     /** Fetch [pubkey]'s public NIP-29 group list (kind:10009) into [userGroupLists]. */
     suspend fun requestUserGroupList(pubkey: String)
+
+    /**
+     * Batched version of [requestUserGroupList] for several authors at once: groups
+     * [pubkeys] by their resolved outbox relays and sends one REQ per relay instead of
+     * one REQ per author. Use this (not a [requestUserGroupList] loop) whenever fetching
+     * more than a handful of authors — e.g. every followed user on login — since relays
+     * commonly overlap across a friends list and a per-author loop can open dozens of
+     * concurrent subscriptions against the same relay.
+     */
+    suspend fun fetchUserGroupLists(pubkeys: Set<String>)
 
     /** Fetch the active account's own kind:3 contact list into [following]. */
     suspend fun requestContactList()

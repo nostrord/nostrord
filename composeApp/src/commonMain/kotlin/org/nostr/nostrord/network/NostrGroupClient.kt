@@ -797,6 +797,32 @@ class NostrGroupClient(
         return subId
     }
 
+    /**
+     * Batched kind:10009 fetch for several authors in one REQ (friends/recommended
+     * discovery). Each returned event is routed by its own "pubkey" field, not the sub
+     * id — the handler already reads it that way for the single-author REQ above — so
+     * one shared sub id safely covers every author's list, same as [requestGroupsMetadata].
+     * Kind:10009 is replaceable, so a well-behaved relay already returns at most one
+     * event per author; [limit] is still set (to the author count) as a defensive cap.
+     */
+    suspend fun requestUserGroupLists(pubkeys: List<String>): String {
+        val subId = "ugroups_batch_${pubkeys.sorted().joinToString(",").hashCode().toUInt()}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(10009) }
+                    putJsonArray("authors") { pubkeys.forEach { add(it) } }
+                    put("limit", pubkeys.size)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
     suspend fun requestContactList(pubkey: String): String {
         val subId = "contacts_${pubkey.take(8)}"
         trySendClose(subId)
@@ -1532,6 +1558,29 @@ class NostrGroupClient(
                 buildJsonObject {
                     putJsonArray("kinds") { add(39002) }
                     put("#d", buildJsonArray { add(groupId) })
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
+     * Batched kind:39002 members fetch for several groups in one REQ (discovery member
+     * counts). Each returned event's own "d" tag identifies its group — parseGroupMembers
+     * reads it from the event, not the sub id — so, like [requestGroupsMetadata], one shared
+     * sub id safely routes every group's member list back correctly.
+     */
+    suspend fun requestGroupsMembers(groupIds: List<String>): String {
+        val subId = "members_batch_${groupIds.sorted().joinToString(",").hashCode().toUInt()}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39002) }
+                    putJsonArray("#d") { groupIds.forEach { add(it) } }
                 },
             )
         }

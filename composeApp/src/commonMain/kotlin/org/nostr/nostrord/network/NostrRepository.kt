@@ -2672,6 +2672,27 @@ class NostrRepository(
         }
     }
 
+    override suspend fun fetchGroupsMembers(relayToGroups: Map<String, Set<String>>) {
+        relayToGroups.forEach { (relayUrl, groupIds) ->
+            if (relayUrl.isBlank() || groupIds.isEmpty()) return@forEach
+            scope.launch {
+                try {
+                    val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                        enqueueToRelayPipeline(msg, c)
+                    } ?: return@launch
+                    connectedPoolRelays.add(relayUrl)
+                    val ids = groupIds.toList()
+                    client.requestGroupsMembers(ids)
+                    // Same AUTH-gated re-send as fetchGroupPreviews: a private group's member
+                    // count would otherwise stay blank until the group is opened.
+                    if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupsMembers(ids)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+            }
+        }
+    }
+
     override suspend fun editGroup(
         groupId: String,
         name: String,
@@ -2998,6 +3019,32 @@ class NostrRepository(
         val focused = connectionManager.getFocusedClient()
         if (focused != null && focused.isConnected()) {
             runCatching { focused.requestUserGroupList(pubkey) }
+        }
+    }
+
+    override suspend fun fetchUserGroupLists(pubkeys: Set<String>) {
+        val myPubkey = sessionManager.getPublicKey()
+        val toFetch = pubkeys.filterNot { it.isBlank() || it == myPubkey }
+        if (toFetch.isEmpty()) return
+        // Same outbox resolution as requestUserGroupList, just done once for every author
+        // instead of once per author — selectOutboxRelays already unions relays across
+        // however many authors are passed in, so a friends list that mostly clusters on a
+        // handful of popular relays (nos.lol, purplepag.es, ...) collapses to that same
+        // handful of REQs instead of one REQ per person.
+        val targets = outboxManager.selectOutboxRelays(authors = toFetch)
+        targets.forEach { relayUrl ->
+            scope.launch {
+                runCatching {
+                    val client = connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                        ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)
+                    client?.takeIf { it.isConnected() }?.requestUserGroupLists(toFetch)
+                }
+            }
+        }
+        // The focused NIP-29 relay often hosts members' lists too.
+        val focused = connectionManager.getFocusedClient()
+        if (focused != null && focused.isConnected()) {
+            scope.launch { runCatching { focused.requestUserGroupLists(toFetch) } }
         }
     }
 
