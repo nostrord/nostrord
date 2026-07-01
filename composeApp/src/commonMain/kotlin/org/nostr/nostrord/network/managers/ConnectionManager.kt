@@ -500,9 +500,13 @@ class ConnectionManager(
             disconnectFocused()
             return
         }
-        poolMutex.withLock {
-            relayPool.remove(normalized)?.disconnect()
-        }
+        // Detach onConnectionLost BEFORE disconnecting — same hazard as connectFocused's
+        // and getOrConnectRelay's failed-connect paths. Without this, an intentional
+        // removal (user drops the relay, account switch cleanup) fires handleClientLost()
+        // and schedules a reconnect for a relay the caller just asked to disconnect.
+        val client = poolMutex.withLock { relayPool.remove(normalized) }
+        client?.onConnectionLost = null
+        client?.disconnect()
     }
 
     /**
@@ -552,26 +556,39 @@ class ConnectionManager(
         // We're the leader. Open the socket, then publish the result.
         connStats?.onConnecting(normalized)
         var result: NostrGroupClient? = null
+        var newClient: NostrGroupClient? = null
         try {
-            val newClient = NostrGroupClient(normalized)
-            wireConnectionLost(newClient, normalized)
-            newClient.connect { msg -> onMessage(msg, newClient) }
-            val connected = newClient.waitForConnection()
+            val client = NostrGroupClient(normalized)
+            newClient = client
+            wireConnectionLost(client, normalized)
+            client.connect { msg -> onMessage(msg, client) }
+            val connected = client.waitForConnection()
             if (!connected) {
-                newClient.disconnect()
+                // Detach onConnectionLost BEFORE disconnecting — same hazard connectFocused
+                // already guards against. Without this, this "give up" cleanup itself fires
+                // handleClientLost(), which schedules a SPURIOUS extra reconnect via
+                // RelayReconnectScheduler on top of whatever this caller already does to
+                // retry (MetadataManager's own attempt loop, fetchUserGroupLists, etc). If
+                // this relay had a prior successful connection this session, every caller's
+                // own failed attempt stacks another independent retry chain for the same
+                // relay — observed as dozens of concurrent open/close cycles to one relay.
+                client.onConnectionLost = null
+                client.cancelAndClose()
                 connStats?.onConnectFailed(normalized)
                 markReachability(normalized, false)
                 result = null
             } else {
-                poolMutex.withLock { relayPool[normalized] = newClient }
+                poolMutex.withLock { relayPool[normalized] = client }
                 connStats?.onConnected(normalized)
                 markReachability(normalized, true)
                 connStats?.getStats()?.get(normalized)?.lastReconnectMs?.let { latency ->
                     adaptiveConfig?.recordRelayLatency(normalized, latency)
                 }
-                result = newClient
+                result = client
             }
         } catch (e: Exception) {
+            newClient?.onConnectionLost = null
+            newClient?.cancelAndClose()
             connStats?.onConnectFailed(normalized)
             markReachability(normalized, false)
             result = null
@@ -668,11 +685,13 @@ class ConnectionManager(
                 relayPool.clear()
                 clients
             }
-        // Parallel disconnect — avoids multiplying per-relay close latency
+        // Parallel disconnect — avoids multiplying per-relay close latency. Detach
+        // onConnectionLost first, same hazard as every other intentional-disconnect site.
         clientsToDisconnect
             .map { client ->
                 scope.launch {
                     try {
+                        client.onConnectionLost = null
                         client.disconnect()
                     } catch (_: Exception) {
                     }
