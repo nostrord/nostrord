@@ -1050,17 +1050,27 @@ class GroupManager(
     // cold boot fanned out duplicate per-group REQs that could exhaust a relay's
     // subscription budget and get the chat/pagination REQs CLOSED "too many subscriptions".
     private val privateGroupFetchAt = mutableMapOf<String, Long>()
+    private val privateGroupFetchMutex = Mutex()
     private val PRIVATE_GROUP_FETCH_COOLDOWN_MS = 10_000L
 
     suspend fun requestPrivateGroupData(relayUrl: String) {
         val uncached = getUncachedJoinedGroups(relayUrl)
         if (uncached.isEmpty()) return
+        // Claim the cooldown BEFORE the only suspension point below (getClientForRelay awaits
+        // an in-flight connect). Checking the cooldown map AFTER that suspend let every caller
+        // parked on the same in-flight connect wake up together, all see a stale (unclaimed)
+        // cooldown, and all fire the same batched REQ at once — a relay-visible request storm
+        // that got the client rate-limited. Claiming first under a mutex means only the caller
+        // that wins the race gets a non-empty toFetch; the rest see it already claimed and bail.
+        val now = epochMillis()
+        val toFetch = privateGroupFetchMutex.withLock {
+            uncached
+                .filter { now - (privateGroupFetchAt[it] ?: 0L) > PRIVATE_GROUP_FETCH_COOLDOWN_MS }
+                .also { claimed -> claimed.forEach { privateGroupFetchAt[it] = now } }
+        }
+        if (toFetch.isEmpty()) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
-        val now = epochMillis()
-        val toFetch = uncached.filter { now - (privateGroupFetchAt[it] ?: 0L) > PRIVATE_GROUP_FETCH_COOLDOWN_MS }
-        if (toFetch.isEmpty()) return
-        toFetch.forEach { privateGroupFetchAt[it] = now }
         try {
             // One batched #d REQ for ALL missing metadata, not one per group.
             client.requestGroupsMetadata(toFetch)
