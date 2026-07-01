@@ -923,6 +923,7 @@ class NostrRepository(
             val existing = connectionManager.getClientForRelay(relayUrl)
             if (existing != null && existing.isConnected() && relayUrl in connectedPoolRelays) {
                 groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+                scheduleMissingMetadataSweep(relayUrl)
                 delay(100)
                 continue
             }
@@ -939,6 +940,12 @@ class NostrRepository(
                 if (client.isConnected()) client.awaitAuthOrTimeout()
             } catch (_: Throwable) {}
             groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            // Per-group kind:39000 safety net for THIS secondary relay: the mux/meta batch above
+            // is all-or-nothing, so a public relay that loses the AUTH-vs-REQ race would strand
+            // every joined group on a truncated id + "No description" (auth-gated relays are
+            // covered by resubscribeAfterAuth on their fresh challenge). Idempotent + delayed, so
+            // it's a no-op once the batch lands.
+            scheduleMissingMetadataSweep(relayUrl)
             delay(100)
         }
     }
