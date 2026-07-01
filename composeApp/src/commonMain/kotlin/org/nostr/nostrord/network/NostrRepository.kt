@@ -303,8 +303,9 @@ class NostrRepository(
         pipeline.enqueue(msg)
     }
 
-    // Centralised reconnect scheduler for previously-connected pool relays.
-    // Only relays in connectedPoolRelays are scheduled for reconnection.
+    // Centralised reconnect scheduler for every previously-connected relay, focused
+    // included (see ConnectionManager.onPoolRelayLost wiring in initialize()). Only
+    // relays in connectedPoolRelays are scheduled for reconnection.
     private val relayReconnectScheduler = RelayReconnectScheduler(
         scope = scope,
         isRelayActive = { relayUrl -> relayUrl in connectedPoolRelays },
@@ -314,7 +315,15 @@ class NostrRepository(
                 enqueueToRelayPipeline(msg, c)
             }
             if (client != null) {
-                if (!alreadyConnected) resubscribePoolRelay(relayUrl, client)
+                if (!alreadyConnected) {
+                    // getOrConnectRelay doesn't know "focused" — resolve the resubscribe
+                    // path the same way ConnectionManager itself does.
+                    if (relayUrl == connectionManager.currentRelayUrl.value) {
+                        connectionManager.notifyReconnected(client)
+                    } else {
+                        resubscribePoolRelay(relayUrl, client)
+                    }
+                }
                 true
             } else {
                 false
@@ -557,10 +566,31 @@ class NostrRepository(
             scope.launch { groupManager.handleConnectionLost() }
         }
         connectionManager.onPoolRelayLost = { relayUrl ->
+            // A relay that just dropped while focused is, by definition, one the user
+            // cares about reconnecting — mark it active the same way a pool connect does
+            // (see the getOrConnectRelay call sites below) so isRelayActive keeps retrying
+            // it in the slow phase even after focus moves elsewhere.
+            val isFocused = relayUrl == connectionManager.currentRelayUrl.value
+            if (isFocused) connectedPoolRelays.add(relayUrl)
             // Only reconnect pool relays that were actively connected during this session
             // (had been focused at some point). Lazy pool relays are not reconnected.
             if (relayUrl in connectedPoolRelays) {
-                relayReconnectScheduler.schedule(relayUrl)
+                val priority = if (isFocused) {
+                    RelayReconnectScheduler.Priority.ACTIVE
+                } else {
+                    RelayReconnectScheduler.Priority.BACKGROUND
+                }
+                relayReconnectScheduler.schedule(
+                    relayUrl,
+                    priority = priority,
+                    onAttempt = { attempt ->
+                        connectionManager.reportReconnectAttempt(
+                            relayUrl,
+                            attempt,
+                            RelayReconnectScheduler.MAX_FAST_ATTEMPTS,
+                        )
+                    },
+                )
             }
         }
         connectionManager.onReconnected = { client ->

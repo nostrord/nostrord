@@ -20,7 +20,6 @@ import org.nostr.nostrord.storage.getCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import kotlin.concurrent.Volatile
-import kotlin.random.Random
 
 /**
  * Manages relay connections and connection pooling.
@@ -32,7 +31,6 @@ class ConnectionManager(
     private val connStats: ConnectionStats? = null,
     private val adaptiveConfig: AdaptiveConfig? = null,
 ) {
-    private var reconnectJob: Job? = null
     private var currentMessageHandler: ((String, NostrGroupClient) -> Unit)? = null
 
     // Serialises connectFocused so two coroutines cannot both pass the "already connecting"
@@ -45,8 +43,8 @@ class ConnectionManager(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    // Track reconnection attempts for exponential backoff
-    private var reconnectAttempts = 0
+    // Gate on whether a lost connection should be handed to the reconnect driver at all.
+    // False after setError() (relay actively rejected access) or an intentional disconnect.
     private var autoReconnectEnabled = true
 
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
@@ -111,12 +109,6 @@ class ConnectionManager(
      */
     var onPoolRelayLost: ((relayUrl: String) -> Unit)? = null
 
-    companion object {
-        private const val INITIAL_RECONNECT_DELAY_MS = 1000L
-        private const val MAX_RECONNECT_DELAY_MS = 30000L
-        private const val MAX_RECONNECT_ATTEMPTS = 10
-    }
-
     sealed class ConnectionState {
         data object Disconnected : ConnectionState()
 
@@ -153,9 +145,10 @@ class ConnectionManager(
                             }
                         }
                         NetworkEvent.DISCONNECTED -> {
-                            // No point retrying while offline — save battery.
+                            // No point retrying while offline — save battery. The reconnect
+                            // driver's in-flight retry (if any) becomes a no-op: getOrConnectRelay
+                            // returns null while offline and it just reschedules.
                             autoReconnectEnabled = false
-                            reconnectJob?.cancel()
                         }
                         NetworkEvent.CONNECTED -> {
                             autoReconnectEnabled = true
@@ -173,9 +166,6 @@ class ConnectionManager(
      * Bypasses exponential backoff — the network is available, just different.
      */
     private suspend fun reconnectImmediate() {
-        reconnectJob?.cancel()
-        reconnectAttempts = 0
-
         val url = _currentRelayUrl.value
         val dead = focusedClient()
         dead?.onConnectionLost = null
@@ -190,7 +180,9 @@ class ConnectionManager(
             adaptiveConfig?.recordReconnect()
             focusedClient()?.let { client -> scope.launch { onReconnected?.invoke(client) } }
         } else {
-            startReconnection()
+            // Hand off to the same backoff driver a passive drop would use (see
+            // [handleClientLost]) instead of retrying in a loop of our own.
+            onPoolRelayLost?.invoke(url)
         }
     }
 
@@ -301,7 +293,6 @@ class ConnectionManager(
             connStats?.getStats()?.get(relayUrl)?.lastReconnectMs?.let { latency ->
                 adaptiveConfig?.recordRelayLatency(relayUrl, latency)
             }
-            reconnectAttempts = 0
             true
         } catch (e: Exception) {
             if (_currentRelayUrl.value == normalized) {
@@ -336,89 +327,55 @@ class ConnectionManager(
         client.onConnectionLost = null
         poolMutex.withLock { relayPool.remove(url) }
         connStats?.onDisconnected(url)
-
-        if (_currentRelayUrl.value != url) {
-            // A pool relay (not focused): hand off to the caller's own reconnect scheduler.
-            client.cancelAndClose()
-            onPoolRelayLost?.invoke(url)
-            return
-        }
-
-        onConnectionDropped?.invoke()
         client.cancelAndClose() // release HttpClient threads/pool, cancel lingering coroutines
-        if (!autoReconnectEnabled) {
-            _connectionState.value = ConnectionState.Disconnected
-            return
+
+        val wasFocused = _currentRelayUrl.value == url
+        if (wasFocused) {
+            onConnectionDropped?.invoke()
+            if (!autoReconnectEnabled) {
+                _connectionState.value = ConnectionState.Disconnected
+                return
+            }
         }
-        startReconnection()
+        // Both roles hand off to the same external reconnect driver (a
+        // RelayReconnectScheduler owned by the caller) — see [reportReconnectAttempt] and
+        // [notifyReconnected] for how a focused relay's retries still reach [connectionState].
+        onPoolRelayLost?.invoke(url)
     }
 
     /**
-     * Start reconnection with exponential backoff, then persistent slow retry.
-     *
-     * Phase 1 (fast): exponential back-off from 1 s up to 30 s, MAX_RECONNECT_ATTEMPTS times.
-     * Phase 2 (slow): retry every 30 s indefinitely until success or explicit disconnect.
-     *
-     * Phase 2 is what makes the app self-heal after an extended internet outage — the loop
-     * never exits on its own, so when connectivity returns the next 30-second tick reconnects
-     * automatically without requiring the user to restart the app.
+     * Reports that an external reconnect driver is about to retry [relayUrl] for the
+     * [attempt]-th time. A no-op unless [relayUrl] is still the focused relay — a stale
+     * callback for a relay the user has since switched away from should not touch
+     * [connectionState]. [maxFastAttempts] is only used to size the displayed counter; the
+     * driver itself decides when to stop retrying.
      */
-    private fun startReconnection() {
-        reconnectJob?.cancel()
-        reconnectJob =
-            scope.launch {
-                // Phase 1: fast retries with exponential back-off
-                while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && autoReconnectEnabled) {
-                    reconnectAttempts++
-                    _connectionState.value = ConnectionState.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS)
-
-                    val baseMs =
-                        minOf(
-                            INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
-                            MAX_RECONNECT_DELAY_MS,
-                        )
-                    val jitter = (baseMs * Random.nextDouble(0.0, 0.25)).toLong()
-                    delay(baseMs + jitter)
-
-                    val handler = currentMessageHandler ?: break
-                    val success = connectFocused(_currentRelayUrl.value, handler)
-
-                    if (success) {
-                        reconnectAttempts = 0
-                        adaptiveConfig?.recordReconnect()
-                        focusedClient()?.let { client -> scope.launch { onReconnected?.invoke(client) } }
-                        return@launch
-                    }
-                }
-
-                // Phase 2: persistent slow retry every 30 s — never give up.
-                // The UI already shows "Tap to retry" so the user can force an immediate attempt,
-                // but the background loop ensures automatic recovery without any user action.
-                _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
-
-                while (autoReconnectEnabled) {
-                    delay(MAX_RECONNECT_DELAY_MS)
-                    if (!autoReconnectEnabled) break
-
-                    val handler = currentMessageHandler ?: break
-                    val success = connectFocused(_currentRelayUrl.value, handler)
-
-                    if (success) {
-                        reconnectAttempts = 0
-                        adaptiveConfig?.recordReconnect()
-                        focusedClient()?.let { client -> scope.launch { onReconnected?.invoke(client) } }
-                        return@launch
-                    }
-                }
+    fun reportReconnectAttempt(relayUrl: String, attempt: Int, maxFastAttempts: Int) {
+        if (_currentRelayUrl.value != relayUrl) return
+        _connectionState.value =
+            if (attempt <= maxFastAttempts) {
+                ConnectionState.Reconnecting(attempt, maxFastAttempts)
+            } else {
+                ConnectionState.Error("Connection lost. Tap to retry.")
             }
+    }
+
+    /**
+     * Reports that an external reconnect driver re-established [client] via the generic pool
+     * path ([getOrConnectRelay]), which — unlike [connectFocused] — doesn't update
+     * [connectionState] itself. A no-op unless [client] is still the focused relay.
+     */
+    fun notifyReconnected(client: NostrGroupClient) {
+        if (_currentRelayUrl.value != client.getRelayUrl().normalizeRelayUrl()) return
+        _connectionState.value = ConnectionState.Connected
+        adaptiveConfig?.recordReconnect()
+        scope.launch { onReconnected?.invoke(client) }
     }
 
     /**
      * Manually trigger reconnection (e.g., from a retry button)
      */
     suspend fun reconnect(): Boolean {
-        reconnectJob?.cancel()
-        reconnectAttempts = 0
         autoReconnectEnabled = true
 
         // Detach onConnectionLost BEFORE disconnecting: the dying socket's close
@@ -442,8 +399,6 @@ class ConnectionManager(
      */
     fun setError(message: String) {
         autoReconnectEnabled = false
-        reconnectJob?.cancel()
-        reconnectJob = null
         _connectionState.value = ConnectionState.Error(message)
     }
 
@@ -452,8 +407,6 @@ class ConnectionManager(
      */
     suspend fun disconnectFocused() {
         autoReconnectEnabled = false
-        reconnectJob?.cancel()
-        reconnectJob = null
 
         // Same orphan-callback hazard as reconnect(): a late close event from this
         // socket must not tear down whatever focused connects next.
@@ -497,8 +450,6 @@ class ConnectionManager(
         val pendingConnect = poolMutex.withLock { pendingConnects[normalizedNewUrl] }
 
         autoReconnectEnabled = true
-        reconnectJob?.cancel()
-        reconnectJob = null
 
         _currentRelayUrl.value = normalizedNewUrl
         ActiveAccountManager.currentPubkey?.takeIf { it.isNotBlank() }?.let { pubkey ->
@@ -514,7 +465,6 @@ class ConnectionManager(
             // above just landed it) — just adopt it as focused.
             currentMessageHandler = onMessage
             _connectionState.value = ConnectionState.Connected
-            reconnectAttempts = 0
             return true
         }
 

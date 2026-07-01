@@ -57,12 +57,18 @@ class RelayReconnectScheduler(
      *
      * Concurrent calls for the same relay are safe — [doReconnect] is idempotent
      * (the underlying connection pool returns the existing client if already connected).
+     *
+     * [onAttempt], if given, fires synchronously with every attempt number (including
+     * retries) before its delay — callers use it to reflect retry progress (e.g. a
+     * "Reconnecting (3/8)..." banner for whichever relay currently has UI attention).
      */
     fun schedule(
         relayUrl: String,
         attempt: Int = 1,
         priority: Priority = Priority.BACKGROUND,
+        onAttempt: ((attempt: Int) -> Unit)? = null,
     ) {
+        onAttempt?.invoke(attempt)
         scope.launch {
             val delayMs = computeDelay(attempt, priority)
             delay(delayMs)
@@ -82,7 +88,7 @@ class RelayReconnectScheduler(
                 }
 
             if (!success) {
-                schedule(relayUrl, attempt + 1, priority)
+                schedule(relayUrl, attempt + 1, priority, onAttempt)
             }
         }
     }
