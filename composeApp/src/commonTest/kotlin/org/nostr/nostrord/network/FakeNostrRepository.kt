@@ -416,6 +416,12 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestUserGroupList(pubkey: String) {}
 
+    var fetchUserGroupListsCalls = mutableListOf<Set<String>>()
+
+    override suspend fun fetchUserGroupLists(pubkeys: Set<String>) {
+        fetchUserGroupListsCalls.add(pubkeys)
+    }
+
     val _following = MutableStateFlow<Set<String>>(emptySet())
     override val following: StateFlow<Set<String>> = _following
 
@@ -569,6 +575,12 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>) {
         fetchGroupPreviewsCalls.add(relayToGroups)
+    }
+
+    var fetchGroupsMembersCalls = mutableListOf<Map<String, Set<String>>>()
+
+    override suspend fun fetchGroupsMembers(relayToGroups: Map<String, Set<String>>) {
+        fetchGroupsMembersCalls.add(relayToGroups)
     }
 
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
