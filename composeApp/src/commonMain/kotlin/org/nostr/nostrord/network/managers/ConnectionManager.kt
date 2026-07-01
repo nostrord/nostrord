@@ -261,7 +261,13 @@ class ConnectionManager(
         if (focusedClient() != null) return@withLock false
 
         currentMessageHandler = onMessage
-        _connectionState.value = ConnectionState.Connecting
+        // Guarded like every other write below: connectMutex only serialises connectFocused
+        // against itself, not against setFocusedRelay moving focus elsewhere mid-connect, so
+        // connectionState must keep reflecting whichever relay is focused NOW, not the one
+        // this call started out connecting.
+        if (_currentRelayUrl.value == normalized) {
+            _connectionState.value = ConnectionState.Connecting
+        }
         connStats?.onConnecting(relayUrl)
 
         try {
@@ -286,7 +292,9 @@ class ConnectionManager(
                 markReachability(normalized, false)
                 return@withLock false
             }
-            _connectionState.value = ConnectionState.Connected
+            if (_currentRelayUrl.value == normalized) {
+                _connectionState.value = ConnectionState.Connected
+            }
             connStats?.onConnected(relayUrl)
             markReachability(normalized, true)
             // Feed adaptive config: relay connection latency
@@ -394,10 +402,13 @@ class ConnectionManager(
     }
 
     /**
-     * Set the connection state to Error and stop auto-reconnect.
-     * Used when the relay actively rejects access (e.g. "restricted").
+     * Set the connection state to Error and stop auto-reconnect for [relayUrl].
+     * Used when the relay actively rejects access (e.g. "restricted"). A no-op if
+     * [relayUrl] is no longer the focused relay — a stale rejection for a relay the user
+     * has since switched away from must not disable auto-reconnect for the new one.
      */
-    fun setError(message: String) {
+    fun setError(relayUrl: String, message: String) {
+        if (_currentRelayUrl.value != relayUrl.normalizeRelayUrl()) return
         autoReconnectEnabled = false
         _connectionState.value = ConnectionState.Error(message)
     }
@@ -415,7 +426,12 @@ class ConnectionManager(
         client?.onConnectionLost = null
         client?.disconnect()
         if (client != null) poolMutex.withLock { relayPool.remove(url) }
-        _connectionState.value = ConnectionState.Disconnected
+        // Same staleness guard as connectFocused: disconnect() suspends, and focus could
+        // have moved to a different relay (already Connecting/Connected) by the time it
+        // returns — don't stomp that with this call's Disconnected.
+        if (_currentRelayUrl.value == url) {
+            _connectionState.value = ConnectionState.Disconnected
+        }
     }
 
     /**
@@ -462,9 +478,13 @@ class ConnectionManager(
 
         if (focusedClient() != null) {
             // Already pooled (either it was already connected, or the pending connect
-            // above just landed it) — just adopt it as focused.
+            // above just landed it) — just adopt it as focused. Re-check currentRelayUrl:
+            // the await above suspends, and a second setFocusedRelay call could have moved
+            // focus again in the meantime.
             currentMessageHandler = onMessage
-            _connectionState.value = ConnectionState.Connected
+            if (_currentRelayUrl.value == normalizedNewUrl) {
+                _connectionState.value = ConnectionState.Connected
+            }
             return true
         }
 
