@@ -1,6 +1,8 @@
 package org.nostr.nostrord.nostr
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.PublishResult
@@ -21,6 +23,12 @@ actual class Nip46Client actual constructor(
 
     private var remoteSignerPubkey: String? = null
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
+    // Guards ensureRelaysConnected's check-then-act (see its own doc comment):
+    // without it, concurrent sendRequest calls racing on an empty relayClients
+    // (e.g. a DM-decrypt backlog burst) each independently reconnect and append,
+    // piling up duplicate sockets to the same relay that every future
+    // sendRequest then also publishes the same signed event to.
+    private val relayConnectMutex = Mutex()
     private var relayUrls: List<String> = emptyList()
     private val pendingRequests: MutableMap<String, CompletableDeferred<String>> = java.util.concurrent.ConcurrentHashMap()
     private var responseSubscriptionId: String? = null
@@ -174,25 +182,27 @@ actual class Nip46Client actual constructor(
      * Disconnected clients are replaced with fresh connections.
      */
     private suspend fun ensureRelaysConnected() {
-        // Remove dead clients
-        val dead = relayClients.filter { !it.isConnected() }
-        if (dead.isNotEmpty()) {
-            dead.forEach {
-                try {
-                    it.disconnect()
-                } catch (_: Exception) {
+        relayConnectMutex.withLock {
+            // Remove dead clients
+            val dead = relayClients.filter { !it.isConnected() }
+            if (dead.isNotEmpty()) {
+                dead.forEach {
+                    try {
+                        it.disconnect()
+                    } catch (_: Exception) {
+                    }
                 }
+                relayClients.removeAll(dead)
             }
-            relayClients.removeAll(dead)
+
+            // If we still have live clients, we're good
+            if (relayClients.isNotEmpty()) return@withLock
+
+            // Reconnect using stored relay URLs
+            if (relayUrls.isEmpty()) return@withLock
+            val fresh = connectRelaysParallel(relayUrls)
+            relayClients.addAll(fresh)
         }
-
-        // If we still have live clients, we're good
-        if (relayClients.isNotEmpty()) return
-
-        // Reconnect using stored relay URLs
-        if (relayUrls.isEmpty()) return
-        val fresh = connectRelaysParallel(relayUrls)
-        relayClients.addAll(fresh)
     }
 
     actual suspend fun connectRelaysOnly(
