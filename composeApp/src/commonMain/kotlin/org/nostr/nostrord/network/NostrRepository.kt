@@ -4502,5 +4502,10 @@ fun parseBunkerUrl(url: String): BunkerInfo {
         "Bunker URL must contain at least one relay"
     }
 
-    return BunkerInfo(pubkey, relays, secret)
+    // Some signer apps (and some old saved URLs) repeat a relay= param, or list
+    // the same relay with/without a trailing slash. Dedupe here — the single
+    // source of every downstream Nip46Client relay connection — so a repeated
+    // param doesn't open (and keep) two sockets to the same relay for the life
+    // of the session, each independently receiving every published request.
+    return BunkerInfo(pubkey, relays.map { it.trimEnd('/') }.distinct(), secret)
 }

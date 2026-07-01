@@ -55,7 +55,12 @@ actual class Nip46Client actual constructor(
     }
 
     private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> = coroutineScope {
+        // Dedupe: a repeated relay= param (or the same relay with/without a trailing
+        // slash) would otherwise open two sockets to it, and every later sendRequest
+        // publishes to both — see relayConnectMutex's doc comment for the full story.
         relays
+            .map { it.trimEnd('/') }
+            .distinct()
             .map { relayUrl ->
                 async {
                     try {
@@ -87,7 +92,8 @@ actual class Nip46Client actual constructor(
      * relays even when this function has already returned. Throws only if
      * every relay fails — partial failure is acceptable.
      */
-    private suspend fun connectRelaysFirstWins(relays: List<String>) {
+    private suspend fun connectRelaysFirstWins(relaysIn: List<String>) {
+        val relays = relaysIn.map { it.trimEnd('/') }.distinct()
         if (relays.isEmpty()) throw Exception("Failed to connect to any relay")
         val firstReady = CompletableDeferred<Unit>()
         val total = relays.size
@@ -211,7 +217,7 @@ actual class Nip46Client actual constructor(
         relays: List<String>,
     ) {
         this.remoteSignerPubkey = remoteSignerPubkey
-        this.relayUrls = relays.map { it.trimEnd('/') }
+        this.relayUrls = relays.map { it.trimEnd('/') }.distinct()
         relayClients.addAll(connectRelaysParallel(relays))
         if (relayClients.isEmpty()) throw Exception("Failed to connect to any bunker relay")
     }
@@ -221,7 +227,7 @@ actual class Nip46Client actual constructor(
         secret: String?,
     ) {
         nostrConnectSecret = secret ?: generateRequestId().take(16)
-        this.relayUrls = relays.map { it.trimEnd('/') }
+        this.relayUrls = relays.map { it.trimEnd('/') }.distinct()
 
         // Install the listening deferred BEFORE launching connects so that
         // handleMessage can complete it as soon as the first relay starts
@@ -256,7 +262,7 @@ actual class Nip46Client actual constructor(
         secret: String?,
     ): String {
         this.remoteSignerPubkey = remoteSignerPubkey
-        this.relayUrls = relays.map { it.trimEnd('/') }
+        this.relayUrls = relays.map { it.trimEnd('/') }.distinct()
 
         relayClients.addAll(connectRelaysParallel(relays))
 
