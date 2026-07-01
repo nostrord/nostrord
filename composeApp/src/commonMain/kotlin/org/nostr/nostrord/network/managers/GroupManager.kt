@@ -1076,6 +1076,37 @@ class GroupManager(
     }
 
     /**
+     * Timing-robust safety net for kind:39000. The mux_meta batch and the one-shot meta_batch_
+     * REQ are all-or-nothing: if the relay drops or CLOSEs them in the AUTH-vs-REQ window, EVERY
+     * joined group loses its metadata at once (members still arrive on their independent per-group
+     * members_ REQ). The slow JVM WebSocket engine loses that race far more than the browser
+     * engine, so on desktop cold boot many groups render as a truncated id + "No description"
+     * until a restart. This fires an INDEPENDENT per-group kind:39000 REQ for each joined group
+     * STILL missing metadata, so recovery never depends on winning the batch race. Paced (one
+     * short-lived, EOSE-closed sub open at a time) to stay well under strict relay sub caps
+     * (nos.social 50), and NOT gated by the [requestPrivateGroupData] cooldown — it is the net
+     * that cooldown otherwise breaks. Re-checks the missing set each step so it stops as soon as
+     * another path (the mux) fills them in.
+     */
+    suspend fun requestMissingGroupMetadata(relayUrl: String) {
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        var missing = getUncachedJoinedGroups(relayUrl)
+        while (missing.isNotEmpty()) {
+            val groupId = missing.first()
+            try {
+                client.requestGroupMetadata(groupId)
+            } catch (_: Exception) {}
+            delay(60)
+            if (!client.isConnected()) return
+            val next = getUncachedJoinedGroups(relayUrl)
+            // Guard against a group whose 39000 the relay never serves: drop it from the
+            // work set even if still uncached so the loop always terminates.
+            missing = next.filter { it != groupId }
+        }
+    }
+
+    /**
      * Load the active group's message history after a relay switch.
      *
      * [clearForRelaySwitch] resets every controller to Idle; the bulk re-subscribe reloads the
@@ -2476,7 +2507,7 @@ class GroupManager(
                 }
             }
             try {
-                SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now)
+                SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, currentPubkey, now)
             } catch (_: Exception) {}
             refreshMuxSubscriptionsForRelay(normalizedRelay)
             return true
@@ -3302,7 +3333,7 @@ class GroupManager(
         // network fetch when the joined-group snapshot is still within the TTL window.
         val normalizedUrls = relayUrls.map { it.normalizeRelayUrl() }
         val freshRelays = normalizedUrls.filter { normalized ->
-            SecureStorage.isGroupListCacheFresh(normalized, now) &&
+            SecureStorage.isGroupListCacheFresh(normalized, currentPubkey, now) &&
                 _groupsByRelay.value[normalized]?.isNotEmpty() == true
         }.toSet()
         if (freshRelays.isNotEmpty()) {
@@ -3439,7 +3470,7 @@ class GroupManager(
         // Session flag set (EOSE received this session) — always valid.
         if (normalized in _completeGroupLoadRelays.value) return true
         // No session flag: check persisted timestamp so a fresh app restart can skip requestGroups().
-        return SecureStorage.isGroupListCacheFresh(normalized, epochSeconds())
+        return SecureStorage.isGroupListCacheFresh(normalized, currentPubkey, epochSeconds())
     }
 
     /**
@@ -4341,6 +4372,27 @@ class GroupManager(
         // previous account would otherwise block an equivalent REQ from
         // the new account during the swap window.
         recentRequests.clear()
+        // Incrementally-mutated per-group caches and topology maps: only ever updated via
+        // update{}/recompute, so they were never part of the teardown and survived a swap
+        // (B briefly reading A's reaction/loading/subgroup state, plus leaked debounce jobs
+        // on the singleton scope). Reset them here so clear() is a true whole-account reset.
+        _reactions.value = emptyMap()
+        _pendingReactions.clear()
+        reactionFlushJob?.cancel()
+        reactionFlushJob = null
+        _groupStates.value = emptyMap()
+        _isLoadingMore.value = emptyMap()
+        _hasMoreMessages.value = emptyMap()
+        _groupsAwaitingAuthRead.value = emptySet()
+        recentlyJoinedAt.clear()
+        privateGroupFetchAt.clear()
+        pendingTrackCounts.value = emptyMap()
+        muxRefreshJobs.values.forEach { it.cancel() }
+        muxRefreshJobs.clear()
+        // Subgroup topology: recomputeSubgroupTopology reassigns on B's first ingest, but
+        // until then B would render A's parent->children grouping. Reset so it starts empty.
+        _childrenByParent.value = emptyMap()
+        _unverifiedChildren.value = emptySet()
         _activeGroupId = null
         // Reset every per-group loading controller. Without this, controllers
         // left mid-load (InitialLoading / Paginating / HasMore) at logout

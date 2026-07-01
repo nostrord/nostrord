@@ -952,6 +952,21 @@ class NostrGroupClient(
         )
     }
 
+    /**
+     * CLOSE every live subscription on this socket. Called on account switch so the previous
+     * account's still-open mux chat/meta and dm_inbox REQs (none of which are pubkey-filtered)
+     * stop delivering that account's events into the newly-installed account's state. The
+     * socket stays connected; the new account re-subscribes. Snapshot first: send() mutates
+     * openSubscriptions on each CLOSE.
+     */
+    suspend fun closeAllSubscriptions() {
+        for (subId in openSubscriptions.toList()) {
+            try {
+                closeSubscription(subId)
+            } catch (_: Exception) {}
+        }
+    }
+
 /**
      * Fetch reactions (kind 7) for specific message IDs.
      * Chachi-style approach: after loading messages, request reactions by event ID

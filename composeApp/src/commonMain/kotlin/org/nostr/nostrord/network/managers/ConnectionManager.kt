@@ -706,6 +706,25 @@ class ConnectionManager(
     }
 
     /**
+     * CLOSE every live subscription on every open socket (primary + pool). Called on account
+     * switch so the outgoing account's mux chat/meta and dm_inbox REQs stop pushing events
+     * into the incoming account's freshly-cleared state (those subs are group/kind-filtered,
+     * not pubkey-filtered, so they would otherwise re-populate the new account's rail/DM list
+     * with the old account's data). Sockets stay connected; the new account re-subscribes.
+     */
+    suspend fun closeAllSubscriptionsOnAllClients() {
+        val clients =
+            poolMutex.withLock { relayPool.values.toList() } +
+                listOfNotNull(primaryClient)
+        for (client in clients) {
+            try {
+                client.closeAllSubscriptions()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
      * Clear all connections, disconnecting pool clients in parallel.
      */
     suspend fun clearAll() {

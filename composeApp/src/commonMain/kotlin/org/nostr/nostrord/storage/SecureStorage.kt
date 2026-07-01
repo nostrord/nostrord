@@ -282,20 +282,33 @@ expect object SecureStorage {
 // cached group list is fresh enough (< GROUP_CACHE_TTL_S seconds old).
 private const val GROUP_CACHE_TTL_S = 3600L // 1 hour
 
+// Per-account: the freshness of one account's joined-group snapshot must not mark the
+// relay "fresh" for a different account after a warm switch (that skipped the re-fetch and
+// left the other account's groups on "No description"). Keyed by relay AND pubkey.
+private fun groupEoseKey(
+    relayUrl: String,
+    pubkey: String?,
+) = "group_eose_ts_${relayUrl.hashCode()}_${pubkey?.hashCode() ?: 0}"
+
 fun SecureStorage.saveGroupListEoseTimestamp(
     relayUrl: String,
+    pubkey: String?,
     timestampSeconds: Long,
 ) {
-    saveStringPref("group_eose_ts_${relayUrl.hashCode()}", timestampSeconds.toString())
+    saveStringPref(groupEoseKey(relayUrl, pubkey), timestampSeconds.toString())
 }
 
-fun SecureStorage.getGroupListEoseTimestamp(relayUrl: String): Long = getStringPref("group_eose_ts_${relayUrl.hashCode()}", "0").toLongOrNull() ?: 0L
+fun SecureStorage.getGroupListEoseTimestamp(
+    relayUrl: String,
+    pubkey: String?,
+): Long = getStringPref(groupEoseKey(relayUrl, pubkey), "0").toLongOrNull() ?: 0L
 
 fun SecureStorage.isGroupListCacheFresh(
     relayUrl: String,
+    pubkey: String?,
     nowSeconds: Long,
 ): Boolean {
-    val ts = getGroupListEoseTimestamp(relayUrl)
+    val ts = getGroupListEoseTimestamp(relayUrl, pubkey)
     return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
 }
 

@@ -1178,28 +1178,37 @@ class NostrRepository(
         } catch (_: Exception) {}
         connectedPoolRelays.clear()
 
-        // Reset session-scoped in-memory dedup/scoping caches. These are NOT
-        // persisted state — they only make sense within a single login
-        // session. Leaving them populated meant a logout→re-login on the same
-        // process kept stale entries that made resubscribeAfterAuth and the
-        // mux/message refresh paths skip work for the new session, leaving
-        // every group stuck on "No messages yet" until the user restarted.
+        resetSessionScopedCaches()
+        resetContactListState()
+
+        sessionManager.logout()
+    }
+
+    /**
+     * Reset every session-scoped, relay-keyed in-memory cache. These are NOT persisted
+     * state; they only make sense within one account's session. The full-logout path and
+     * the warm-swap path (reloadForActiveAccount) must both run this so neither leaks the
+     * outgoing account's dedup/restriction state into the incoming account. Leaving any of
+     * these populated across a switch makes resubscribeAfterAuth / switchRelay / the mux
+     * refresh skip work for the new account: a relay A marked restricted stays hidden for B,
+     * an authed group-list already fetched under A is not re-fetched for B, and B's groups
+     * stay dark until an app restart. Single source of truth so the two paths cannot drift.
+     */
+    private suspend fun resetSessionScopedCaches() {
         lastRequestGroupsAt.clear()
         authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
         pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
         _closedGroupSubscriptions.value = emptySet()
         activeRelayUrl = null
-        // Per-relay AUTH-required / restricted markers from the previous
-        // session would otherwise short-circuit switchRelay on re-login (early
-        // return at the restriction check), so a relay that just had a
-        // transient AUTH timeout — common on bunker logins — would stay
-        // permanently "restricted" in the UI until process restart, even
-        // though the new session's signer can answer the challenge fine.
+        // Per-relay AUTH-required / restricted markers from the previous account would
+        // otherwise short-circuit switchRelay (early return at the restriction check) and
+        // make ensureJoinedRelaysConnected skip those relays, so a relay that just had a
+        // transient AUTH timeout stays permanently "restricted" for the new account.
         _restrictedRelays.value = emptyMap()
-        resetContactListState()
-
-        sessionManager.logout()
+        // Relay-keyed, not account-keyed: left intact it holds the previous account's
+        // fetched ids and the growth collector skips re-fetching kind:39000 for the new one.
+        sentKnownGroupFetch.clear()
     }
 
     // ===== Direct messages (NIP-17 over NIP-59 gift wraps) =====
@@ -1639,6 +1648,10 @@ class NostrRepository(
         val pubkey = sessionManager.getPublicKey() ?: return
         // The contact list is per-account; drop the prior account's before the swap.
         resetContactListState()
+        // Same session-cache teardown the full-logout path runs, so a warm swap does not
+        // leak account A's restricted-relay / dedup state into account B (which otherwise
+        // left B's groups dark until an app restart). Runs BEFORE B's re-derive below.
+        resetSessionScopedCaches()
         val activeRelay = connectionManager.currentRelayUrl.value
         val savedRelays = SecureStorage.loadRelayListFor(pubkey)
 
@@ -1701,6 +1714,24 @@ class NostrRepository(
             triggerReconnect()
         }
         scope.launch {
+            // Force a fresh socket per secondary joined relay so it re-runs NIP-42 AUTH as
+            // the NEW account. Warm swaps leave these sockets open and AUTH'd as the PREVIOUS
+            // account, and ensureJoinedRelaysConnected short-circuits any relay that is still
+            // connected — so no fresh challenge fires and an auth-gated relay withholds the new
+            // account's group metadata AND membership (total blackout, e.g. chat.wisp.talk)
+            // until an app restart. NIP-42 is reactive: only a fresh socket triggers the
+            // challenge the signer answers with the new identity. Drop from connectedPoolRelays
+            // first so the pool-lost reconnect scheduler doesn't race the reopen below. Cost
+            // matches a cold boot (one AUTH per relay), and the primary is reconnected above.
+            try {
+                val primaryNorm = primaryRelay.normalizeRelayUrl()
+                for (relayUrl in groupManager.joinedGroupsByRelay.value.keys.toList()) {
+                    val norm = relayUrl.normalizeRelayUrl()
+                    if (norm.isBlank() || norm == primaryNorm) continue
+                    connectedPoolRelays.remove(norm)
+                    connectionManager.disconnectRelay(norm)
+                }
+            } catch (_: Exception) {}
             try {
                 ensureJoinedRelaysConnected(primaryRelay.takeIf { it.isNotBlank() })
             } catch (_: Exception) {}
@@ -1709,6 +1740,22 @@ class NostrRepository(
             // while inactive arrive across every relay.
             try {
                 groupManager.refreshLiveSubscriptions()
+            } catch (_: Exception) {}
+            // Re-fetch kind:39000 metadata across EVERY joined relay. A warm swap reuses
+            // already-open secondary-relay sockets, so no fresh AUTH fires and
+            // resubscribeAfterAuth (the only reconnect path that runs requestPrivateGroupData)
+            // never re-fetches their groups' metadata — leaving the new account's group cards
+            // on "No description" + a fallback avatar until a restart forces a cold boot. Mirror
+            // connect()'s post-EOSE fetch here so the new account's metadata fills in immediately.
+            try {
+                for (relayUrl in groupManager.joinedGroupsByRelay.value.keys.toList()) {
+                    val client = connectionManager.getClientForRelay(relayUrl) ?: continue
+                    if (!client.isConnected()) continue
+                    requestGroupsForRelay(client, relayUrl)
+                    groupManager.requestPrivateGroupData(relayUrl)
+                    groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+                    scheduleMissingMetadataSweep(relayUrl)
+                }
             } catch (_: Exception) {}
             // Re-fetch the new account's kind:3 so [following] (and the friends list)
             // repopulate: resetContactListState() cleared the prior account's, and a warm
@@ -1932,6 +1979,26 @@ class NostrRepository(
         sendKnownGroupsFetch(client, relayUrl)
     }
 
+    /**
+     * Schedule the timing-robust kind:39000 safety net a few seconds after a relay is ready.
+     * The batched mux/meta REQ that normally carries group metadata is all-or-nothing and the
+     * JVM WebSocket engine loses the AUTH-vs-REQ race far more than the browser engine, so on
+     * desktop cold boot many groups stay on a truncated id + "No description" until a restart.
+     * The delay lets the batch/mux land first; [requestMissingGroupMetadata] then per-group
+     * fetches only what is still missing, so this is a no-op on the happy path (web, and desktop
+     * when the race is won).
+     */
+    private fun scheduleMissingMetadataSweep(relayUrl: String) {
+        scope.launch {
+            delay(3_000)
+            try {
+                groupManager.requestMissingGroupMetadata(relayUrl)
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
+        }
+    }
+
     private suspend fun connect(relayUrl: String) {
         if (relayUrl.isBlank()) return
         _relayMetadataManager.fetch(relayUrl)
@@ -1999,6 +2066,7 @@ class NostrRepository(
                     groupManager.requestPrivateGroupData(relayUrl)
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
+                scheduleMissingMetadataSweep(relayUrl)
             }
         }
     }
@@ -2137,6 +2205,7 @@ class NostrRepository(
                 groupManager.awaitGroupListEose(newRelayUrl)
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
+                scheduleMissingMetadataSweep(newRelayUrl)
                 // The active group's controller was reset to Idle by clearForRelaySwitch and the
                 // bulk re-subscribe skips it; reload it here so it can paginate (race fix).
                 groupManager.requestActiveGroupMessagesIfNeeded(newRelayUrl)
@@ -4256,6 +4325,9 @@ class NostrRepository(
         // Also fetch metadata for the active group if the user navigated via URL
         // and the group isn't in the cache yet (e.g. invite link to a private group).
         groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+        // Timing-robust net: after AUTH the batched mux/meta REQ may still have lost the race
+        // (JVM engine), so per-group fetch any joined group whose 39000 never landed.
+        scheduleMissingMetadataSweep(relayUrl)
 
         // Re-request historical messages for groups that were CLOSED with
         // auth-required. The mux only delivers live messages (since cursor),

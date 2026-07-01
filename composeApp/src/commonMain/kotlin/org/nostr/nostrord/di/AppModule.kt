@@ -571,13 +571,16 @@ object AppModule {
         try {
             notificationService.cancelAllPending()
         } catch (_: Throwable) {}
-        // Close the old account's group-list subscriptions on every open
-        // socket — the sub ID is a function of the relay URL alone, so the
-        // new account would otherwise reuse it and a late EOSE from A's REQ
-        // would consume B's pendingFullFetchRelays entry, falsely marking
-        // the relay fully fetched and pruning partial data.
+        // Close ALL of the old account's live subscriptions on every open socket BEFORE
+        // clearing state and installing the new account. The mux chat/meta and dm_inbox REQs
+        // are group/kind-filtered, not pubkey-filtered, so while they stay open the socket
+        // (still AUTH'd as the old account) keeps pushing the old account's kind:9 / 39000 /
+        // gift-wrap events, which land in the new account's freshly-cleared, now-new-account-
+        // bound state — the old account's groups/messages then render under the new account.
+        // Sockets stay connected; the new account re-subscribes via reloadForActiveAccount.
+        // (Supersedes the group-list-only close: that sub id is also in openSubscriptions.)
         try {
-            connectionManager.closeGroupListSubscriptionsOnAllClients()
+            connectionManager.closeAllSubscriptionsOnAllClients()
         } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()
