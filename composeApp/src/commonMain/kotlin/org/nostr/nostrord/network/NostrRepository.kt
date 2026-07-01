@@ -2127,7 +2127,7 @@ class NostrRepository(
         // error immediately instead of reconnecting and skeleton-loading.
         val restriction = _restrictedRelays.value[normalized]
         if (restriction != null) {
-            connectionManager.switchRelay(newRelayUrl) { msg, client ->
+            connectionManager.setFocusedRelay(newRelayUrl) { msg, client ->
                 enqueueToRelayPipeline(msg, client)
             }
             connectionManager.setError(restriction)
@@ -2145,7 +2145,7 @@ class NostrRepository(
 
         if (_targetSwitchRelayUrl.value != newRelayUrl) return
 
-        connectionManager.switchRelay(newRelayUrl) { msg, client ->
+        connectionManager.setFocusedRelay(newRelayUrl) { msg, client ->
             enqueueToRelayPipeline(msg, client)
         }
 
