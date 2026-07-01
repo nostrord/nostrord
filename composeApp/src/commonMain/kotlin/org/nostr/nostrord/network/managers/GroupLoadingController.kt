@@ -276,7 +276,7 @@ class GroupLoadingController(
      * Handle EOSE for a subscription.
      * Returns true if this was our subscription.
      */
-    suspend fun handleEose(subscriptionId: String, relayUrl: String = "primary"): Boolean {
+    suspend fun handleEose(subscriptionId: String, relayUrl: String): Boolean {
         return mutex.withLock {
             val tracker = currentTracker ?: return@withLock false
             if (tracker.subscriptionId != subscriptionId) return@withLock false
@@ -607,7 +607,7 @@ class GroupLoadingRegistry(
      * Handle EOSE by finding the right controller - O(1) lookup.
      * Also unregisters the subscription.
      */
-    suspend fun handleEose(subscriptionId: String, relayUrl: String = "primary"): Boolean {
+    suspend fun handleEose(subscriptionId: String, relayUrl: String): Boolean {
         val controller = findBySubscription(subscriptionId) ?: return false
         val result = controller.handleEose(subscriptionId, relayUrl)
         if (result) {

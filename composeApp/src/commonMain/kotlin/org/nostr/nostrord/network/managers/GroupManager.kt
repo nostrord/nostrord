@@ -2534,18 +2534,7 @@ class GroupManager(
             return true
         }
         awaitTrackingForSubscription(subscriptionId)
-        return loadingRegistry.handleEose(subscriptionId)
-    }
-
-    /**
-     * Non-suspend version for backward compatibility.
-     * Launches in scope - use handleEoseSuspend when possible.
-     */
-    fun handleEose(subscriptionId: String): Boolean {
-        scope.launch {
-            loadingRegistry.handleEose(subscriptionId)
-        }
-        return true
+        return loadingRegistry.handleEose(subscriptionId, sourceRelayUrl)
     }
 
     // Incremented synchronously (before scope.launch) so EOSE always sees the full count.
