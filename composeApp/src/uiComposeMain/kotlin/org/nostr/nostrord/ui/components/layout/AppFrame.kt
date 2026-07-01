@@ -77,6 +77,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -264,6 +266,17 @@ fun AppFrame() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
     val closeDrawer: () -> Unit = { drawerScope.launch { drawerState.close() } }
+
+    // Dismiss the soft keyboard as soon as the drawer starts opening (hamburger tap or
+    // swipe-in gesture), so it never overlaps the slide-over sidebar.
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
 
     // Android system back / swipe-back: close an open drawer or modal first, otherwise step
     // back through the shared history. At Home with nothing left to pop the handler is
