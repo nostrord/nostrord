@@ -313,31 +313,27 @@ class NostrRepository(
         pipeline.enqueue(msg)
     }
 
+    // Relays whose live subscriptions died with their socket and must be re-armed on the
+    // NEXT successful connect, whoever lands it. Marked in onPoolRelayLost, consumed in
+    // onRelayConnected (see initialize()). This is what makes the resubscribe independent
+    // of the connect race: any background fetch calling getOrConnectRelay during the
+    // scheduler's backoff revives the socket first, and without this set the scheduler
+    // would then see "already connected" and never re-arm the group's mux/chat REQs —
+    // messages silently stop arriving live until an app restart.
+    private val relaysNeedingResubscribe = mutableSetOf<String>()
+
     // Centralised reconnect scheduler for every previously-connected relay, focused
     // included (see ConnectionManager.onPoolRelayLost wiring in initialize()). Only
-    // relays in connectedPoolRelays are scheduled for reconnection.
+    // relays in connectedPoolRelays are scheduled for reconnection. Resubscribing is NOT
+    // done here: getOrConnectRelay fires onRelayConnected for whichever caller lands the
+    // socket (this scheduler included), and that hook re-arms the subs exactly once.
     private val relayReconnectScheduler = RelayReconnectScheduler(
         scope = scope,
         isRelayActive = { relayUrl -> relayUrl in connectedPoolRelays },
         doReconnect = { relayUrl ->
-            val alreadyConnected = connectionManager.getClientForRelay(relayUrl) != null
-            val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+            connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
                 enqueueToRelayPipeline(msg, c)
-            }
-            if (client != null) {
-                if (!alreadyConnected) {
-                    // getOrConnectRelay doesn't know "focused" — resolve the resubscribe
-                    // path the same way ConnectionManager itself does.
-                    if (relayUrl == connectionManager.currentRelayUrl.value) {
-                        connectionManager.notifyReconnected(client)
-                    } else {
-                        resubscribePoolRelay(relayUrl, client)
-                    }
-                }
-                true
-            } else {
-                false
-            }
+            } != null
         },
     )
 
@@ -582,6 +578,9 @@ class NostrRepository(
             // it in the slow phase even after focus moves elsewhere.
             val isFocused = relayUrl == connectionManager.currentRelayUrl.value
             if (isFocused) connectedPoolRelays.add(relayUrl)
+            // Whatever live subs this socket carried are gone with it — re-arm them on the
+            // next successful connect, whichever caller lands it (see onRelayConnected).
+            relaysNeedingResubscribe.add(relayUrl)
             // Only reconnect pool relays that were actively connected during this session
             // (had been focused at some point). Lazy pool relays are not reconnected.
             if (relayUrl in connectedPoolRelays) {
@@ -601,6 +600,22 @@ class NostrRepository(
                         )
                     },
                 )
+            }
+        }
+        connectionManager.onRelayConnected = { relayUrl, client ->
+            // Consume-once: getOrConnectRelay's singleflight guarantees one landing per
+            // URL at a time, so this fires at most once per drop.
+            if (relaysNeedingResubscribe.remove(relayUrl)) {
+                scope.launch {
+                    // Same focused/pool split ConnectionManager itself uses: the focused
+                    // relay's reconnect must also restore connectionState and run the full
+                    // onReconnected pipeline (notifyReconnected does both).
+                    if (relayUrl == connectionManager.currentRelayUrl.value) {
+                        connectionManager.notifyReconnected(client)
+                    } else {
+                        resubscribePoolRelay(relayUrl, client)
+                    }
+                }
             }
         }
         connectionManager.onReconnected = { client ->
@@ -1243,6 +1258,7 @@ class NostrRepository(
      */
     private suspend fun resetSessionScopedCaches() {
         lastRequestGroupsAt.clear()
+        relaysNeedingResubscribe.clear()
         groupPreviewFetchMutex.withLock { groupPreviewFetchAt.clear() }
         authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
@@ -4294,6 +4310,10 @@ class NostrRepository(
      */
     private suspend fun resubscribeAllGroups(client: NostrGroupClient) {
         val relayUrl = connectionManager.currentRelayUrl.value
+        // The focused relay can also be revived by connectFocused paths (network-change
+        // reconnect, manual retry) that bypass onRelayConnected — consume its pending
+        // resubscribe mark here so a later pool connect doesn't re-arm it a second time.
+        relaysNeedingResubscribe.remove(relayUrl)
         // Restore cache so the UI shows groups immediately while the re-fetch is in flight.
         groupManager.restoreGroupsForRelay(relayUrl)
         // Short AUTH grace before the re-fetch: public groups load fast, and the few groups
