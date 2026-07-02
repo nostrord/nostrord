@@ -2238,6 +2238,9 @@ val ChatScreen =
                         setReplyingToId(null)
                         // Sending acknowledges the "New messages" boundary: drop the divider.
                         consumeDivider()
+                        // Own send always lands the view at the bottom, even when reading
+                        // history (native parity: AutoScrollEffect's ownAppend).
+                        setJumpNonce { it + 1 }
                     }
                     this.onJoin = { join() }
                     this.pendingRequestedAtSeconds = pendingRequestedAt
