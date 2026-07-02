@@ -26,7 +26,11 @@ class RelayEventPipeline(
     private val channel =
         Channel<String>(
             capacity = 2000,
-            onBufferOverflow = BufferOverflow.DROP_LATEST,
+            // DROP_OLDEST, as documented above: under a replay-burst overflow, the frames
+            // worth keeping are the NEWEST (live chat, AUTH challenges). This was
+            // DROP_LATEST, which silently discarded exactly those while keeping stale
+            // backlog — one confirmed source of "one message never displayed".
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
 
     init {
