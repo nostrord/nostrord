@@ -1583,8 +1583,16 @@ class NostrGroupClient(
                     put(
                         "kinds",
                         buildJsonArray {
-                            add(5); add(9); add(9000); add(9001); add(9002)
-                            add(9003); add(9005); add(9009); add(9021); add(9022)
+                            add(5)
+                            add(9)
+                            add(9000)
+                            add(9001)
+                            add(9002)
+                            add(9003)
+                            add(9005)
+                            add(9009)
+                            add(9021)
+                            add(9022)
                         },
                     )
                     putJsonArray("#h") { groupIds.forEach { add(it) } }

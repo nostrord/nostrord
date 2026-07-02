@@ -230,10 +230,12 @@ class SessionManager(
                     // read. Bail so the live socket's own challenge drives AUTH instead.
                     if (!client.isConnected()) return false
 
-                    client.send(message = buildJsonArray {
-                        add("AUTH")
-                        add(signedEvent.toJsonObject())
-                    }.toString())
+                    client.send(
+                        message = buildJsonArray {
+                            add("AUTH")
+                            add(signedEvent.toJsonObject())
+                        }.toString(),
+                    )
 
                     // Give the relay 500 ms to process the AUTH before we send subscriptions.
                     // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only
