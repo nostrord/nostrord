@@ -475,6 +475,14 @@ interface NostrRepositoryApi {
      */
     suspend fun fetchGroupsMembers(relayToGroups: Map<String, Set<String>>)
 
+    /**
+     * Suspends until [relayUrl]'s NIP-42 AUTH has settled: returns quickly on relays that
+     * don't gate reads (short challenge grace), waits out the signer budget on relays that
+     * do. Used by checks that treat "the relay didn't serve X" as proof of absence — before
+     * AUTH an auth-gating relay withholds private-group data, so absence proves nothing.
+     */
+    suspend fun awaitRelayAuthSettled(relayUrl: String)
+
     suspend fun loadMoreMessages(
         groupId: String,
         channel: String? = null,

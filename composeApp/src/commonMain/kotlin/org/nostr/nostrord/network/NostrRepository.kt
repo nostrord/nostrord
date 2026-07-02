@@ -2688,6 +2688,11 @@ class NostrRepository(
         }
     }
 
+    override suspend fun awaitRelayAuthSettled(relayUrl: String) {
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        client.awaitAuthSigned(signerAuthBudgetMs())
+    }
+
     override suspend fun fetchGroupsMembers(relayToGroups: Map<String, Set<String>>) {
         relayToGroups.forEach { (relayUrl, groupIds) ->
             if (relayUrl.isBlank() || groupIds.isEmpty()) return@forEach
