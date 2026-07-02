@@ -330,6 +330,11 @@ compose.desktop {
             packageName = "Nostrord"
             packageVersion = appVersion
 
+            // jpackage's jlink image ships only Compose's default modules; java-keyring's
+            // DBus backend touches java.sql.DriverManager at startup and kills the app
+            // with NoClassDefFoundError when the module is absent (#165).
+            modules("java.sql")
+
             linux {
                 iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
                 debPackageVersion = packageVersion
