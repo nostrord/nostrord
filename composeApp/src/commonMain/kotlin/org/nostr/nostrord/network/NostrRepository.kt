@@ -4178,6 +4178,7 @@ class NostrRepository(
             subId.startsWith("members_") ||
             subId.startsWith("metadata_") ||
             subId.startsWith("msg_") ||
+            subId.startsWith("gapfill_") ||
             subId.startsWith("e_") ||
             subId.startsWith("a_") ||
             subId.startsWith("reactions_") ||
@@ -4491,6 +4492,10 @@ class NostrRepository(
         // (e.g. communities.nos.social re-challenges AUTH periodically).
         groupManager.clearMuxTrackerForRelay(relayUrl)
         groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+        // Messages that fired during the pre-AUTH dead window are behind the advanced
+        // live cursor — the mux replay above never revisits them. Forward-fill the
+        // recent window for already-loaded groups (dedup absorbs the overlap).
+        groupManager.backfillRecentGapsForRelay(relayUrl)
 
         // Request metadata/members/admins for private groups that are not in the
         // group cache. The relay hides these from the general listing but returns

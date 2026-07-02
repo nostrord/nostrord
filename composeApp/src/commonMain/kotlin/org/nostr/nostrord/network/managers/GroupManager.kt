@@ -2683,6 +2683,33 @@ class GroupManager(
     }
 
     /**
+     * Bounded forward-fill after a dead live-sub window (AUTH raced, mux CLOSED, relay
+     * race). A message missed live is otherwise gone for the session: later messages
+     * advance the LiveCursorStore cursor PAST it, so mux replay (since = cursor) never
+     * revisits the gap, and msg_ pagination only fetches older-than-cache. Re-request a
+     * small recent window per loaded group — since = that group's newest in-memory
+     * message minus the reconnect overlap — and let the deduplicator drop what we
+     * already have. Only groups with in-memory messages participate; empty groups are
+     * covered by the initial-load path.
+     */
+    suspend fun backfillRecentGapsForRelay(relayUrl: String) {
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        val restricted = _restrictedGroups.value.keys
+        val loaded = getGroupIdsForMux(relayUrl)
+            .filter { it !in restricted }
+            .mapNotNull { gid -> _messages.value[gid]?.lastOrNull()?.createdAt?.let { gid to it } }
+        if (loaded.isEmpty()) return
+        val since = loaded.minOf { it.second } - LiveCursorStore.RECONNECT_OVERLAP_S
+        try {
+            client.requestGroupsMessagesSince(loaded.map { it.first }, since)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
      * Send a message to a group.
      * Uses sendAndAwaitOk() to properly wait for relay confirmation.
      */
