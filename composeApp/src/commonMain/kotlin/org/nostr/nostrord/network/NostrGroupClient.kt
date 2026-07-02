@@ -1566,6 +1566,37 @@ class NostrGroupClient(
     }
 
     /**
+     * Bounded forward-fill for messages that slipped through a dead live-sub window:
+     * one batched REQ for [groupIds] with `since` only (no until, no controller
+     * involvement). Events route by their own #h tag through the normal kind-based
+     * handler; the deduplicator absorbs the overlap with what is already in memory.
+     * The gapfill_ sub id keeps it out of every pagination/initial-load code path
+     * (those key on msg_), so it can never reset a group's HasMore state.
+     */
+    suspend fun requestGroupsMessagesSince(groupIds: List<String>, since: Long): String {
+        val subId = "gapfill_${epochMillis()}"
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    put(
+                        "kinds",
+                        buildJsonArray {
+                            add(5); add(9); add(9000); add(9001); add(9002)
+                            add(9003); add(9005); add(9009); add(9021); add(9022)
+                        },
+                    )
+                    putJsonArray("#h") { groupIds.forEach { add(it) } }
+                    put("since", since)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
      * Batched kind:39002 members fetch for several groups in one REQ (discovery member
      * counts). Each returned event's own "d" tag identifies its group — parseGroupMembers
      * reads it from the event, not the sub id — so, like [requestGroupsMetadata], one shared
