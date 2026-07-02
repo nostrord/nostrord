@@ -254,6 +254,13 @@ class PendingEventManager(
                         removeEvent(event.id)
                     }
                     is PublishResult.Rejected -> {
+                        if (isAuthTransient(result.reason)) {
+                            // OK-false "auth-required" is the relay saying "not yet", not
+                            // "never": the publish raced NIP-42. Keep the event and retry
+                            // after AUTH completes instead of failing it permanently.
+                            incrementRetryCount(event.id, result.reason)
+                            continue
+                        }
                         // Don't retry rejected events - relay explicitly refused
                         updateStatus(
                             event.id,
@@ -302,6 +309,11 @@ class PendingEventManager(
                 removeEvent(event.id)
             }
             is PublishResult.Rejected -> {
+                if (isAuthTransient(result.reason)) {
+                    // Same as the batch path: an auth-required rejection is transient.
+                    incrementRetryCount(event.id, result.reason)
+                    return result
+                }
                 updateStatus(
                     event.id,
                     PendingEventStatus.Failed(
@@ -404,6 +416,8 @@ class PendingEventManager(
         }
         saveToStorage()
     }
+
+    private fun isAuthTransient(reason: String): Boolean = reason.contains("auth-required", ignoreCase = true)
 
     private fun calculateRetryDelay(retryCount: Int): Long {
         // Exponential backoff: 1s, 2s, 4s, 8s, ... up to max

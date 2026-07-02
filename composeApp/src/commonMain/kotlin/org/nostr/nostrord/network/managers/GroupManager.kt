@@ -93,7 +93,18 @@ class GroupManager(
         }
         // Queued retries must hit the relay that hosts their group: a NIP-29 relay
         // rejects a kind:9 for a group it doesn't host ("group doesn't exist").
-        pendingEventManager?.resolveClient = { groupId -> clientForGroup(groupId) }
+        pendingEventManager?.resolveClient = { groupId ->
+            // Fail closed on auth-gating relays too: an unauthed publish gets OK-false
+            // "auth-required", which used to fail the event permanently. Returning null
+            // keeps it Queued for the sweep / AUTH-completion flush; relays that never
+            // challenged publish immediately.
+            val authBudgetMs = if (org.nostr.nostrord.auth.ActiveAccountManager.session.value?.signer?.isRemote == true) {
+                12_000L
+            } else {
+                2_000L
+            }
+            clientForGroup(groupId)?.takeIf { !it.requiresAuth() || it.awaitAuthSigned(authBudgetMs) }
+        }
         // Any event sitting in the retry queue is an undelivered own message. Marking it
         // Sending here covers events restored from the persisted queue after a restart,
         // whose cached bubble would otherwise look delivered.

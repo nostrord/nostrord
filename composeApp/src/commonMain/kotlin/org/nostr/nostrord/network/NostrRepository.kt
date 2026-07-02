@@ -3828,6 +3828,9 @@ class NostrRepository(
                         // proceed with requestGroups() after the relay accepted auth.
                         client.notifyAuthCompleted()
                         resubscribeAfterAuth(client)
+                        // Queued sends blocked on this relay's AUTH (resolveClientForGroup
+                        // fails closed pre-AUTH) can flush now.
+                        pendingEventManager?.onConnectionRestored()
                     }
                 }
             }
