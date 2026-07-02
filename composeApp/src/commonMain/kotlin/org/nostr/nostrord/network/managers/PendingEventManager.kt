@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.PublishResult
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.epochMillis
@@ -25,6 +27,7 @@ data class PendingEvent(
     val retryCount: Int = 0,
     val maxRetries: Int = 3,
     val lastError: String? = null,
+    val lastAttemptAt: Long = 0,
 ) {
     val canRetry: Boolean get() = retryCount < maxRetries
 }
@@ -65,6 +68,7 @@ class PendingEventManager(
         const val MAX_QUEUE_SIZE = 100
         const val BASE_RETRY_DELAY_MS = 1000L
         const val MAX_RETRY_DELAY_MS = 30_000L
+        const val RETRY_SWEEP_MS = 5_000L
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -104,6 +108,28 @@ class PendingEventManager(
     var onEventPermanentlyFailed: ((eventId: String, groupId: String, eventJson: String, reason: String) -> Unit)? = null
 
     /**
+     * Resolves the client for the relay that hosts a group. A NIP-29 relay rejects a
+     * kind:9 for a group it doesn't host ("group doesn't exist"), so retries must be
+     * routed per group, never blanket-sent to the focused relay. Wired by GroupManager.
+     * When it returns null the relay is down: the event stays queued for the next sweep.
+     */
+    var resolveClient: (suspend (groupId: String) -> NostrGroupClient?)? = null
+
+    // Periodic retry sweep: runs while the queue is non-empty so a send that timed out
+    // on a live socket still retries without waiting for a reconnect event.
+    private var retrySweepJob: Job? = null
+
+    private fun ensureRetrySweep() {
+        if (retrySweepJob?.isActive == true) return
+        retrySweepJob = scope.launch {
+            while (_pendingEvents.value.isNotEmpty()) {
+                delay(RETRY_SWEEP_MS)
+                retryPendingEvents()
+            }
+        }
+    }
+
+    /**
      * Queue an event for later sending.
      * Called when send fails due to offline or network error.
      *
@@ -114,7 +140,7 @@ class PendingEventManager(
         eventId: String,
         groupId: String,
     ): Boolean {
-        return mutex.withLock {
+        val queued = mutex.withLock {
             val current = _pendingEvents.value
 
             // Prevent duplicate events
@@ -144,6 +170,11 @@ class PendingEventManager(
             _eventStatuses.value = _eventStatuses.value + (pendingEvent.id to PendingEventStatus.Queued)
             true
         }
+        if (queued) {
+            saveToStorage()
+            ensureRetrySweep()
+        }
+        return queued
     }
 
     /**
@@ -154,6 +185,23 @@ class PendingEventManager(
             _pendingEvents.value = _pendingEvents.value.filter { it.id != pendingId }
             _eventStatuses.value = _eventStatuses.value - pendingId
         }
+        saveToStorage()
+    }
+
+    /**
+     * Remove a pending event by its nostr event id. Used when the relay's live feed
+     * echoes back an event whose OK was lost: the echo proves acceptance, so the
+     * queued retry must be dropped before it double-sends.
+     */
+    suspend fun removeByEventId(eventId: String) {
+        val removed = mutex.withLock {
+            val matches = _pendingEvents.value.filter { it.eventId == eventId }
+            if (matches.isEmpty()) return@withLock false
+            _pendingEvents.value = _pendingEvents.value.filterNot { it.eventId == eventId }
+            _eventStatuses.value = _eventStatuses.value - matches.map { it.id }.toSet()
+            true
+        }
+        if (removed) saveToStorage()
     }
 
     /**
@@ -168,8 +216,6 @@ class PendingEventManager(
             val events = _pendingEvents.value.toList()
             if (events.isEmpty()) return
 
-            val client = connectionManager.getFocusedClient() ?: return
-
             for (event in events) {
                 if (!event.canRetry) {
                     // Mark as permanently failed
@@ -183,14 +229,19 @@ class PendingEventManager(
                     continue
                 }
 
+                // Honor per-event exponential backoff without blocking the rest of the queue.
+                if (event.retryCount > 0 && epochMillis() < event.lastAttemptAt + calculateRetryDelay(event.retryCount)) {
+                    continue
+                }
+
+                // Route to the group's own relay; null means it is down, so the event
+                // stays queued for the next sweep (no attempt is counted).
+                val resolve = resolveClient
+                val client = if (resolve != null) resolve(event.groupId) else connectionManager.getFocusedClient()
+                if (client == null) continue
+
                 // Update status to sending
                 updateStatus(event.id, PendingEventStatus.Sending)
-
-                // Calculate retry delay with exponential backoff
-                val delayMs = calculateRetryDelay(event.retryCount)
-                if (event.retryCount > 0) {
-                    delay(delayMs)
-                }
 
                 // Attempt to send
                 val result = client.sendAndAwaitOk(event.eventJson, event.eventId)
@@ -237,7 +288,8 @@ class PendingEventManager(
         val event = _pendingEvents.value.find { it.id == pendingId } ?: return null
         if (!event.canRetry) return null
 
-        val client = connectionManager.getFocusedClient() ?: return null
+        val resolve = resolveClient
+        val client = (if (resolve != null) resolve(event.groupId) else connectionManager.getFocusedClient()) ?: return null
 
         updateStatus(event.id, PendingEventStatus.Sending)
 
@@ -288,6 +340,10 @@ class PendingEventManager(
      * Clear all pending events (e.g., on logout).
      */
     suspend fun clear() {
+        // In-memory only: the persisted per-account queue survives an account switch
+        // so undelivered messages still send when that account becomes active again.
+        retrySweepJob?.cancel()
+        retrySweepJob = null
         mutex.withLock {
             _pendingEvents.value = emptyList()
             _eventStatuses.value = emptyMap()
@@ -301,6 +357,7 @@ class PendingEventManager(
     fun onConnectionRestored() {
         scope.launch {
             retryPendingEvents()
+            ensureRetrySweep()
         }
     }
 
@@ -325,6 +382,7 @@ class PendingEventManager(
                 event.copy(
                     retryCount = event.retryCount + 1,
                     lastError = errorMsg,
+                    lastAttemptAt = epochMillis(),
                 )
 
             _pendingEvents.value = current.map { if (it.id == pendingId) updated else it }
@@ -344,6 +402,7 @@ class PendingEventManager(
                 _eventStatuses.value = _eventStatuses.value - pendingId
             }
         }
+        saveToStorage()
     }
 
     private fun calculateRetryDelay(retryCount: Int): Long {
@@ -378,6 +437,7 @@ class PendingEventManager(
                             retryCount = obj["retryCount"]?.jsonPrimitive?.int ?: 0,
                             maxRetries = obj["maxRetries"]?.jsonPrimitive?.int ?: 3,
                             lastError = obj["lastError"]?.jsonPrimitive?.contentOrNull,
+                            lastAttemptAt = obj["lastAttemptAt"]?.jsonPrimitive?.long ?: 0,
                         )
                     } catch (e: Exception) {
                         null
@@ -389,6 +449,7 @@ class PendingEventManager(
                 events.forEach { event ->
                     _eventStatuses.value = _eventStatuses.value + (event.id to PendingEventStatus.Queued)
                 }
+                ensureRetrySweep()
             }
         } catch (e: Exception) {
             // Ignore parsing errors
@@ -420,6 +481,7 @@ class PendingEventManager(
                                 put("createdAt", event.createdAt)
                                 put("retryCount", event.retryCount)
                                 put("maxRetries", event.maxRetries)
+                                put("lastAttemptAt", event.lastAttemptAt)
                                 event.lastError?.let { put("lastError", it) }
                             },
                         )

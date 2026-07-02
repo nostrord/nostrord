@@ -91,6 +91,27 @@ class GroupManager(
         pendingEventManager?.onEventPermanentlyFailed = { eventId, groupId, eventJson, reason ->
             markFailed(eventId, groupId, eventJson, reason)
         }
+        // Queued retries must hit the relay that hosts their group: a NIP-29 relay
+        // rejects a kind:9 for a group it doesn't host ("group doesn't exist").
+        pendingEventManager?.resolveClient = { groupId -> clientForGroup(groupId) }
+        // Any event sitting in the retry queue is an undelivered own message. Marking it
+        // Sending here covers events restored from the persisted queue after a restart,
+        // whose cached bubble would otherwise look delivered.
+        pendingEventManager?.let { pending ->
+            scope.launch {
+                pending.pendingEvents.collect { events ->
+                    if (events.isEmpty()) return@collect
+                    _messageStatus.update { statuses ->
+                        val missing = events.filter { it.eventId !in statuses }
+                        if (missing.isEmpty()) {
+                            statuses
+                        } else {
+                            statuses + missing.associate { it.eventId to MessageStatus.Sending }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -3832,9 +3853,19 @@ class GroupManager(
         // here to prevent cross-account message contamination.
         if (currentPubkey == null) return
 
-        val chatMessages = messages.filter { it.kind == 9 }
-        if (chatMessages.isNotEmpty()) {
+        // A relay echoing back one of our own optimistic messages proves it was accepted
+        // even when the OK was lost: resolve the on-screen status and drop the queued
+        // retry before it double-sends.
+        val ownStatuses = _messageStatus.value
+        if (ownStatuses.isNotEmpty()) {
+            for (msg in messages) {
+                if (msg.id in ownStatuses) {
+                    markDelivered(msg.id)
+                    pendingEventManager?.let { pending -> scope.launch { pending.removeByEventId(msg.id) } }
+                }
+            }
         }
+
         // Record burst for adaptive tuning
         adaptiveConfig?.recordEventBurst(messages.size)
 
