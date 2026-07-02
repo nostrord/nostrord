@@ -583,6 +583,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         fetchGroupsMembersCalls.add(relayToGroups)
     }
 
+    override suspend fun awaitRelayAuthSettled(relayUrl: String) {}
+
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override val completeGroupLoadRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 

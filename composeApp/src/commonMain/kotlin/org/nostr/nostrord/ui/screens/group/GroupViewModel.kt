@@ -18,6 +18,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -235,6 +236,13 @@ class GroupViewModel(
      * navigate back to (no longer pinned). Restricted/private groups are excluded (their metadata is
      * withheld, not absent), and the EOSE gate prevents a still-loading group from reading as deleted.
      * Drives the "Group no longer available" panel instead of perpetual loading skeletons.
+     *
+     * Absence is only proof of deletion when the relay had a real chance to serve the group:
+     * - the socket must be Connected — on a cold boot the cache-freshness restore marks the relay
+     *   "complete" before it has even connected, and a slow relay then eats the whole grace window;
+     * - NIP-42 AUTH must have settled — an auth-gating relay serves its public group list (and its
+     *   EOSE) while withholding private 39000s until AUTH, and a bunker sign can take far longer
+     *   than the grace.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val isOrphaned: StateFlow<Boolean> =
@@ -243,16 +251,24 @@ class GroupViewModel(
             repo.completeGroupLoadRelays,
             repo.restrictedGroups,
             repo.currentRelayUrl,
-        ) { groups, doneRelays, restricted, currentRelay ->
+            repo.connectionState,
+        ) { groups, doneRelays, restricted, currentRelay, connState ->
             val hasMetadata = groups.any { it.id == groupId }
             val relayDone = currentRelay.normalizeRelayUrl() in doneRelays
-            relayDone && !hasMetadata && groupId !in restricted
+            relayDone &&
+                !hasMetadata &&
+                groupId !in restricted &&
+                connState is ConnectionManager.ConnectionState.Connected
         }.flatMapLatest { gone ->
             // The relay's group-list EOSE can land before this group's kind:39000, so hold the verdict
             // for a short grace (staying in loading); flatMapLatest cancels the delay the moment
-            // metadata arrives, so a real group never flashes the panel.
+            // metadata arrives (or the connection drops), so a real group never flashes the panel.
             if (gone) {
                 flow {
+                    // Fast no-op on public relays (short challenge grace); on auth-gating relays
+                    // waits out the sign budget so the post-AUTH group-list replay can deliver
+                    // the withheld private 39000 before the verdict.
+                    repo.awaitRelayAuthSettled(repo.currentRelayUrl.value)
                     delay(4_000)
                     emit(true)
                 }
