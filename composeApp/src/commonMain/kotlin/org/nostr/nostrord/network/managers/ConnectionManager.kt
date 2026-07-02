@@ -109,6 +109,18 @@ class ConnectionManager(
      */
     var onPoolRelayLost: ((relayUrl: String) -> Unit)? = null
 
+    /**
+     * Called whenever [getOrConnectRelay] lands a NEW socket, regardless of which caller
+     * won the singleflight. Set by NostrRepository to re-arm live subscriptions on a relay
+     * that dropped: the reconnect scheduler is NOT the only path that revives a relay —
+     * any background fetch (metadata, previews, outbox) calling getOrConnectRelay during
+     * the scheduler's backoff delay reconnects it first, and that caller only sends its
+     * own REQ. Without this hook the scheduler then sees the relay "already connected",
+     * skips the resubscribe, and the group's mux/chat subscription stays silently dead
+     * (messages stop arriving live) until an app restart.
+     */
+    var onRelayConnected: ((relayUrl: String, client: NostrGroupClient) -> Unit)? = null
+
     sealed class ConnectionState {
         data object Disconnected : ConnectionState()
 
@@ -333,9 +345,20 @@ class ConnectionManager(
         // Detach the callback first to prevent re-entrant calls if cancelAndClose()
         // somehow triggers another connection-lost event on the dying client.
         client.onConnectionLost = null
-        poolMutex.withLock { relayPool.remove(url) }
+        // Remove by identity, not URL: this runs via scope.launch, so a fresh client for
+        // the same relay can already be pooled by the time it executes — evicting THAT
+        // would orphan a live, subscribed socket and reconnect a duplicate over it.
+        val evicted = poolMutex.withLock {
+            if (relayPool[url] === client) {
+                relayPool.remove(url)
+                true
+            } else {
+                false
+            }
+        }
         connStats?.onDisconnected(url)
         client.cancelAndClose() // release HttpClient threads/pool, cancel lingering coroutines
+        if (!evicted) return // a replacement is already live; nothing to reconnect
 
         val wasFocused = _currentRelayUrl.value == url
         if (wasFocused) {
@@ -584,6 +607,7 @@ class ConnectionManager(
                 connStats?.getStats()?.get(normalized)?.lastReconnectMs?.let { latency ->
                     adaptiveConfig?.recordRelayLatency(normalized, latency)
                 }
+                onRelayConnected?.invoke(normalized, client)
                 result = client
             }
         } catch (e: Exception) {
