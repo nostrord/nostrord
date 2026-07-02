@@ -617,6 +617,11 @@ class NostrRepository(
                     }
                 }
             }
+            // Every landed socket (cold boot included — boot connects never fire
+            // onReconnected) gives queued offline sends a chance to flush. Cheap no-op
+            // when the queue is empty; per-event routing skips groups whose relay is
+            // still down, so early boot passes don't burn retries.
+            pendingEventManager?.onConnectionRestored()
         }
         connectionManager.onReconnected = { client ->
             resubscribeAllGroups(client)
