@@ -154,6 +154,11 @@ class NostrRepository(
     private val groupPreviewFetchAt = mutableMapOf<String, Long>()
     private val groupPreviewFetchMutex = Mutex()
 
+    // Backoff state for re-arming mux subs a relay CLOSEs with "restricted" (see the
+    // CLOSED handler). Attempts reset on the next successful mux_chat EOSE.
+    private val muxRestrictedRetryJobs = mutableMapOf<String, Job>()
+    private val muxRestrictedRetryAttempts = mutableMapOf<String, Int>()
+
     // Caps how many NIP-17 DM decryptions hit the signer at once. A cold load streams
     // every unread kind:1059 (dozens, sometimes 80+), and with a remote signer (NIP-46
     // bunker) each decrypt is a serialized round-trip. Launching them all flooded the
@@ -1264,6 +1269,9 @@ class NostrRepository(
     private suspend fun resetSessionScopedCaches() {
         lastRequestGroupsAt.clear()
         relaysNeedingResubscribe.clear()
+        muxRestrictedRetryJobs.values.forEach { it.cancel() }
+        muxRestrictedRetryJobs.clear()
+        muxRestrictedRetryAttempts.clear()
         groupPreviewFetchMutex.withLock { groupPreviewFetchAt.clear() }
         authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
@@ -3617,6 +3625,8 @@ class NostrRepository(
             val url = client.getRelayUrl()
             if (subId.startsWith("mux_chat_")) {
                 relayEventCounts.remove(url)
+                // Mux is live again — a later "restricted" CLOSED starts backing off fresh.
+                muxRestrictedRetryAttempts.remove(url)
             }
             if (subId == "dm_inbox") {
                 // This relay finished delivering its share of the backlog (decryption may still be
@@ -3975,6 +3985,33 @@ class NostrRepository(
                         groupManager.holdInitialLoadForReauth(subId)
                     if (!held) {
                         groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    }
+                }
+
+                // A mux sub CLOSED "restricted" was terminal: no branch below re-arms it, so
+                // the live feed for the whole relay went silently deaf (publishes still OK'd,
+                // nothing received) until restart. Observed on groups.0xchat.com, which answers
+                // a mux re-REQ moments after a successful AUTH with "restricted: not a member"
+                // even for the group's own admin — its membership check races. Retry with
+                // exponential backoff (a genuinely restricted relay just re-CLOSEs one tiny
+                // REQ per minute at the cap); the tracker must be cleared first, since a
+                // relay-side CLOSED does not invalidate muxTracker and refreshMux would no-op.
+                if (isRestricted && subId.startsWith("mux_")) {
+                    val relayUrl = client.getRelayUrl()
+                    // The sibling mux_* CLOSEDs (chat/reactions/del) land together — coalesce
+                    // into one retry and count the round once.
+                    val rescheduling = muxRestrictedRetryJobs[relayUrl]?.isActive == true
+                    val attempt = if (rescheduling) {
+                        muxRestrictedRetryAttempts[relayUrl] ?: 1
+                    } else {
+                        ((muxRestrictedRetryAttempts[relayUrl] ?: 0) + 1)
+                            .also { muxRestrictedRetryAttempts[relayUrl] = it }
+                    }
+                    muxRestrictedRetryJobs[relayUrl]?.cancel()
+                    muxRestrictedRetryJobs[relayUrl] = scope.launch {
+                        delay(minOf(5_000L * (1L shl (attempt - 1)), 60_000L))
+                        groupManager.clearMuxTrackerForRelay(relayUrl)
+                        groupManager.refreshMuxDebounced(relayUrl)
                     }
                 }
 
