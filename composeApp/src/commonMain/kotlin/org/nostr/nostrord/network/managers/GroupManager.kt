@@ -719,6 +719,12 @@ class GroupManager(
         // live subscription refreshes the tail.
         const val CACHE_HYDRATE_LIMIT = 300
 
+        // Quiet window before the periodic refresh force-re-arms a relay's mux subs
+        // (see refreshLiveSubscriptions). Two timer ticks: long enough that a healthy
+        // quiet relay re-proves itself at a lazy cadence, short enough that a deaf
+        // feed heals without user action.
+        const val MUX_STALE_REARM_MS = 600_000L
+
         // Disk budget for the persistent history cache (messages + events), per account.
         // Evicted oldest-first once exceeded; the eviction is debounced behind writes.
         const val CACHE_BYTE_BUDGET = 75L * 1024 * 1024
@@ -998,44 +1004,22 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        // Two cost models: on the focused relay we keep the on-demand pattern (only
-        // groups the user has opened in this session subscribe to live chat) so the
-        // hot path stays cheap. On background joined relays we subscribe to live
-        // chat for *every* joined group so notifications/sound/unread fire cross-relay
-        // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
-        // (which lives on a different relay) would silence them entirely.
-        //
-        // Exception: during a switch-in catch-up window, the focused relay also
-        // subscribes to chat for ALL joined groups. Without this, an account that
-        // landed on the home screen would only receive notifications for groups
-        // it manually opened, defeating the whole point of the catch-up since.
+        // Live chat covers EVERY group in the mux set, focused relay included. kind:9
+        // flows only over mux_chat, so narrowing the focused relay to session-opened
+        // groups (the old on-demand cost model, with a 60s post-boot catch-up window)
+        // silenced notifications/unread for joined-but-unopened groups entirely: their
+        // messages simply never arrived until the group was opened, then flooded in via
+        // the initial REQ. The since cursors bound the replay cost, and a quiet group
+        // costs nothing live.
         val catchUp = activeCatchUpSince()
-        val isFocusedRelay = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
-        val chatGroupIds = if (isFocusedRelay && catchUp == null) {
-            _openedGroupIds.value
-                .filter { it in allGroupIds }
-                .ifEmpty {
-                    val active = _activeGroupId
-                    if (active != null && active in allGroupIds) listOf(active) else emptyList()
-                }
-        } else {
-            allGroupIds
-        }
+        val chatGroupIds = allGroupIds
 
-        val baseChatSince = if (chatGroupIds.isNotEmpty()) {
-            liveCursorStore.getMinSince(relayUrl, chatGroupIds)
-        } else {
-            0L
-        }
+        val baseChatSince = liveCursorStore.getMinSince(relayUrl, chatGroupIds)
         // After a switch-in, regress `since` (one-shot, TTL-bounded) so the
         // mux replays anything the now-active account missed while inactive.
         // `MuxSubscriptionTracker.needsRefresh` already treats a regressed
         // `since` as a refresh trigger, so the CLOSE+REQ cycle fires here.
-        val chatSince = when {
-            catchUp == null -> baseChatSince
-            chatGroupIds.isEmpty() -> baseChatSince
-            else -> minOf(baseChatSince, catchUp)
-        }
+        val chatSince = if (catchUp == null) baseChatSince else minOf(baseChatSince, catchUp)
 
         val desired = MuxSubscriptionTracker.MuxState(
             metadataGroupIds = allGroupIds.toSet(),
@@ -1050,7 +1034,7 @@ class GroupManager(
 
         try {
             client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince)
-            muxTracker.update(relayUrl, desired)
+            muxTracker.update(relayUrl, desired, epochMillis())
             connStats?.onSubscriptionSent(relayUrl)
         } catch (_: Exception) {}
     }
@@ -1065,8 +1049,19 @@ class GroupManager(
             _joinedGroupsByRelay.value.keys +
                 _messages.value.keys.mapNotNull { getRelayForGroup(it) }
             ).distinct()
+        val now = epochMillis()
         for (relayUrl in relayUrls) {
             try {
+                // A silently dead sub (idle reap without CLOSED, REQ eaten pre-AUTH)
+                // leaves the tracker state identical to the desired one, so this
+                // periodic refresh would no-op forever while the feed is deaf. If
+                // nothing has been heard on the relay's mux subs for the stale window,
+                // drop the tracker entry so the refresh below re-sends; the resulting
+                // EOSE re-proves liveness (a quiet relay costs one CLOSE+REQ+EOSE per
+                // window, an eaten REQ keeps being nudged).
+                if (muxTracker.isStale(relayUrl, now, MUX_STALE_REARM_MS)) {
+                    muxTracker.clearRelay(relayUrl)
+                }
                 refreshMuxSubscriptionsForRelay(relayUrl)
             } catch (_: Exception) {}
         }
@@ -2743,6 +2738,14 @@ class GroupManager(
     }
 
     /**
+     * Proof of life on one of [relayUrl]'s mux subs (EVENT or EOSE). Feeds the
+     * staleness check that lets [refreshLiveSubscriptions] re-arm a silently dead sub.
+     */
+    fun noteMuxActivity(relayUrl: String) {
+        muxTracker.noteActivity(relayUrl, epochMillis())
+    }
+
+    /**
      * Bounded forward-fill after a dead live-sub window (AUTH raced, mux CLOSED, relay
      * race). A message missed live is otherwise gone for the session: later messages
      * advance the LiveCursorStore cursor PAST it, so mux replay (since = cursor) never
@@ -3855,6 +3858,11 @@ class GroupManager(
         subscriptionId: String? = null,
         relayUrl: String? = null,
     ): String? {
+        // Any event on a mux sub is proof the relay's live feed is alive.
+        if (relayUrl != null && subscriptionId?.startsWith("mux_") == true) {
+            noteMuxActivity(relayUrl)
+        }
+
         // Handle deletion events separately — but still track for pagination cursor
         if (message.kind in deletionKinds) {
             if (subscriptionId != null) {

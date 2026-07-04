@@ -145,4 +145,57 @@ class MuxSubscriptionTrackerTest {
         assertFalse(tracker.needsRefresh("wss://relay-a", state))
         assertTrue(tracker.needsRefresh("wss://relay-b", state))
     }
+
+    @Test
+    fun `url spellings normalize to the same entry`() {
+        val tracker = MuxSubscriptionTracker()
+        val state =
+            MuxSubscriptionTracker.MuxState(
+                metadataGroupIds = setOf("g1"),
+                chatGroupIds = setOf("g1"),
+                chatSinceSeconds = 1000L,
+            )
+        tracker.update("wss://relay.example.com/", state)
+        // Trailing slash / host case must not split the entry: a CLOSED handler
+        // clearing with the raw socket URL has to hit the state the refresh stored.
+        assertFalse(tracker.needsRefresh("wss://relay.example.com", state))
+        tracker.clearRelay("wss://RELAY.example.com")
+        assertTrue(tracker.needsRefresh("wss://relay.example.com/", state))
+    }
+
+    // ========================================================================
+    // Staleness — silently dead subs must not hide behind needsRefresh dedup
+    // ========================================================================
+
+    private val state1 =
+        MuxSubscriptionTracker.MuxState(
+            metadataGroupIds = setOf("g1"),
+            chatGroupIds = setOf("g1"),
+            chatSinceSeconds = 1000L,
+        )
+
+    @Test
+    fun `stale only after the quiet window elapses`() {
+        val tracker = MuxSubscriptionTracker()
+        tracker.update("wss://relay", state1, nowMs = 0L)
+        assertFalse(tracker.isStale("wss://relay", nowMs = 600_000L, staleAfterMs = 600_000L))
+        assertTrue(tracker.isStale("wss://relay", nowMs = 600_001L, staleAfterMs = 600_000L))
+    }
+
+    @Test
+    fun `activity resets the quiet window`() {
+        val tracker = MuxSubscriptionTracker()
+        tracker.update("wss://relay", state1, nowMs = 0L)
+        tracker.noteActivity("wss://relay", nowMs = 500_000L)
+        assertFalse(tracker.isStale("wss://relay", nowMs = 1_000_000L, staleAfterMs = 600_000L))
+        assertTrue(tracker.isStale("wss://relay", nowMs = 1_100_001L, staleAfterMs = 600_000L))
+    }
+
+    @Test
+    fun `relay without active mux state is never stale`() {
+        val tracker = MuxSubscriptionTracker()
+        // No sub was ever sent (or it was cleared): there is nothing to re-arm.
+        tracker.noteActivity("wss://relay", nowMs = 0L)
+        assertFalse(tracker.isStale("wss://relay", nowMs = 10_000_000L, staleAfterMs = 600_000L))
+    }
 }
