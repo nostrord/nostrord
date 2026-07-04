@@ -3293,6 +3293,17 @@ body {
     margin-bottom: 20px;
 }
 
+/* Active-tab label restated above the filter box when the pills are icon-only.
+   Negative bottom margin pulls the search box close so title + search read as one group,
+   set apart from the pill strip above (toolbar gap is 12px). */
+.home-active-filter {
+    display: none;
+    margin: 8px 0 -4px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
 /* Compact content width: home filter tabs collapse to icons only (labels would otherwise
    overflow the strip when the sidebar narrows the column). */
 @container home-content (max-width: 639px) {
@@ -3302,6 +3313,10 @@ body {
 
     .home-toolbar .tab {
         gap: 0;
+    }
+
+    .home-active-filter {
+        display: block;
     }
 }
 
