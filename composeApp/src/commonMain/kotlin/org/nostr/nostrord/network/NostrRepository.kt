@@ -3913,6 +3913,31 @@ class NostrRepository(
                 val isRestricted = reason.contains("restricted") && !isQuotaOrRateLimit
                 val isAuthRequired = reason.contains("auth-required")
 
+                // A batched discovery REQ (meta_batch_ / members_batch_) dies WHOLE when any
+                // #d in it is a private group — relay29 validates the filter as one — so the
+                // public groups batched alongside never get their 39000/39002 and render as
+                // bare-id cards (profile page / friends grid). Split the batch into per-group
+                // REQs once: the private offenders CLOSE individually (and pick up the
+                // restricted mark below on their own subs) while the public ones resolve.
+                // auth-required is NOT split: fetchGroupPreviews already replays the same
+                // batch once AUTH signs, and a restricted CLOSED on that replay lands here.
+                if (isRestricted && (subId.startsWith("meta_batch_") || subId.startsWith("members_batch_"))) {
+                    val batchIds = client.takeBatchGroupIds(subId)
+                    if (batchIds != null) {
+                        val isMeta = subId.startsWith("meta_batch_")
+                        scope.launch {
+                            batchIds.forEach { id ->
+                                try {
+                                    if (isMeta) client.requestGroupMetadata(id) else client.requestGroupMembers(id)
+                                } catch (e: Throwable) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                }
+                            }
+                        }
+                    }
+                    return
+                }
+
                 // "restricted" on the group-list subscription: distinguish between
                 // (a) unfiltered requestGroups() failing — relay genuinely denies access,
                 // and (b) #d-filtered requestGroupsForIds() failing because one of the

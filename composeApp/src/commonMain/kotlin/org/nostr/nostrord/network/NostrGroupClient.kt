@@ -756,6 +756,22 @@ class NostrGroupClient(
         return subId
     }
 
+    // Group ids behind each one-shot batch REQ (meta_batch_ / members_batch_). relay29
+    // validates a filter as a whole: ONE private group in the #d list gets the ENTIRE
+    // batch CLOSED ("auth-required"/"restricted"), starving the public groups batched
+    // with it. The CLOSED handler takes these ids and splits the batch into per-group
+    // REQs. Copy-on-write + @Volatile: written from request coroutines, consumed on the
+    // relay pipeline.
+    @kotlin.concurrent.Volatile
+    private var batchSubGroupIds: Map<String, List<String>> = emptyMap()
+
+    /** One-shot: returns the batch's ids and forgets them, so one CLOSED splits once. */
+    fun takeBatchGroupIds(subId: String): List<String>? {
+        val ids = batchSubGroupIds[subId] ?: return null
+        batchSubGroupIds = batchSubGroupIds - subId
+        return ids
+    }
+
     /**
      * Batched kind:39000 metadata fetch for several groups in one REQ (friends-group
      * discovery). Uses its own sub id so it never disturbs the relay's group-list
@@ -763,6 +779,7 @@ class NostrGroupClient(
      */
     suspend fun requestGroupsMetadata(groupIds: List<String>): String {
         val subId = "meta_batch_${groupIds.sorted().joinToString(",").hashCode().toUInt()}"
+        batchSubGroupIds = batchSubGroupIds + (subId to groupIds)
         trySendClose(subId)
         val req = buildJsonArray {
             add("REQ")
@@ -1612,6 +1629,7 @@ class NostrGroupClient(
      */
     suspend fun requestGroupsMembers(groupIds: List<String>): String {
         val subId = "members_batch_${groupIds.sorted().joinToString(",").hashCode().toUInt()}"
+        batchSubGroupIds = batchSubGroupIds + (subId to groupIds)
         trySendClose(subId)
         val req = buildJsonArray {
             add("REQ")
