@@ -179,22 +179,6 @@ class GroupManager(
     private val _orphanedJoinedByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> = _orphanedJoinedByRelay.asStateFlow()
 
-    init {
-        scope.launch {
-            kotlinx.coroutines.flow.combine(
-                _groupsByRelay,
-                _joinedGroupsByRelay,
-                _completeGroupLoadRelays,
-            ) { groupsMap, joinedMap, doneRelays ->
-                doneRelays.associateWith { relay ->
-                    val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
-                    val joined = joinedMap[relay].orEmpty()
-                    joined - known
-                }.filterValues { it.isNotEmpty() }
-            }.collect { _orphanedJoinedByRelay.value = it }
-        }
-    }
-
     // The group currently being viewed by the user.
     // Mux chat/reactions subscriptions are scoped to this group only.
     private var _activeGroupId: String? = null
@@ -447,6 +431,28 @@ class GroupManager(
     // Synchronous active-relay view for internal use (avoids stateIn dispatch lag).
     private val activeJoinedGroups: Set<String>
         get() = currentRelayUrl?.normalizeRelayUrl()?.let { _joinedGroupsByRelay.value[it] } ?: emptySet()
+
+    // Orphan derivation: joined pins with no kind:39000 on a relay that finished its
+    // group list. This init MUST sit below the declarations of every flow the combine
+    // reads (_groupsByRelay, _joinedGroupsByRelay, _completeGroupLoadRelays): the
+    // launched coroutine can run while the constructor is still assigning later
+    // fields, and a not-yet-assigned StateFlow reaches combine as null (cold-boot
+    // NPE in CombineKt, crashed 2.0.1 on open).
+    init {
+        scope.launch {
+            kotlinx.coroutines.flow.combine(
+                _groupsByRelay,
+                _joinedGroupsByRelay,
+                _completeGroupLoadRelays,
+            ) { groupsMap, joinedMap, doneRelays ->
+                doneRelays.associateWith { relay ->
+                    val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
+                    val joined = joinedMap[relay].orEmpty()
+                    joined - known
+                }.filterValues { it.isNotEmpty() }
+            }.collect { _orphanedJoinedByRelay.value = it }
+        }
+    }
 
     // ==========================================================================
     // STATE MACHINE: Per-group loading controller with formal state transitions
