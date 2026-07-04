@@ -26,6 +26,8 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.MentionableGroup
+import org.nostr.nostrord.ui.scroll.ChatScrollPolicy
+import org.nostr.nostrord.ui.scroll.JumpPillTarget
 import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -2176,18 +2178,25 @@ val ChatScreen =
                     // first tap focuses the "New messages" divider so they're read top-down,
                     // the second drops to the very latest.
                     if (!atBottomState) {
-                        val hasDivider = lastReadSnapshot != null && unreadCount > 0
+                        // Stage-1 (divider) tap gated by the shared policy: only with unread
+                        // from others to read there, otherwise straight to the bottom.
+                        val jumpTarget = ChatScrollPolicy.onJumpPillTap(
+                            hasDivider = lastReadSnapshot != null,
+                            dividerSeen = dividerSeen.current == true,
+                            unreadFromOthers = unreadCount,
+                        )
+                        val jumpsToDivider = jumpTarget == JumpPillTarget.Divider
                         button {
                             key = "chat-jump-bottom"
                             className = ClassName("chat-jump-bottom")
-                            title = if (hasDivider) "Jump to new messages" else "Jump to latest message"
+                            title = if (jumpsToDivider) "Jump to new messages" else "Jump to latest message"
                             onClick = {
-                                if (hasDivider && dividerSeen.current != true) {
+                                if (jumpsToDivider) {
                                     // First tap: land on the "New messages" divider.
                                     dividerSeen.current = true
                                     setScrollKey("new-msg-divider")
                                 } else {
-                                    // Second tap (or no divider): drop to the latest and
+                                    // Second tap (or nothing unread): drop to the latest and
                                     // dismiss the divider for this session.
                                     dividerSeen.current = false
                                     setJumpNonce { it + 1 }
@@ -2195,13 +2204,16 @@ val ChatScreen =
                                 }
                             }
                             val unreadLabel = if (unreadCount > 99) "99+" else unreadCount.toString()
-                            if (unreadCount > 0) {
+                            // Badge + count until the divider has been seen; after that the
+                            // pill reads as stage 2, "Jump to latest" (native parity).
+                            val showCount = unreadCount > 0 && dividerSeen.current != true
+                            if (showCount) {
                                 span {
                                     className = ClassName("chat-jump-badge")
                                     +unreadLabel
                                 }
                             }
-                            span { +(if (unreadCount > 0) "$unreadLabel new" else "Jump to latest") }
+                            span { +(if (showCount) "$unreadLabel new" else "Jump to latest") }
                             // Down chevron (matches native KeyboardArrowDown).
                             icon(Ic.ExpandMore)
                         }

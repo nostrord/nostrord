@@ -79,6 +79,8 @@ import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
+import org.nostr.nostrord.ui.scroll.ChatScrollPolicy
+import org.nostr.nostrord.ui.scroll.JumpPillTarget
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.buildShareMessageLink
@@ -286,6 +288,7 @@ fun MessagesList(
                 currentUserPubkey != null &&
                 item.message.pubkey == currentUserPubkey
         },
+        isPinnedToBottom = { scrollStateHolder.atBottom },
     )
 
     // Fetch by ID immediately — covers cursor-drift misses independently of pagination.
@@ -884,7 +887,8 @@ fun MessagesList(
                             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
                         ) {
                             // Jump-to-bottom pill (prototype design): a floating-bg rounded
-                            // pill with an optional unread count and a down chevron. Two-stage:
+                            // pill with an optional unread count and a down chevron. Two-stage
+                            // only while there are unread messages from others (shared policy):
                             // the first tap focuses the "New messages" divider so they're read
                             // top-down, the next drops to the very latest.
                             val interaction = remember { MutableInteractionSource() }
@@ -898,7 +902,12 @@ fun MessagesList(
                                     .hoverable(interaction)
                                     .clickable {
                                         val dividerIdx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
-                                        if (dividerIdx >= 0 && !dividerSeen) {
+                                        val target = ChatScrollPolicy.onJumpPillTap(
+                                            hasDivider = dividerIdx >= 0,
+                                            dividerSeen = dividerSeen,
+                                            unreadFromOthers = unreadFromOthersCount,
+                                        )
+                                        if (target == JumpPillTarget.Divider) {
                                             dividerSeen = true
                                             coroutineScope.launch { listState.animateScrollToItem(dividerIdx) }
                                         } else {
@@ -918,14 +927,16 @@ fun MessagesList(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                if (unreadFromOthersCount > 0) {
+                                // Badge + count label only while the NEXT tap goes to the
+                                // divider; once it's been seen the pill reads as stage 2.
+                                if (unreadFromOthersCount > 0 && !dividerSeen) {
                                     UnreadBadge(count = unreadFromOthersCount, size = 18.dp)
                                 }
                                 Text(
                                     text = when {
+                                        dividerSeen || unreadFromOthersCount == 0 -> "Jump to latest"
                                         unreadFromOthersCount > 99 -> "99+ new"
-                                        unreadFromOthersCount > 0 -> "$unreadFromOthersCount new"
-                                        else -> "Jump to latest"
+                                        else -> "$unreadFromOthersCount new"
                                     },
                                     color = contentColor,
                                     fontSize = 13.sp,

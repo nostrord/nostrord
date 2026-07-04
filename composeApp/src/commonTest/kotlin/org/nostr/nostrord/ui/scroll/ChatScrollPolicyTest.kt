@@ -47,8 +47,15 @@ class ChatScrollPolicyTest {
         val d = ChatScrollPolicy.onItemsChanged(s, hasDivider = true, isSeeking = true)
         assertNull(d.target)
         assertFalse(d.state.openedAtDivider)
-        // Even at bottom, seeking suppresses the pin so the seek owns scrolling.
+        // The seek IS the entry alignment: latched once, positioned mid-history.
+        assertTrue(d.state.entryResolved)
+        assertFalse(d.state.atBottom)
         assertFalse(ChatScrollPolicy.shouldPinToBottom(d.state, isSeeking = true))
+        // After the seek lands (no longer seeking), a divider must not re-align the
+        // view, and the latch must not flip back to bottom on its own.
+        val later = ChatScrollPolicy.onItemsChanged(d.state, hasDivider = true, isSeeking = false)
+        assertNull(later.target)
+        assertEquals(d.state, later.state)
     }
 
     @Test
@@ -120,5 +127,34 @@ class ChatScrollPolicyTest {
         val later = ChatScrollPolicy.onItemsChanged(s, hasDivider = true, isSeeking = false)
         assertNull(later.target)
         assertEquals(s, later.state)
+    }
+
+    @Test
+    fun jumpPillFirstTapTargetsDividerOnlyWithUnread() {
+        // Divider present + unread from others: two-stage, first tap lands on it.
+        assertEquals(
+            JumpPillTarget.Divider,
+            ChatScrollPolicy.onJumpPillTap(hasDivider = true, dividerSeen = false, unreadFromOthers = 3),
+        )
+        // Divider present but nothing unread (stale landmark after a backfill):
+        // go straight to the bottom (#168).
+        assertEquals(
+            JumpPillTarget.Bottom,
+            ChatScrollPolicy.onJumpPillTap(hasDivider = true, dividerSeen = false, unreadFromOthers = 0),
+        )
+    }
+
+    @Test
+    fun jumpPillSecondTapAndNoDividerGoToBottom() {
+        // Divider already seen: second tap drops to the latest.
+        assertEquals(
+            JumpPillTarget.Bottom,
+            ChatScrollPolicy.onJumpPillTap(hasDivider = true, dividerSeen = true, unreadFromOthers = 3),
+        )
+        // No divider at all: always the bottom, unread or not.
+        assertEquals(
+            JumpPillTarget.Bottom,
+            ChatScrollPolicy.onJumpPillTap(hasDivider = false, dividerSeen = false, unreadFromOthers = 3),
+        )
     }
 }

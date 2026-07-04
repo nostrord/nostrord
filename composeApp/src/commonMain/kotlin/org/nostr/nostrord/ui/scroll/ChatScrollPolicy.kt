@@ -51,6 +51,9 @@ data class ChatScrollState(
 /** Where the chat should position itself on group entry. */
 enum class ScrollEntryTarget { Bottom, Divider }
 
+/** Where a jump-pill tap should land. */
+enum class JumpPillTarget { Divider, Bottom }
+
 /** Result of an entry-alignment decision: the next state plus the action to take. */
 data class EntryDecision(
     val state: ChatScrollState,
@@ -71,14 +74,18 @@ object ChatScrollPolicy {
      * later streaming chunks don't yank the view to the bottom. With NO divider it still
      * latches (target null, `atBottom` stays true), opening the group at the bottom AND
      * preventing a divider that appears later from re-aligning the view. While seeking a
-     * deep-link target the decision is deferred (state unchanged) so the seek owns scrolling.
+     * deep-link target the seek IS the entry alignment: latch with no target and clear
+     * [ChatScrollState.atBottom], since the seek positions the view mid-history and no
+     * later chunk or divider may re-align it (a deferred decision here used to resolve
+     * AFTER the seek and re-latch `atBottom = true` on a view sitting mid-history).
      */
     fun onItemsChanged(
         state: ChatScrollState,
         hasDivider: Boolean,
         isSeeking: Boolean,
     ): EntryDecision {
-        if (state.entryResolved || isSeeking) return EntryDecision(state, null)
+        if (state.entryResolved) return EntryDecision(state, null)
+        if (isSeeking) return EntryDecision(state.copy(entryResolved = true, atBottom = false), null)
         if (!hasDivider) return EntryDecision(state.copy(entryResolved = true), null)
         return EntryDecision(
             state.copy(entryResolved = true, openedAtDivider = true, atBottom = false),
@@ -124,4 +131,20 @@ object ChatScrollPolicy {
      * jump to and the FAB stays hidden (#129).
      */
     fun isScrolledAway(state: ChatScrollState): Boolean = !state.lastItemVisible
+
+    /**
+     * Two-stage jump pill. The first tap lands on the "New messages" divider ONLY
+     * while there are unread messages from others to read there; with nothing unread
+     * the divider is a stale landmark (after a backfill it can sit mid-history, with
+     * newer content below it), so the tap goes straight to the bottom (#168).
+     */
+    fun onJumpPillTap(
+        hasDivider: Boolean,
+        dividerSeen: Boolean,
+        unreadFromOthers: Int,
+    ): JumpPillTarget = if (hasDivider && !dividerSeen && unreadFromOthers > 0) {
+        JumpPillTarget.Divider
+    } else {
+        JumpPillTarget.Bottom
+    }
 }
