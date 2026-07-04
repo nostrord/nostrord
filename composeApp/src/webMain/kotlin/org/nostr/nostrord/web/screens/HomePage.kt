@@ -169,6 +169,12 @@ val HomePage =
                                 tabItem(filter == index, FILTER_ICONS[index], label) { setFilter(index) }
                             }
                         }
+                        // Icon-only pills (compact width) lose the active-tab label; restate it
+                        // above the filter box. Hidden by CSS at wide widths.
+                        h2 {
+                            className = ClassName("home-active-filter")
+                            +FILTERS[filter]
+                        }
                         div {
                             className = ClassName("home-search")
                             searchInput(

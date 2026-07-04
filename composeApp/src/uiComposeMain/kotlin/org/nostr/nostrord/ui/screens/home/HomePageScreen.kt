@@ -232,6 +232,18 @@ fun HomePageScreen(
                             iconOnly = isCompact,
                         )
                         Spacer(modifier = Modifier.height(12.dp))
+                        // Icon-only pills lose the active-tab label; restate it above the filter
+                        // box, grouped with the search field (more air above than below).
+                        if (isCompact) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                FILTERS[filter],
+                                color = NostrordColors.TextPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                         AppSearchField(
                             value = query,
                             onValueChange = { vm.setQuery(it) },
