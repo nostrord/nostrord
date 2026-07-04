@@ -578,6 +578,11 @@ class GroupViewModel(
         viewModelScope.launch { repo.loadMoreMessages(groupId, channel) }
     }
 
+    /** Explicit retry from the Stalled pagination state (the "Retry" affordance). */
+    fun retryLoadMore(channel: String? = null) {
+        viewModelScope.launch { repo.retryStalledLoad(groupId, channel) }
+    }
+
     fun fetchMessageById(messageId: String) {
         viewModelScope.launch { repo.fetchGroupMessageById(groupId, messageId) }
     }

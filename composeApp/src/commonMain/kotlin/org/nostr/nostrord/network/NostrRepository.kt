@@ -2806,6 +2806,8 @@ class NostrRepository(
 
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = groupManager.loadMoreMessages(groupId, channel)
 
+    override suspend fun retryStalledLoad(groupId: String, channel: String?): Boolean = groupManager.retryStalledLoad(groupId, channel)
+
     override suspend fun fetchGroupMessageById(groupId: String, messageId: String) {
         groupManager.fetchGroupMessageById(groupId, messageId)
     }

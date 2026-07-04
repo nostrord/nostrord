@@ -49,6 +49,17 @@ sealed class GroupLoadingState {
         val cursor: PaginationCursor,
     ) : GroupLoadingState()
 
+    /**
+     * Auto-pagination paused: several consecutive scroll-back REQs timed out with zero
+     * events on the same frontier, so re-firing from scroll position alone would spin the
+     * loading pill forever (each round is a full timeout window) against a relay that is
+     * not answering. `hasMore` is false, which stops the scroll-position triggers; only an
+     * explicit user retry (retryStalled → loadMore) resumes from [cursor].
+     */
+    data class Stalled(
+        val cursor: PaginationCursor,
+    ) : GroupLoadingState()
+
     /** Loading failed, can retry */
     data class Error(
         val cursor: PaginationCursor?,
@@ -156,7 +167,11 @@ class GroupLoadingController(
     private val pageSize: Int = 50,
     private val timeoutMs: Long = 10_000L,
     private val maxRetries: Int = 3,
+    private val maxConsecutivePaginationTimeouts: Int = 3,
 ) {
+    // Zero-event pagination timeouts in a row on the current frontier. Reset by any
+    // completed page (EOSE) or partial delivery; reaching the cap transitions to Stalled.
+    private var consecutivePaginationTimeouts = 0
     private val mutex = Mutex()
 
     private val _state = MutableStateFlow<GroupLoadingState>(GroupLoadingState.Idle)
@@ -297,6 +312,9 @@ class GroupLoadingController(
             // subscriptions (mux/live) before EOSE and not be counted by this tracker, causing
             // a false Exhausted when there is still more history. The next (empty) pagination
             // page will correctly transition to Exhausted.
+            // A completed round trip (EOSE) proves the relay is answering on this frontier.
+            consecutivePaginationTimeouts = 0
+
             val messagesReceived = tracker.messageCount
             val isExhausted = !tracker.isInitialLoad && messagesReceived < pageSize
 
@@ -451,8 +469,21 @@ class GroupLoadingController(
             timeoutJob?.cancel()
             timeoutJob = null
             currentTracker = null
+            consecutivePaginationTimeouts = 0
             _state.value = GroupLoadingState.Idle
         }
+    }
+
+    /**
+     * Resume pagination from [GroupLoadingState.Stalled] — the UI's explicit retry.
+     * Flips back to HasMore at the stalled frontier (one fresh attempt; another
+     * zero-event timeout re-stalls immediately). Returns false in any other state.
+     */
+    suspend fun retryStalled(): Boolean = mutex.withLock {
+        val s = _state.value as? GroupLoadingState.Stalled ?: return@withLock false
+        consecutivePaginationTimeouts = maxConsecutivePaginationTimeouts - 1
+        _state.value = GroupLoadingState.HasMore(s.cursor)
+        true
     }
 
     /**
@@ -468,6 +499,7 @@ class GroupLoadingController(
         is GroupLoadingState.Exhausted -> s.cursor
         is GroupLoadingState.Error -> s.cursor
         is GroupLoadingState.Retrying -> s.cursor
+        is GroupLoadingState.Stalled -> s.cursor
         else -> null
     }
 
@@ -503,8 +535,21 @@ class GroupLoadingController(
             // next scroll retries from the same place. Settling on Error set hasMore=false, which
             // hid pagination on web until an app restart. Initial-load timeouts (no cursor) still
             // go to Error so the load screen can show its retry affordance.
+            //
+            // But not forever: with the view parked at the top, each HasMore revert re-fires the
+            // scroll trigger immediately, so an unresponsive relay turns into an endless loop of
+            // timeout windows with the loading pill up. Zero-event timeouts count toward a cap;
+            // at the cap the group goes Stalled (hasMore=false) and pagination resumes only from
+            // the UI's explicit retry. Partial delivery is progress, not a stall: reset.
             _state.value = if (!isInitial && advancedCursor != null) {
-                GroupLoadingState.HasMore(advancedCursor)
+                if (tracker.messageCount > 0) {
+                    consecutivePaginationTimeouts = 0
+                    GroupLoadingState.HasMore(advancedCursor)
+                } else if (++consecutivePaginationTimeouts >= maxConsecutivePaginationTimeouts) {
+                    GroupLoadingState.Stalled(advancedCursor)
+                } else {
+                    GroupLoadingState.HasMore(advancedCursor)
+                }
             } else {
                 GroupLoadingState.Error(
                     cursor = advancedCursor,

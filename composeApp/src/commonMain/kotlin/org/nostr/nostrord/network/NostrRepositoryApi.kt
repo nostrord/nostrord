@@ -488,6 +488,16 @@ interface NostrRepositoryApi {
         channel: String? = null,
     ): Boolean
 
+    /**
+     * Explicit retry for a group whose pagination is [GroupLoadingState.Stalled]
+     * (repeated zero-event scroll-back timeouts). One attempt from the stalled
+     * frontier; no-op (false) in any other state.
+     */
+    suspend fun retryStalledLoad(
+        groupId: String,
+        channel: String? = null,
+    ): Boolean
+
     suspend fun fetchGroupMessageById(
         groupId: String,
         messageId: String,

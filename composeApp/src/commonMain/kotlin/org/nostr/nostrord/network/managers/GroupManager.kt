@@ -2485,6 +2485,19 @@ class GroupManager(
         }
     }
 
+    /**
+     * Explicit user retry for a group whose pagination stalled (repeated zero-event
+     * timeouts → [GroupLoadingState.Stalled]). Flips back to HasMore at the stalled
+     * frontier and fires one attempt. Scroll-position triggers stay gated on hasMore,
+     * so only the UI's retry affordance reaches this.
+     */
+    suspend fun retryStalledLoad(groupId: String, channel: String? = null): Boolean {
+        val controller = loadingRegistry.getController(groupId)
+        if (!controller.retryStalled()) return false
+        updateLegacyFlags(groupId, controller.state.value)
+        return loadMoreMessages(groupId, channel)
+    }
+
     suspend fun fetchGroupMessageById(groupId: String, messageId: String) {
         clientForGroup(groupId)?.requestGroupMessageById(groupId, messageId)
     }

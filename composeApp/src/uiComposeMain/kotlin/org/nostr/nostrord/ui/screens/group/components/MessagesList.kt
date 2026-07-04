@@ -134,7 +134,10 @@ fun MessagesList(
     replyTargetId: String? = null,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
+    // Pagination stalled after repeated unanswered scroll-back REQs; shows the retry row.
+    isLoadStalled: Boolean = false,
     onLoadMore: () -> Unit = {},
+    onRetryLoadMore: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
@@ -874,6 +877,41 @@ fun MessagesList(
                                     text = "Loading messages…",
                                     color = NostrordColors.TextMuted,
                                     fontSize = 11.sp,
+                                )
+                            }
+                        }
+
+                        // Pagination stalled (repeated unanswered scroll-back REQs): honest
+                        // failure row with a manual retry, instead of an endless spinner.
+                        AnimatedVisibility(
+                            visible = isLoadStalled,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier =
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .offset { IntOffset(0, if (searchActive) searchBarHeightPx else 0) },
+                        ) {
+                            Row(
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(NostrordColors.Background.copy(alpha = 0.85f))
+                                    .padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Couldn't load older messages",
+                                    color = NostrordColors.TextMuted,
+                                    fontSize = 11.sp,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Retry",
+                                    color = NostrordColors.TextPrimary,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.clickable { onRetryLoadMore() },
                                 )
                             }
                         }

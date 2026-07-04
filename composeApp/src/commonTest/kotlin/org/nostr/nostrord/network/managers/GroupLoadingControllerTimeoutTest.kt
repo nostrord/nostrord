@@ -252,4 +252,100 @@ class GroupLoadingControllerTimeoutTest {
         assertTrue(!c.holdInitialLoadForReauth(pageSubId), "pagination must settle normally, not be held")
         scope.cancel()
     }
+
+    private suspend fun reachHasMore(c: GroupLoadingController) {
+        val subId = c.startInitialLoad()!!
+        c.trackMessage(subId, timestamp = 1_700_000_000L, eventId = "a".repeat(64))
+        c.handleEose(subId, relayUrl = "wss://relay.example.com")
+        assertTrue(c.state.value is GroupLoadingState.HasMore)
+    }
+
+    @Test
+    fun `repeated zero-event pagination timeouts stall the group`() = runTest {
+        val scope = TestScope(testScheduler)
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, timeoutMs = 50L)
+        reachHasMore(c)
+
+        // Two unanswered rounds still revert to HasMore (the NOSTR-008 behavior)...
+        repeat(2) {
+            c.startPagination()!!
+            advanceTimeBy(200)
+            runCurrent()
+            assertTrue(c.state.value is GroupLoadingState.HasMore, "round ${it + 1} should revert to HasMore")
+        }
+        // ...the third stalls: with the view parked at the top, each revert re-fires the
+        // scroll trigger, so an unresponsive relay would loop timeout windows forever.
+        c.startPagination()!!
+        advanceTimeBy(200)
+        runCurrent()
+        assertTrue(
+            c.state.value is GroupLoadingState.Stalled,
+            "third consecutive zero-event timeout must stall, got ${c.state.value}",
+        )
+        // Stalled gates the auto-trigger: hasMore is false and startPagination refuses.
+        assertTrue(!c.state.value.hasMore)
+        assertNull(c.startPagination(), "auto pagination must not resume from Stalled")
+        scope.cancel()
+    }
+
+    @Test
+    fun `retryStalled resumes exactly one attempt from the stalled frontier`() = runTest {
+        val scope = TestScope(testScheduler)
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, timeoutMs = 50L)
+        reachHasMore(c)
+        repeat(3) {
+            c.startPagination()!!
+            advanceTimeBy(200)
+            runCurrent()
+        }
+        val stalled = c.state.value
+        assertTrue(stalled is GroupLoadingState.Stalled)
+
+        assertTrue(c.retryStalled(), "retryStalled must resume from Stalled")
+        val resumed = c.state.value
+        assertTrue(resumed is GroupLoadingState.HasMore)
+        assertEquals(stalled.cursor, resumed.cursor, "retry must keep the stalled frontier")
+
+        // The retry attempt itself timing out unanswered re-stalls immediately.
+        c.startPagination()!!
+        advanceTimeBy(200)
+        runCurrent()
+        assertTrue(
+            c.state.value is GroupLoadingState.Stalled,
+            "an unanswered retry must re-stall, got ${c.state.value}",
+        )
+        // And retryStalled is a no-op outside Stalled.
+        c.retryStalled()
+        c.startPagination()!!
+        assertTrue(!c.retryStalled(), "retryStalled must be a no-op while Paginating")
+        scope.cancel()
+    }
+
+    @Test
+    fun `completed page resets the stall counter`() = runTest {
+        val scope = TestScope(testScheduler)
+        // pageSize = 1 so a one-message page completes as HasMore, not Exhausted.
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, pageSize = 1, timeoutMs = 50L)
+        reachHasMore(c)
+
+        // Two unanswered rounds, then a page that completes: the relay is answering again.
+        repeat(2) {
+            c.startPagination()!!
+            advanceTimeBy(200)
+            runCurrent()
+        }
+        val (pageSub, _) = c.startPagination()!!
+        c.trackMessage(pageSub, timestamp = 1_600_000_000L, eventId = "b".repeat(64))
+        c.handleEose(pageSub, relayUrl = "wss://relay.example.com")
+        assertTrue(c.state.value is GroupLoadingState.HasMore)
+
+        // The counter reset: two more unanswered rounds still revert to HasMore.
+        repeat(2) {
+            c.startPagination()!!
+            advanceTimeBy(200)
+            runCurrent()
+            assertTrue(c.state.value is GroupLoadingState.HasMore, "counter must have reset after the completed page")
+        }
+        scope.cancel()
+    }
 }
