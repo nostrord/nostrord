@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.screens.group.components
 
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -13,8 +14,11 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import org.nostr.nostrord.ui.scroll.ChatScrollPolicy
 import org.nostr.nostrord.ui.scroll.ScrollEntryTarget
 
@@ -170,14 +174,33 @@ fun <T> ScrollPositionEffect(
 ) {
     val currentItems by rememberUpdatedState(items)
 
+    // initialScrollToEnd is false while a deep-link seek owns positioning, then flips true
+    // once the target is consumed. The effects below are keyed on (groupId, listState), so
+    // they read this LIVE value instead of the launch-time capture: an early `return` on the
+    // captured value would disarm bottom-pinning, the restore gate, and the latch tracker for
+    // the whole visit (a notification-link entry then never shows the jump pill, never
+    // demotes atBottom, and never paginates on scroll-up).
+    val scrollToEnd by rememberUpdatedState(initialScrollToEnd)
+
     // Open settle window: for a short time after entering the group, keep pinning to the bottom
     // regardless of the atBottom latch, so late-decoding media or streaming system events can't
     // strand the open above the true bottom (the latch can briefly read "not at bottom" mid-reflow).
-    var settling by remember(groupId) { mutableStateOf(true) }
+    // A seek entry gets NO settle window: the seek scrolls mid-history and the window's
+    // latch-bypass would fight it toward the bottom.
+    var settling by remember(groupId) { mutableStateOf(initialScrollToEnd) }
     LaunchedEffect(groupId) {
-        settling = true
+        if (!settling) return@LaunchedEffect
         kotlinx.coroutines.delay(1500)
         settling = false
+    }
+
+    // A real user gesture ends the settle window immediately. While it is open the
+    // pin ignores the atBottom latch, so a scroll-up right after opening would fight
+    // the pin frame by frame (web parity: 712fe5b3).
+    LaunchedEffect(groupId, listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) settling = false
+        }
     }
 
     // Resolve the restoration gate once items first appear. The authoritative entry
@@ -192,8 +215,10 @@ fun <T> ScrollPositionEffect(
     // it would keep awaiting totalItemsCount > 0 on the discarded (detached) state
     // forever, so markRestored never fires, the tracker's readings are dropped, and
     // the jump-to-bottom FAB never appears until the group is re-entered.
+    // Runs on seek entries too: restoration only opens the user-scroll tracker gate, and a
+    // deep-link visit needs the latch/FAB tracking just as much (the seek lands mid-history,
+    // which is exactly when the jump pill must be able to appear).
     LaunchedEffect(groupId, listState) {
-        if (!initialScrollToEnd) return@LaunchedEffect
         snapshotFlow { listState.layoutInfo.totalItemsCount }
             .first { it > 0 }
         stateHolder.markRestored()
@@ -211,7 +236,6 @@ fun <T> ScrollPositionEffect(
     // cold-load swap described above, otherwise stick-to-bottom would drive the
     // discarded state and never move the visible list.
     LaunchedEffect(groupId, listState) {
-        if (!initialScrollToEnd) return@LaunchedEffect
         snapshotFlow {
             // Height-aware key. Re-pin on a new tail item (size) AND on tail height growth
             // (the last visible item's index and measured size), so a late-decoding image,
@@ -221,13 +245,38 @@ fun <T> ScrollPositionEffect(
             // and the view stayed parked above the true bottom while the image expanded.
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()
-            Triple(currentItems.size, last?.index ?: -1, last?.size ?: 0)
+            val total = info.totalItemsCount
+            // Same-snapshot bottom reading, required together with the latch. The latch
+            // alone lags: the user's own scroll-up emits here (the last item leaving the
+            // viewport changes the key) BEFORE the tracker below demotes it, and the N-2
+            // demotion tolerance still reads "bottom" with the last item just out of view,
+            // so the latch by itself would let this pin yank the user's gesture back down.
+            val reachedBottom =
+                (last != null && total > 0 && last.index >= total - 2) ||
+                    (total > 0 && !listState.canScrollForward)
+            PinReading(currentItems.size, last?.index ?: -1, last?.size ?: 0, reachedBottom)
         }
             .distinctUntilChanged()
-            .collect {
-                if (stateHolder.atBottom || settling) {
+            .collect { reading ->
+                // Suspended while a deep-link seek owns positioning; re-arms live once
+                // the target is consumed (scrollToEnd flips true, no relaunch needed).
+                if (!scrollToEnd) return@collect
+                // Never pin against an active gesture or fling; the next tail change
+                // re-evaluates with the latch, which the gesture will have demoted.
+                if (listState.isScrollInProgress) return@collect
+                if ((stateHolder.atBottom && reading.reachedBottom) || settling) {
                     val idx = currentItems.lastIndex
-                    if (idx >= 0) listState.scrollToItem(idx, Int.MAX_VALUE)
+                    if (idx >= 0) {
+                        try {
+                            listState.scrollToItem(idx, Int.MAX_VALUE)
+                        } catch (e: CancellationException) {
+                            // A gesture starting mid-pin preempts the scroll mutex
+                            // (UserInput > Default) and cancels scrollToItem, NOT this
+                            // effect. Rethrow only real cancellation; otherwise skip the
+                            // pin and keep the effect alive for the rest of the visit.
+                            if (!currentCoroutineContext().isActive) throw e
+                        }
+                    }
                 }
             }
     }
@@ -240,7 +289,6 @@ fun <T> ScrollPositionEffect(
     // promoted back to bottom (web's `wasNotAtBottom` round-trip gate). The pin
     // effect reads the latch, not the layout, so this can never race it.
     LaunchedEffect(groupId, listState) {
-        if (!initialScrollToEnd) return@LaunchedEffect
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -293,6 +341,14 @@ fun <T> ScrollPositionEffect(
     }
 }
 
+/** Snapshot key for the bottom pin: tail identity/height plus a same-frame bottom reading. */
+private data class PinReading(
+    val itemCount: Int,
+    val lastVisibleIndex: Int,
+    val lastVisibleSize: Int,
+    val reachedBottom: Boolean,
+)
+
 /**
  * Auto-scroll to new messages when user is near the bottom.
  * Always scrolls when the appended item is from the current user (their own send).
@@ -305,16 +361,22 @@ fun <T> AutoScrollEffect(
     enabled: Boolean = true,
     nearBottomThreshold: Int = 3,
     isFromCurrentUser: ((T) -> Boolean)? = null,
+    isPinnedToBottom: () -> Boolean = { true },
 ) {
     var previousLastKey by remember { mutableStateOf<String?>(null) }
     var previousSize by remember { mutableStateOf(items.size) }
 
     LaunchedEffect(items.size) {
-        if (!enabled || items.isEmpty()) {
-            previousSize = items.size
-            previousLastKey = items.lastOrNull()?.let { getItemKey?.invoke(it) }
-            return@LaunchedEffect
-        }
+        val sizeBefore = previousSize
+        val lastKeyBefore = previousLastKey
+        // Trackers update BEFORE any scroll: a concurrent user gesture preempts the
+        // scroll mutex and cancels scrollToItem below, and updating afterwards left
+        // them stale, so the next pagination prepend read as a fresh append and
+        // snapped the reader to the bottom from screens away.
+        previousSize = items.size
+        previousLastKey = items.lastOrNull()?.let { getItemKey?.invoke(it) }
+
+        if (!enabled || items.isEmpty()) return@LaunchedEffect
 
         val lastItem = items.last()
         val currentLastKey = getItemKey?.invoke(lastItem)
@@ -323,22 +385,23 @@ fun <T> AutoScrollEffect(
         val newMessageAppended =
             getItemKey != null &&
                 currentLastKey != null &&
-                currentLastKey != previousLastKey &&
-                previousSize > 0
+                currentLastKey != lastKeyBefore &&
+                sizeBefore > 0
 
-        if (newMessageAppended) {
-            val ownAppend = isFromCurrentUser?.invoke(lastItem) == true
-            val lastVisibleIndex =
-                listState.layoutInfo.visibleItemsInfo
-                    .lastOrNull()
-                    ?.index ?: 0
-            val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
-            if (ownAppend || wasNearBottom) {
-                listState.scrollToItem(items.lastIndex)
-            }
+        if (!newMessageAppended) return@LaunchedEffect
+
+        val ownAppend = isFromCurrentUser?.invoke(lastItem) == true
+        val lastVisibleIndex =
+            listState.layoutInfo.visibleItemsInfo
+                .lastOrNull()
+                ?.index ?: 0
+        // Nearness measured against the CURRENT size: a prepend shifts indices up, so
+        // comparing against the pre-change size read "near bottom" screens away.
+        val wasNearBottom = lastVisibleIndex >= items.size - 1 - nearBottomThreshold
+        // Others' appends only follow while the bottom latch holds; own sends always
+        // drop to the bottom.
+        if (ownAppend || (isPinnedToBottom() && wasNearBottom)) {
+            listState.scrollToItem(items.lastIndex)
         }
-
-        previousSize = items.size
-        previousLastKey = currentLastKey
     }
 }
