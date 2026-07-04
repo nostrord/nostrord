@@ -366,6 +366,11 @@ class FakeNostrRepository : NostrRepositoryApi {
         channel: String?,
     ): Boolean = false
 
+    override suspend fun retryStalledLoad(
+        groupId: String,
+        channel: String?,
+    ): Boolean = false
+
     override suspend fun sendMessage(
         groupId: String,
         content: String,

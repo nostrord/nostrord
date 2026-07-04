@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.ConfirmDialog
@@ -166,8 +167,10 @@ fun GroupScreen(
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
     val awaitingAuthReadSet by vm.groupsAwaitingAuthRead.collectAsState()
+    val groupStatesMap by vm.groupStates.collectAsState()
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
+    val isLoadStalled = groupStatesMap[groupId] is GroupLoadingState.Stalled
 
     // messageInput is only the failure-restore channel into the composer (the live text
     // lives in MessageInput); keyed by groupId so a restore value can't leak across groups.
@@ -914,7 +917,9 @@ fun GroupScreen(
                     isInitialLoading = isInitialLoading,
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
+                    isLoadStalled = isLoadStalled,
                     onLoadMore = { vm.loadMoreMessages(selectedChannel) },
+                    onRetryLoadMore = { vm.retryLoadMore(selectedChannel) },
                     joinedGroups = joinedGroups,
                     groups = groups,
                     onNavigateToGroup = onNavigateToGroup,
@@ -1052,7 +1057,9 @@ fun GroupScreen(
                     isInitialLoading = isInitialLoading,
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
+                    isLoadStalled = isLoadStalled,
                     onLoadMore = { vm.loadMoreMessages(selectedChannel) },
+                    onRetryLoadMore = { vm.retryLoadMore(selectedChannel) },
                     joinedGroups = joinedGroups,
                     groups = groups,
                     onNavigateToGroup = onNavigateToGroup,

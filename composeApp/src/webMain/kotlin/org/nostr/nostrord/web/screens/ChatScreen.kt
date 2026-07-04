@@ -1932,6 +1932,22 @@ val ChatScreen =
                             +"Loading earlier messages…"
                         }
                     }
+                    // Pagination stalled (repeated unanswered scroll-back REQs): honest
+                    // failure row with a manual retry instead of an endless spinner. The
+                    // stalled state has hasMore=false, so Virtuoso's startReached no
+                    // longer auto-fires; only this button resumes.
+                    if (groupLoadingState is GroupLoadingState.Stalled && messages.isNotEmpty()) {
+                        div {
+                            key = "chat-load-stalled"
+                            className = ClassName("chat-loading-more chat-load-stalled")
+                            +"Couldn't load older messages"
+                            button {
+                                className = ClassName("chat-load-retry")
+                                onClick = { vm.retryLoadMore() }
+                                +"Retry"
+                            }
+                        }
+                    }
                     // Empty-state gating — matches native GroupScreen.kt:343:
                     // `isInitialLoading = isLoadingMoreMap[groupId] == true && empty`.
                     // Skeleton only while the active REQ is in flight; once
