@@ -850,11 +850,15 @@ class GroupManager(
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
-        if (groupId != null) {
+        // Instant render from the persistent history cache. The fast lane below joins this
+        // job before computing the forward-fill frontier, so an evicted group's cached
+        // tail counts as "newest we hold".
+        val hydrateJob = if (groupId != null) {
             touchGroupRecency(groupId)
             evictGroupMessagesBeyondCap()
-            // Instant render from the persistent history cache; the live sub refreshes the tail.
             scope.launch { hydrateMessagesFromCache(groupId) }
+        } else {
+            null
         }
         // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
         // navigated to a private group URL without being a member).
@@ -919,7 +923,33 @@ class GroupManager(
                 val needsLoad = isNew ||
                     loadState is GroupLoadingState.Idle ||
                     loadState is GroupLoadingState.Error
-                if (needsLoad) requestGroupMessages(groupId)
+                if (needsLoad) {
+                    requestGroupMessages(groupId)
+                } else {
+                    // Re-entry to an already-loaded group: the cached/in-memory tail
+                    // rendered instantly, but anything that arrived while the live sub
+                    // was silently dead (idle-drop without CLOSED, pre-AUTH empty EOSE,
+                    // tracker-deduped refresh) stays invisible until a later AUTH or
+                    // reconnect happens to re-arm it. One targeted forward REQ closes
+                    // that window in a single round-trip; the deduplicator absorbs the
+                    // overlap with what we already hold.
+                    hydrateJob?.join()
+                    val newest = _messages.value[groupId]?.lastOrNull()?.createdAt
+                    if (newest != null &&
+                        groupId !in _restrictedGroups.value.keys &&
+                        shouldRequest(groupId, "entry_gapfill", cooldownMs = 20_000L)
+                    ) {
+                        try {
+                            client.requestGroupsMessagesSince(
+                                listOf(groupId),
+                                newest - LiveCursorStore.RECONNECT_OVERLAP_S,
+                            )
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
             }
 
             muxJob.join()
