@@ -3867,6 +3867,12 @@ class NostrRepository(
                     }
                     // Wake any pending batchFetch waiting on EOSE for this metadata sub.
                     metadataManager.notifyMetadataEose(subId, sourceRelayUrl)
+                    // EOSE on any mux sub is proof of life for the relay's live feed —
+                    // the signal the periodic stale-re-arm keys on (quiet relays have
+                    // no EVENTs, so the EOSE is what keeps them from reading as dead).
+                    if (subId.startsWith("mux_")) {
+                        groupManager.noteMuxActivity(client.getRelayUrl())
+                    }
                     // After the mux chat subscription delivers its backlog, detect any gaps
                     // (groups whose cursor expected events that never arrived from this relay).
                     if (subId.startsWith("mux_chat_")) {
