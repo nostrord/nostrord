@@ -96,8 +96,20 @@ in your IDE's toolbar or run it directly from the terminal:
 
 ### Build and Run iOS Application
 
-To build and run the development version of the iOS app, use the run configuration from the run widget
-in your IDE’s toolbar or open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+Open [/iosApp](./iosApp) in Xcode (`open iosApp/iosApp.xcodeproj`) and run it from there, or from the terminal:
+
+```shell
+# The Kotlin build phase runs Gradle and needs Java; if java is not on your
+# PATH, the Android Studio JBR works:
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/ios build
+
+xcrun simctl boot "iPhone 17 Pro" && open -a Simulator
+xcrun simctl install booted build/ios/Build/Products/Debug-iphonesimulator/Nostrord.app
+xcrun simctl launch booted org.nostr.nostrord.KotlinProject
+```
 
 ---
 
