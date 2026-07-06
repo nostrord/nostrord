@@ -354,7 +354,9 @@ compose.desktop {
             }
 
             macOS {
-                iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
+                // jpackage requires .icns here; a .png is silently ignored and the
+                // bundle ships the default Java icon.
+                iconFile.set(project.file("src/jvmMain/resources/icon.icns"))
                 bundleID = "org.nostr.nostrord"
                 infoPlist {
                     extraKeysRawXml = """
