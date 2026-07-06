@@ -67,7 +67,13 @@ kotlin {
             group("uiCompose") {
                 withAndroidTarget()
                 withJvm()
-                withIos()
+                // Nest the `ios` group (not bare withIos()) so the shared `iosMain`
+                // intermediate refines uiComposeMain too — bare withIos() only attaches
+                // the iosArm64/iosSimulatorArm64 leaves, leaving iosMain (where the
+                // actuals + MainViewController live) unable to see the Compose UI sources.
+                group("ios") {
+                    withIos()
+                }
             }
         }
     }
@@ -145,6 +151,11 @@ kotlin {
 
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
+            // Darwin engine for the Ktor WebSocket/HTTP client on iOS.
+            implementation("io.ktor:ktor-client-darwin:3.0.0")
+            // secp256k1 for keygen/Schnorr/ECDH — same backend as desktop (statically
+            // linked native libsecp256k1 via cinterop).
+            implementation("fr.acinq.secp256k1:secp256k1-kmp:0.14.0")
         }
 
         jvmMain.dependencies {
