@@ -1378,6 +1378,7 @@ class NostrRepository(
 
     /** Connect to our DM relays and subscribe to the kind:1059 inbox so DMs arrive in real time. */
     suspend fun startDmInbox() {
+        if (!AppModule.dmSettings.dmEnabled.value) return
         if (dmInboxStarted) return
         val myPub = sessionManager.getPublicKey() ?: return
         dmInboxStarted = true
@@ -3807,6 +3808,8 @@ class NostrRepository(
                         // longer matches.
                         val decrypt: suspend () -> Boolean = {
                             if (sessionManager.getPublicKey() != myPub) {
+                                false
+                            } else if (!AppModule.dmSettings.dmEnabled.value) {
                                 false
                             } else {
                                 kotlinx.coroutines.withTimeoutOrNull(DM_DECRYPT_TIMEOUT_MS) {
