@@ -86,6 +86,7 @@ val AppFrame =
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val dmUnread = useStateFlow(repo.totalDmUnread)
+        val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         // Browser-tab badge = unread notifications + unread DMs, so the favicon alerts for both,
         // using the notification count (not the old per-group message-unread total, which
         // over-counted vs the Notifications bell). Web only; native uses OS notifications;
@@ -135,6 +136,11 @@ val AppFrame =
         // Close the mobile nav drawer whenever the destination changes (a rail/sidebar tap
         // navigates or opens notifications), so it doesn't stay over the new screen.
         useEffect(route) { setDrawerOpen(false) }
+        // DMs disabled while a DM route is showing (toggled off, or a restored/deep-linked #/dm):
+        // bounce home so the hidden feature can't stay open.
+        useEffect(dmEnabled, route) {
+            if (!dmEnabled && route is DmRoute) pushHome()
+        }
         // Switching accounts resets navigation to Home and strips the URL, so the previous
         // account's open group doesn't linger or get reopened on refresh. useStateFlow seeds
         // activeId synchronously, so the first run is the current account (no reset); only a
@@ -320,18 +326,20 @@ val AppFrame =
                     }
                     div { className = ClassName("rail-spacer") }
                     div { className = ClassName("rail-divider") }
-                    div {
-                        className = ClassName("rail-group")
-                        button {
-                            className = ClassName(if (route is DmRoute && !notificationsOpen) "rail-btn active" else "rail-btn")
-                            title = "Direct messages"
-                            onClick = { pushRoute(DmRoute()) }
-                            icon(Ic.Mail)
-                        }
-                        if (dmUnread > 0) {
-                            span {
-                                className = ClassName("rail-badge top")
-                                +(if (dmUnread > 99) "99+" else "$dmUnread")
+                    if (dmEnabled) {
+                        div {
+                            className = ClassName("rail-group")
+                            button {
+                                className = ClassName(if (route is DmRoute && !notificationsOpen) "rail-btn active" else "rail-btn")
+                                title = "Direct messages"
+                                onClick = { pushRoute(DmRoute()) }
+                                icon(Ic.Mail)
+                            }
+                            if (dmUnread > 0) {
+                                span {
+                                    className = ClassName("rail-badge top")
+                                    +(if (dmUnread > 99) "99+" else "$dmUnread")
+                                }
                             }
                         }
                     }
@@ -363,7 +371,7 @@ val AppFrame =
                             this.route = groupRoute
                             onNavigateGroup = { pushRoute(it) }
                         }
-                    } else if (dmRoute != null) {
+                    } else if (dmRoute != null && dmEnabled) {
                         DmSidebar {
                             activePubkey = dmRoute.pubkey
                             onOpenConversation = { pushRoute(it) }
@@ -635,7 +643,7 @@ val AppFrame =
                             onEditProfile = { pushRoute(SettingsRoute) }
                             onOpenDrawer = { setDrawerOpen(true) }
                         }
-                    r is DmRoute ->
+                    r is DmRoute && dmEnabled ->
                         DmPage {
                             pubkey = r.pubkey
                             onOpenProfile = { pushRoute(it) }

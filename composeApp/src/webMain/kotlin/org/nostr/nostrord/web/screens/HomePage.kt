@@ -61,6 +61,7 @@ external interface HomePageProps : Props {
 val HomePage =
     FC<HomePageProps> { props ->
         val vm = useViewModel { HomePageViewModel(AppModule.nostrRepository) }
+        val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         // The page list is filtered by the search box; the rail (AppFrame) keeps the full myGroups.
         val myGroups = useStateFlow(vm.filteredMyGroups)
         val query = useStateFlow(vm.query)
@@ -112,11 +113,13 @@ val HomePage =
                 }
                 div {
                     className = ClassName("page-header-actions")
-                    button {
-                        className = ClassName("icon-btn")
-                        title = "Direct messages"
-                        onClick = { props.onOpenDms() }
-                        icon(Ic.Mail)
+                    if (dmEnabled) {
+                        button {
+                            className = ClassName("icon-btn")
+                            title = "Direct messages"
+                            onClick = { props.onOpenDms() }
+                            icon(Ic.Mail)
+                        }
                     }
                     button {
                         className = ClassName("icon-btn")

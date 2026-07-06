@@ -157,14 +157,17 @@ fun ProfilePageScreen(
                                     )
                                 } else {
                                     val frameNavigator = LocalFrameNavigator.current
+                                    val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
                                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                                        AppButton(
-                                            text = "Message",
-                                            onClick = { frameNavigator?.invoke(DmRoute(pubkey)) },
-                                            enabled = frameNavigator != null,
-                                            variant = AppButtonVariant.Secondary,
-                                            icon = Icons.Default.Mail,
-                                        )
+                                        if (dmEnabled) {
+                                            AppButton(
+                                                text = "Message",
+                                                onClick = { frameNavigator?.invoke(DmRoute(pubkey)) },
+                                                enabled = frameNavigator != null,
+                                                variant = AppButtonVariant.Secondary,
+                                                icon = Icons.Default.Mail,
+                                            )
+                                        }
                                         FollowButton(
                                             isFollowing = isFollowing,
                                             isBusy = isFollowBusy,

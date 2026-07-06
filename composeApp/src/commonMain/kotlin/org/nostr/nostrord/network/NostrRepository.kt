@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -673,11 +674,16 @@ class NostrRepository(
             }
         }
 
-        // Open the NIP-17 DM inbox once we're logged in (cold-boot restore or a fresh login).
-        // startDmInbox() dedups; resetContactListState re-arms it on account switch.
+        // Open the NIP-17 DM inbox while logged in AND the DM feature is enabled (cold-boot
+        // restore or a fresh login). Flipping the master toggle off tears the inbox down live —
+        // stopDmInbox() closes the kind:1059 subscription so no more wraps are fetched or decrypted;
+        // flipping it back on re-subscribes. startDmInbox()/stopDmInbox() both dedup on
+        // dmInboxStarted, so redundant emissions are no-ops.
         scope.launch {
-            sessionManager.isLoggedIn.collect { loggedIn ->
-                if (loggedIn) startDmInbox()
+            combine(sessionManager.isLoggedIn, AppModule.dmSettings.dmEnabled) { loggedIn, enabled ->
+                loggedIn && enabled
+            }.distinctUntilChanged().collect { active ->
+                if (active) startDmInbox() else stopDmInbox()
             }
         }
 
@@ -1424,6 +1430,33 @@ class NostrRepository(
                     }
                 }
             }
+    }
+
+    /**
+     * Tear the DM inbox down: close the kind:1059 subscription on every relay it was streaming from,
+     * cancel the retry/persistence jobs, and drop all decrypted state. Called when the master DM
+     * toggle is switched off (Settings → Direct Messages) so the app stops fetching and decrypting
+     * DMs entirely. Idempotent — a no-op when the inbox was never started.
+     */
+    private fun stopDmInbox() {
+        if (!dmInboxStarted) return
+        dmInboxStarted = false
+        dmPersistenceWired = false
+        dmPersistenceJobs.forEach { it.cancel() }
+        dmPersistenceJobs.clear()
+        val relays = dmInboxSubscribedRelays
+        dmInboxSubscribedRelays = emptySet()
+        relays.forEach { url ->
+            scope.launch {
+                try {
+                    connectionManager.getClientForRelay(url)?.send("""["CLOSE","dm_inbox"]""")
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        dmManager.clear()
+        _myDmRelays.value = emptyList()
+        dmInboxEosedRelays = emptySet()
     }
 
     // Ids already written to the CacheStore, so the persistence collector upserts only new DMs
@@ -3738,6 +3771,8 @@ class NostrRepository(
             }
             // NIP-17 DM gift wrap addressed to us: decrypt with the active signer.
             if (kind == Nip17.KIND_GIFT_WRAP) {
+                // Master DM toggle off: never unwrap/decrypt, even for a wrap that raced the CLOSE.
+                if (!AppModule.dmSettings.dmEnabled.value) return
                 val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
                 val myPub = sessionManager.getPublicKey() ?: return
                 val signer = ActiveAccountManager.session.value?.signer ?: return
@@ -3812,6 +3847,7 @@ class NostrRepository(
             }
             // A user's NIP-17 DM relay list (kind:10050).
             if (kind == Nip17.KIND_DM_RELAYS) {
+                if (!AppModule.dmSettings.dmEnabled.value) return
                 runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let {
                     dmManager.ingestDmRelays(it)
                     if (it.pubkey == sessionManager.getPublicKey()) {

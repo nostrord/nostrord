@@ -136,6 +136,7 @@ fun UserProfileModal(
     // Follow state from the active account's kind:3 contact list (fetched once on open).
     val scope = rememberCoroutineScope()
     val following by AppModule.nostrRepository.following.collectAsState()
+    val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
     val isFollowing = pubkey in following
     var followBusy by remember(pubkey) { mutableStateOf(false) }
     LaunchedEffect(Unit) { AppModule.nostrRepository.requestContactList() }
@@ -305,17 +306,19 @@ fun UserProfileModal(
                                     },
                                     modifier = Modifier.weight(1f),
                                 )
-                                AppButton(
-                                    text = "Message",
-                                    onClick = {
-                                        onDismiss()
-                                        frameNavigator?.invoke(DmRoute(pubkey))
-                                    },
-                                    enabled = frameNavigator != null,
-                                    variant = AppButtonVariant.Secondary,
-                                    icon = Icons.Default.Mail,
-                                    modifier = Modifier.weight(1f),
-                                )
+                                if (dmEnabled) {
+                                    AppButton(
+                                        text = "Message",
+                                        onClick = {
+                                            onDismiss()
+                                            frameNavigator?.invoke(DmRoute(pubkey))
+                                        },
+                                        enabled = frameNavigator != null,
+                                        variant = AppButtonVariant.Secondary,
+                                        icon = Icons.Default.Mail,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                         }
 

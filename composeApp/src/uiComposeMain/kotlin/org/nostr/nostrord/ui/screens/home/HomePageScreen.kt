@@ -106,6 +106,7 @@ fun HomePageScreen(
     val friendsGroupsLoading by vm.friendsGroupsLoading.collectAsState()
     val recommendedGroupsLoading by vm.recommendedGroupsLoading.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
+    val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
     // Group ids you're a member of, to flag the "Joined" badge on cards in mixed lists.
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val joinedIds = joinedGroupsByRelay.values.flatten().toSet()
@@ -130,13 +131,15 @@ fun HomePageScreen(
             onOpenDrawer = onOpenDrawer,
         ) {
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onOpenDms) {
-                Icon(
-                    imageVector = Icons.Default.Mail,
-                    contentDescription = "Direct messages",
-                    tint = NostrordColors.TextSecondary,
-                    modifier = Modifier.size(18.dp),
-                )
+            if (dmEnabled) {
+                IconButton(onClick = onOpenDms) {
+                    Icon(
+                        imageVector = Icons.Default.Mail,
+                        contentDescription = "Direct messages",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
             IconButton(onClick = onOpenNotifications) {
                 Icon(
