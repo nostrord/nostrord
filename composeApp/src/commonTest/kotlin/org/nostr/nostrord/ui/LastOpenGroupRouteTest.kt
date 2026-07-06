@@ -20,7 +20,7 @@ class LastOpenGroupRouteTest {
     }
 
     @Test
-    fun `a group persists only its base route, dropping deep-link and pane state`() {
+    fun `a group persists only its base route dropping deep-link and pane state`() {
         val hash = persistedRouteHash(GroupRoute("wss://r", "g", messageId = "e1", threadRootId = "t1"))
         assertEquals(GroupRoute("wss://r", "g"), restoredRoute(hash))
     }

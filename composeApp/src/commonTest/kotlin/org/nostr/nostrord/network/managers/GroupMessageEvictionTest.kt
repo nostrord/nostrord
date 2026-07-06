@@ -26,7 +26,7 @@ class GroupMessageEvictionTest {
     fun cleanup() = SecureStorage.clearAllMessagesForAccount(EVICT_PUBKEY)
 
     @Test
-    fun `evicts least-recently-used groups past the in-memory cap, keeping the active one`() = runTest {
+    fun `evicts least-recently-used groups past the in-memory cap keeping the active one`() = runTest {
         val scope = TestScope(testScheduler)
         val manager = makeManager(scope)
         manager.setCurrentPubkey(EVICT_PUBKEY)

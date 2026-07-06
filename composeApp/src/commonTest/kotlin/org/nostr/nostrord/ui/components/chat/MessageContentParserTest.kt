@@ -385,7 +385,7 @@ class MessageContentParserTest {
     }
 
     @Test
-    fun `URL with unicode domain (IDN)`() {
+    fun `URL with unicode domain IDN`() {
         val input = "Visit https://münchen.example.com"
         val parts = MessageContentParser.parse(input)
 

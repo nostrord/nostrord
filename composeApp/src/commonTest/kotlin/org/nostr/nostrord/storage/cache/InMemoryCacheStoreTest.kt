@@ -13,7 +13,7 @@ class InMemoryCacheStoreTest {
     private fun msg(id: String, createdAt: Long) = CachedMsg(id = id, groupId = group, pubkey = "p", createdAt = createdAt, kind = 9, content = "c-$id", tagsJson = "[]")
 
     @Test
-    fun `loadLatest returns the most recent messages oldest-first, bounded by limit`() = runTest {
+    fun `loadLatest returns the most recent messages oldest-first bounded by limit`() = runTest {
         val store = InMemoryCacheStore()
         store.upsertMessages(account, group, (1L..10L).map { msg("m$it", it) })
 
