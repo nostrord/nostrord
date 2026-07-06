@@ -7,13 +7,24 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.svg.SvgDecoder
 import okio.Path.Companion.toPath
-import org.nostr.nostrord.ui.util.ImageLoadEventListener
+import org.nostr.nostrord.ui.   util.ImageLoadEventListener
 import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
 import platform.UIKit.UIViewController
+import kotlin.experimental.ExperimentalNativeApi
 
+@OptIn(ExperimentalNativeApi::class)
 fun MainViewController(): UIViewController {
+    // JVM parity for unhandled exceptions: Kotlin/Native's default is abort(), so an
+    // exception escaping a coroutine (e.g. an Error, which catch(Exception) misses)
+    // kills the app while desktop/Android merely log it. With the hook installed the
+    // coroutine machinery logs and the process survives. Throws that unwind through
+    // foreign frames (UIKit callbacks) still terminate — the hook only logs those.
+    setUnhandledExceptionHook { t ->
+        println("NOSTRORD_FATAL uncaught: ${t::class.simpleName}: ${t.message}")
+        t.printStackTrace()
+    }
     // Explicit Coil loader so iOS gets a sized memory cache and a PERSISTENT disk cache in
     // the app caches directory (Coil's default disk cache is ephemeral), matching Android/JVM
     // so avatars survive app restarts without re-downloading.
