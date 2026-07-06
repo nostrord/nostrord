@@ -224,8 +224,12 @@ fun SettingsScreen(
         )
     }
 
+    val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
     val dmRelaysContent: @Composable () -> Unit = {
-        DmRelayPanelContent()
+        DmSettingsPanelContent(
+            dmEnabled = dmEnabled,
+            onToggleDm = { AppModule.dmSettings.setDmEnabled(it) },
+        )
     }
 
     val notificationsContent: @Composable () -> Unit = {
@@ -1249,6 +1253,35 @@ private fun MediaPanelContent(
                 checked = autoLoadMedia,
                 onCheckedChange = onToggleAutoLoad,
             )
+        }
+    }
+}
+
+@Composable
+private fun DmSettingsPanelContent(
+    dmEnabled: Boolean,
+    onToggleDm: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            SettingsToggleRow(
+                label = "Direct messages",
+                description = "Send and receive private messages. When off, the app stops " +
+                    "fetching and decrypting your DMs and hides all direct-message features.",
+                checked = dmEnabled,
+                onCheckedChange = onToggleDm,
+            )
+        }
+        // Relay editor only matters while DMs are on; hidden with the rest of the feature when off.
+        if (dmEnabled) {
+            DmRelayPanelContent()
         }
     }
 }

@@ -177,6 +177,7 @@ fun AppFrame() {
     val unreadCounts by vm.unreadCounts.collectAsState()
     val notificationUnread by vm.notificationUnread.collectAsState()
     val dmUnread by AppModule.nostrRepository.totalDmUnread.collectAsState()
+    val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
     var addGroupStep by remember { mutableStateOf<AddGroupStep?>(null) }
     // Friend tapped in the home sidebar: open the quick profile modal first (no
     // chat composer around, so no Mention action), with "View profile" inside it
@@ -197,6 +198,12 @@ fun AppFrame() {
     val groupRoute = route as? GroupRoute
     // Notifications is a real route now; the rail and sidebar gate their layout on it.
     val showNotifications = route is NotificationsRoute
+
+    // DMs disabled while a DM route is on screen (toggled off, or a restored/deep-linked DM
+    // route): bounce home so the hidden feature can't stay visible.
+    LaunchedEffect(dmEnabled, route) {
+        if (!dmEnabled && route is DmRoute) history.navigate(null)
+    }
 
     // A genuine account switch drops the previous account's history (its open group or
     // profile must never leak into the new session) and re-seeds into the new account's own
@@ -348,16 +355,18 @@ fun AppFrame() {
                 }
             }
             HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
-            Box {
-                RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
-                    history.navigate(DmRoute())
-                    closeDrawer()
-                }
-                if (dmUnread > 0) {
-                    RailBadge(
-                        count = dmUnread,
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    )
+            if (dmEnabled) {
+                Box {
+                    RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
+                        history.navigate(DmRoute())
+                        closeDrawer()
+                    }
+                    if (dmUnread > 0) {
+                        RailBadge(
+                            count = dmUnread,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        )
+                    }
                 }
             }
             Box {
@@ -412,7 +421,7 @@ fun AppFrame() {
                         },
                     )
                 }
-            } else if (route is DmRoute) {
+            } else if (route is DmRoute && dmEnabled) {
                 Box(modifier = Modifier.weight(1f)) {
                     DmSidebar(
                         onOpenConversation = {
@@ -683,13 +692,19 @@ private fun FrameContent(
                     onEditProfile = onEditProfile,
                     onOpenDrawer = onOpenDrawer,
                 )
-            is DmRoute ->
-                DmPageScreen(
-                    pubkey = route.pubkey,
-                    onOpenProfile = onNavigate,
-                    onOpenConversation = onNavigate,
-                    onOpenDrawer = onOpenDrawer,
-                )
+            is DmRoute -> {
+                // Guarded: a LaunchedEffect bounces DmRoute home when DMs are off, so this renders
+                // only while enabled (the guard covers the frame before the redirect lands).
+                val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
+                if (dmEnabled) {
+                    DmPageScreen(
+                        pubkey = route.pubkey,
+                        onOpenProfile = onNavigate,
+                        onOpenConversation = onNavigate,
+                        onOpenDrawer = onOpenDrawer,
+                    )
+                }
+            }
             // Notifications is a real route rendered here so back/forward traverse it like
             // any page. Settings is a full-screen overlay in AppFrame (over the rail and
             // sidebar), so its arm is empty.

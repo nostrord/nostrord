@@ -72,6 +72,7 @@ val UserProfileModal =
         val (removeError, setRemoveError) = useState<String?> { null }
         val following = useStateFlow(AppModule.nostrRepository.following)
         val isFollowing = pubkey in following
+        val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         val (followBusy, setFollowBusy) = useState { false }
 
         useEffect(pubkey) {
@@ -175,14 +176,16 @@ val UserProfileModal =
                                     setFollowBusy(false)
                                 }
                             }
-                            button {
-                                className = ClassName("btn-secondary profile-btn")
-                                onClick = {
-                                    props.onClose()
-                                    pushRoute(DmRoute(pubkey))
+                            if (dmEnabled) {
+                                button {
+                                    className = ClassName("btn-secondary profile-btn")
+                                    onClick = {
+                                        props.onClose()
+                                        pushRoute(DmRoute(pubkey))
+                                    }
+                                    icon(Ic.Mail)
+                                    +"Message"
                                 }
-                                icon(Ic.Mail)
-                                +"Message"
                             }
                         }
                     }

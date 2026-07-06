@@ -40,6 +40,7 @@ import org.nostr.nostrord.notifications.NotificationService
 import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.AppearanceSettings
+import org.nostr.nostrord.settings.DmSettings
 import org.nostr.nostrord.settings.MediaSettings
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
@@ -503,6 +504,8 @@ object AppModule {
     val mediaSettings: MediaSettings by lazy { MediaSettings() }
 
     val appearanceSettings: AppearanceSettings by lazy { AppearanceSettings() }
+
+    val dmSettings: DmSettings by lazy { DmSettings() }
 
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(

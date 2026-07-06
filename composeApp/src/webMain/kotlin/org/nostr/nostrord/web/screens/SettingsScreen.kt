@@ -621,6 +621,8 @@ private val RelaysPanel =
 
 private val DmRelaysPanel =
     FC<Props> {
+        val dm = AppModule.dmSettings
+        val dmEnabled = useStateFlow(dm.dmEnabled)
         val dmVm = useViewModel { DmRelaySettingsViewModel(AppModule.nostrRepository) }
         val published = useStateFlow(dmVm.relays)
         val saving = useStateFlow(dmVm.saving)
@@ -642,85 +644,98 @@ private val DmRelaysPanel =
 
         div {
             className = ClassName("settings-card")
-            div {
-                className = ClassName("settings-info-text")
-                +(
-                    "NIP-17 DM relays (kind 10050) tell other clients where to deliver your private " +
-                        "direct messages. Pick a few reliable relays. They can be the same as your NIP-65 " +
-                        "relays or dedicated ones. Until you publish a list, sensible defaults are used."
-                    )
-            }
+            settingsToggle(
+                "Direct messages",
+                "Send and receive private messages. When off, the app stops fetching and " +
+                    "decrypting your DMs and hides all direct-message features.",
+                dmEnabled,
+            ) { dm.setDmEnabled(!dmEnabled) }
         }
 
-        div {
-            className = ClassName("settings-card")
+        // Relay editor only matters while DMs are on; hidden with the rest of the feature when off.
+        if (dmEnabled) {
             div {
-                className = ClassName("settings-section-head")
-                +"YOUR DM RELAYS"
-            }
-            if (relays.isEmpty()) {
+                className = ClassName("settings-card")
                 div {
-                    className = ClassName("relay-warn")
-                    +"No DM relays. Others won't be able to reach you. Add at least one."
+                    className = ClassName("settings-info-text")
+                    +(
+                        "NIP-17 DM relays (kind 10050) tell other clients where to deliver your private " +
+                            "direct messages. Pick a few reliable relays. They can be the same as your NIP-65 " +
+                            "relays or dedicated ones. Until you publish a list, sensible defaults are used."
+                        )
                 }
             }
-            relays.forEachIndexed { i, url ->
+
+            div {
+                className = ClassName("settings-card")
                 div {
-                    key = url
-                    className = ClassName("relay-row")
-                    span {
-                        className = ClassName("relay-row-url")
-                        +url.removePrefix("wss://").removePrefix("ws://")
+                    className = ClassName("settings-section-head")
+                    +"YOUR DM RELAYS"
+                }
+                if (relays.isEmpty()) {
+                    div {
+                        className = ClassName("relay-warn")
+                        +"No DM relays. Others won't be able to reach you. Add at least one."
                     }
+                }
+                relays.forEachIndexed { i, url ->
+                    div {
+                        key = url
+                        className = ClassName("relay-row")
+                        span {
+                            className = ClassName("relay-row-url")
+                            +url.removePrefix("wss://").removePrefix("ws://")
+                        }
+                        button {
+                            className = ClassName("relay-row-remove")
+                            onClick = { setRelays(relays.filterIndexed { j, _ -> j != i }) }
+                            icon(Ic.Close)
+                        }
+                    }
+                }
+
+                div {
+                    className = ClassName("settings-section-head relay-add-head")
+                    +"ADD RELAY"
+                }
+                input {
+                    className = ClassName("modal-input")
+                    placeholder = "relay.example.com"
+                    value = newUrl
+                    onChange = { event -> setNewUrl(event.currentTarget.value) }
+                    onKeyDown = { event ->
+                        if (event.key == "Enter") {
+                            event.preventDefault()
+                            addRelay()
+                        }
+                    }
+                }
+                div {
+                    className = ClassName("relay-add-row")
                     button {
-                        className = ClassName("relay-row-remove")
-                        onClick = { setRelays(relays.filterIndexed { j, _ -> j != i }) }
-                        icon(Ic.Close)
+                        className = ClassName("relay-add-btn")
+                        disabled = !canAdd
+                        onClick = { addRelay() }
+                        icon(Ic.Add)
+                        +"Add"
                     }
                 }
             }
 
             div {
-                className = ClassName("settings-section-head relay-add-head")
-                +"ADD RELAY"
-            }
-            input {
-                className = ClassName("modal-input")
-                placeholder = "relay.example.com"
-                value = newUrl
-                onChange = { event -> setNewUrl(event.currentTarget.value) }
-                onKeyDown = { event ->
-                    if (event.key == "Enter") {
-                        event.preventDefault()
-                        addRelay()
+                className = ClassName("relay-save-row")
+                error?.let {
+                    span {
+                        className = ClassName("relay-save-status")
+                        +it
                     }
                 }
-            }
-            div {
-                className = ClassName("relay-add-row")
                 button {
-                    className = ClassName("relay-add-btn")
-                    disabled = !canAdd
-                    onClick = { addRelay() }
-                    icon(Ic.Add)
-                    +"Add"
+                    className = ClassName("settings-save")
+                    disabled = saving
+                    onClick = { dmVm.publish(relays) }
+                    +(if (saving) "Publishing…" else "Save & Publish")
                 }
-            }
-        }
-
-        div {
-            className = ClassName("relay-save-row")
-            error?.let {
-                span {
-                    className = ClassName("relay-save-status")
-                    +it
-                }
-            }
-            button {
-                className = ClassName("settings-save")
-                disabled = saving
-                onClick = { dmVm.publish(relays) }
-                +(if (saving) "Publishing…" else "Save & Publish")
             }
         }
     }

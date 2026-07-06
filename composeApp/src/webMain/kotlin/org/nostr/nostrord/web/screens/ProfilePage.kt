@@ -57,6 +57,7 @@ val ProfilePage =
         val metadata = useStateFlow(vm.metadata)
         val groups = useStateFlow(vm.userGroups)
         val isFollowing = useStateFlow(vm.isFollowing)
+        val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
         val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
@@ -133,11 +134,13 @@ val ProfilePage =
                                 } else {
                                     div {
                                         className = ClassName("profile-page-actions")
-                                        button {
-                                            className = ClassName("btn-secondary profile-btn")
-                                            onClick = { pushRoute(DmRoute(props.pubkey)) }
-                                            icon(Ic.Mail)
-                                            +"Message"
+                                        if (dmEnabled) {
+                                            button {
+                                                className = ClassName("btn-secondary profile-btn")
+                                                onClick = { pushRoute(DmRoute(props.pubkey)) }
+                                                icon(Ic.Mail)
+                                                +"Message"
+                                            }
                                         }
                                         followToggleButton(isFollowing, isFollowBusy) { vm.toggleFollow() }
                                     }
