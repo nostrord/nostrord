@@ -76,7 +76,7 @@ class Nip17Test {
     }
 
     @Test
-    fun `wrap then unwrap works through a remote-style signer (NIP-46 and NIP-07 delegation)`() = runTest {
+    fun `wrap then unwrap works through a remote-style signer - NIP-46 and NIP-07 delegation`() = runTest {
         // Mirrors how Bunker / Nip07Extension delegate: signEvent + nip44 go to a remote that holds
         // the key; the envelope only depends on the NostrSigner interface, not on Local.
         val alice = remoteStyleSigner()

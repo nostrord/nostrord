@@ -54,7 +54,7 @@ class NavigationHistoryTest {
     }
 
     @Test
-    fun `chat, threads list, and a thread are distinct history entries`() {
+    fun `chat and threads list and a thread are distinct history entries`() {
         val h = NavigationHistory()
         val chat = GroupRoute("wss://r", "g")
         val threads = chat.copy(view = GroupView.Threads)

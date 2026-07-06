@@ -2,6 +2,7 @@ package org.nostr.nostrord.nostr
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -32,9 +33,9 @@ class Bech32Test {
         val data = ByteArray(32) { 1 }
         val npub = Bech32.encode("npub", data)
         val nsec = Bech32.encode("nsec", data)
-        assert(npub != nsec)
-        assert(npub.startsWith("npub1"))
-        assert(nsec.startsWith("nsec1"))
+        assertTrue(npub != nsec)
+        assertTrue(npub.startsWith("npub1"))
+        assertTrue(nsec.startsWith("nsec1"))
     }
 
     // -------------------------------------------------------------------------

@@ -25,7 +25,7 @@ class ThreadsViewModelTest {
     )
 
     @Test
-    fun `summary counts replies by root, takes last activity and subject title`() {
+    fun `summary counts replies by root takes last activity and subject title`() {
         val roots = listOf(root("a", 100, "Hello\nworld", subject = "My title"))
         val replies = listOf(
             reply("r1", "a", "p1", 150),
@@ -55,7 +55,7 @@ class ThreadsViewModelTest {
     }
 
     @Test
-    fun `threads sort by last activity, newest first`() {
+    fun `threads sort by last activity newest first`() {
         val roots = listOf(root("a", 100, "a"), root("b", 90, "b"))
         // Only a has a reply -> a is most recent.
         assertEquals(

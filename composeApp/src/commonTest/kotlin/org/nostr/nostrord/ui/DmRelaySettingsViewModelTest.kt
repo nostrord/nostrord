@@ -31,7 +31,7 @@ class DmRelaySettingsViewModelTest {
     }
 
     @Test
-    fun `publish normalizes urls, drops dupes and forwards to the repo`() = runTest {
+    fun `publish normalizes urls drops dupes and forwards to the repo`() = runTest {
         val repo = FakeNostrRepository()
         val vm = DmRelaySettingsViewModel(repo)
 

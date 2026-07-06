@@ -233,7 +233,7 @@ class GroupViewModelTest {
     }
 
     @Test
-    fun `open group just joined is RESOLVING, not an admin-approval flash`() {
+    fun `open group just joined is RESOLVING not an admin-approval flash`() {
         // Open groups auto-approve, so "pending admin approval" would be wrong copy; wait for the list.
         assertEquals(GroupMembership.RESOLVING, status(joined = true, isOpen = true, hasOwnJoinRequest = true))
     }

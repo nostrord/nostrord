@@ -330,7 +330,7 @@ class HomePageViewModelTest {
     }
 
     @Test
-    fun `myGroups small group includes the logged-in user, large group excludes it`() = runTest {
+    fun `myGroups small group includes the logged-in user while large group excludes it`() = runTest {
         val fake = FakeNostrRepository()
         fake.fakePublicKey = "me"
         fake._groupsByRelay.value =
@@ -396,7 +396,7 @@ class HomePageViewModelTest {
     }
 
     @Test
-    fun `friendsGroups hides groups whose kind39000 has not arrived, like recommended`() = runTest {
+    fun `friendsGroups hides groups whose kind39000 has not arrived like recommended`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()
         fake._following.value = setOf("alice")
