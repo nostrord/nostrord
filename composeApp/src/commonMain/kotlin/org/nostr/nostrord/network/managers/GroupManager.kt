@@ -83,6 +83,17 @@ class GroupManager(
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
 
+    // These two flows MUST be declared before the init blocks below: the coroutines those
+    // blocks launch capture them, and a coroutine can run before the constructor finishes.
+    // Kotlin assigns fields in declaration order — on Kotlin/Native a not-yet-assigned
+    // field read from another thread is a segfault (no null-check on non-null fields).
+    private val _messageStatus = MutableStateFlow<Map<String, MessageStatus>>(emptyMap())
+    val messageStatus: StateFlow<Map<String, MessageStatus>> = _messageStatus.asStateFlow()
+
+    // Per-relay joined groups cache — the single source of truth for membership.
+    private val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay.asStateFlow()
+
     init {
         // The retry queue is the second half of optimistic send: when a queued
         // message is finally accepted (or permanently fails) on reconnect, reflect
@@ -417,13 +428,6 @@ class GroupManager(
             val unsignedEvent: Event? = null,
         ) : MessageStatus
     }
-
-    private val _messageStatus = MutableStateFlow<Map<String, MessageStatus>>(emptyMap())
-    val messageStatus: StateFlow<Map<String, MessageStatus>> = _messageStatus.asStateFlow()
-
-    // Per-relay joined groups cache — the single source of truth for membership.
-    private val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
-    val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay.asStateFlow()
 
     // Active-relay view — derived so it can never drift from _joinedGroupsByRelay.
     val joinedGroups: StateFlow<Set<String>> = combine(
