@@ -2878,6 +2878,10 @@ class GroupManager(
      * Insert one of the local user's own messages into [_messages] immediately,
      * reusing [messageIdIndex] so the relay's later echo of the same id is deduped.
      *
+     * NOT cached here: the message status lives only in memory, so a cached
+     * optimistic message the relay never accepted would come back after restart
+     * with no pending icon — a ghost only this device can see. [markDelivered]
+     * caches it once the relay confirms.
      */
     private fun insertOwnMessage(groupId: String, message: NostrGroupClient.NostrMessage) {
         _messages.update { currentMap ->
@@ -2887,7 +2891,6 @@ class GroupManager(
             currentMap + (groupId to (current + message).sortedBy { it.createdAt })
         }
         touchGroupRecency(groupId)
-        cacheMessages(groupId, listOf(message))
     }
 
     /**
@@ -2944,6 +2947,14 @@ class GroupManager(
         // previous session) stays absent so history never grows a stray check.
         _messageStatus.update { statuses ->
             if (eventId in statuses) statuses + (eventId to MessageStatus.Delivered) else statuses
+        }
+        // First relay confirmation is what makes the message durable. The relay's
+        // echo is deduped by messageIdIndex and never reaches the batch cache path,
+        // so this is the only place an own message enters the cache.
+        for ((groupId, msgs) in _messages.value) {
+            val msg = msgs.lastOrNull { it.id == eventId } ?: continue
+            cacheMessages(groupId, listOf(msg))
+            break
         }
     }
 
