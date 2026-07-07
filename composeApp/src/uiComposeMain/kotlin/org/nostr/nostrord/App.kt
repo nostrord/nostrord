@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
@@ -70,6 +73,32 @@ fun App() {
     var hasEnteredApp by remember { mutableStateOf(false) }
     LaunchedEffect(isLoggedIn) { if (isLoggedIn) hasEnteredApp = true }
     LaunchedEffect(activeId) { if (activeId == null) hasEnteredApp = false }
+
+    // Background/foreground wiring (the web wires this via visibilitychange in
+    // WebApp.kt). onForeground probes for zombie sockets and refreshes subs;
+    // FocusTracker drives the "active group + unfocused → still notify" branch.
+    // The first ON_RESUME of a cold start is skipped: initialize()/login own the
+    // connection sequence and a concurrent reconnect would race them.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        var wasBackgrounded = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    AppModule.focusTracker.setFocused(true)
+                    if (wasBackgrounded) AppModule.nostrRepository.onForeground()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    wasBackgrounded = true
+                    AppModule.focusTracker.setFocused(false)
+                    AppModule.nostrRepository.onBackground()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Compute startup state synchronously from current values.
     val startupState: AppStartState =

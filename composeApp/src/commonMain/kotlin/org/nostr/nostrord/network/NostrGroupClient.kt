@@ -230,6 +230,14 @@ class NostrGroupClient(
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
 
+    // Epoch ms of the last frame received from the relay. A socket that stays
+    // silent while an OK is awaited (or across a whole mux stale window) is a
+    // zombie: mobile networks kill TCP without a close frame, writes buffer
+    // locally without throwing, and the engine ping can be deferred under Doze.
+    // Zombies must be torn down via markDead() — nothing else ever detects them.
+    @kotlin.concurrent.Volatile
+    private var lastInboundAtMs: Long = 0L
+
     // Open subscription IDs tracked for diagnostic logging.
     // Updated in send() on every REQ/CLOSE. Not synchronised — count may be off by ±1
     // under concurrent sends, which is acceptable for logging purposes.
@@ -263,6 +271,58 @@ class NostrGroupClient(
      */
     fun isConnected(): Boolean = session != null && connectionJob?.isActive == true
 
+    /** How long the relay has been completely silent (no frames of any kind), or null if not connected. */
+    fun inboundSilenceMs(nowMs: Long = epochMillis()): Long? = if (isConnected()) nowMs - lastInboundAtMs else null
+
+    /**
+     * Tear down a socket believed to be a zombie (writes buffer, nothing inbound).
+     * Cancelling the frame loop makes its finally run the normal lost-connection
+     * path: session is cleared, onConnectionLost fires, and the reconnect
+     * scheduler rebuilds the socket + resubscribes + flushes pending events.
+     */
+    fun markDead() {
+        if (isDisconnecting) return
+        connectionJob?.cancel()
+    }
+
+    @kotlin.concurrent.Volatile
+    private var probeInFlight = false
+
+    /**
+     * Actively verify the socket is alive. Sends a REQ any relay must answer
+     * (EOSE, or CLOSED on auth-gated relays — any inbound frame counts) and
+     * waits for inbound traffic; total silence means zombie → [markDead].
+     * Cheap on a live relay (one REQ+CLOSE round trip). Needed because engine
+     * pongs never reach the frame loop, so inbound silence alone cannot
+     * distinguish a quiet-but-alive relay from a dead socket.
+     */
+    suspend fun probeLiveness(timeoutMs: Long = 5_000) {
+        if (!isConnected() || probeInFlight) return
+        probeInFlight = true
+        try {
+            val sentAtMs = epochMillis()
+            try {
+                session?.send(Frame.Text("""["REQ","_probe",{"ids":["${"0".repeat(64)}"],"limit":1}]"""))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                markDead()
+                return
+            }
+            while (epochMillis() - sentAtMs < timeoutMs) {
+                delay(250)
+                if (lastInboundAtMs >= sentAtMs) {
+                    try {
+                        session?.send(Frame.Text("""["CLOSE","_probe"]"""))
+                    } catch (_: Exception) {}
+                    return
+                }
+            }
+            markDead()
+        } finally {
+            probeInFlight = false
+        }
+    }
+
     /**
      * Parse NIP-42 AUTH challenge from relay
      * Returns the challenge string if this is an AUTH message, null otherwise
@@ -286,6 +346,7 @@ class NostrGroupClient(
             try {
                 client.webSocket(relayUrl) {
                     session = this
+                    lastInboundAtMs = epochMillis()
 
                     // Signal that connection is ready
                     connectionResult.complete(true)
@@ -320,6 +381,7 @@ class NostrGroupClient(
 
                     // Listen to incoming messages
                     for (frame in incoming) {
+                        lastInboundAtMs = epochMillis()
                         when (frame) {
                             is Frame.Text -> onMessage(frame.readText())
                             is Frame.Close -> {} // CLOSED event below captures code + reason
@@ -455,6 +517,7 @@ class NostrGroupClient(
         timeoutMs: Long = 10_000,
     ): PublishResult {
         val deferred = CompletableDeferred<PublishResult>()
+        val sentAtMs = epochMillis()
 
         // Register pending response
         pendingOkMutex.withLock {
@@ -475,6 +538,13 @@ class NostrGroupClient(
             }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
+            // No OK and not a single frame of any kind while we waited: the socket
+            // is a zombie, not a slow relay. Tear it down so the reconnect path
+            // (resubscribe + pending-event flush) takes over; otherwise the write
+            // keeps buffering into a dead pipe and the message stays Sending forever.
+            if (lastInboundAtMs < sentAtMs) {
+                markDead()
+            }
             PublishResult.Timeout(eventId)
         } catch (e: Exception) {
             pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }

@@ -91,6 +91,10 @@ private const val DISCOVERY_CURATOR_PUBKEY = "b2cdcb37d32533145c00c4f43d5e1e1deb
 // must reach back this far from the sync cursor or recent wraps would be missed on resync.
 private const val GIFT_WRAP_BACKDATE_SECONDS = 2L * 24 * 60 * 60
 
+// Min frame silence before a foreground return probes a socket. A frame in the
+// last minute proves the socket is alive; below this, probing is pure overhead.
+private const val FOREGROUND_PROBE_MIN_SILENCE_MS = 60_000L
+
 /**
  * Repository for Nostr operations.
  * Coordinates between specialized managers for different concerns.
@@ -1922,12 +1926,33 @@ class NostrRepository(
                     reconnectDroppedNip29PoolRelays()
                 }
 
-                // Already connected — refresh subscriptions and pool relays.
+                // Already connected — verify the sockets actually survived the
+                // background period (Doze/radio sleep kills TCP without a close
+                // frame; "Connected" can be a zombie), then refresh subs.
                 is ConnectionManager.ConnectionState.Connected -> {
+                    probeIdleSockets()
                     groupManager.refreshLiveSubscriptions()
                     reconnectDroppedNip29PoolRelays()
                 }
             }
+        }
+    }
+
+    /**
+     * Probe every connected relay socket that has been frame-silent for a while.
+     * Zombies are marked dead inside probeLiveness, and the resulting
+     * onConnectionLost drives reconnect + resubscribe + pending-event flush.
+     * Probes run concurrently so one dead socket doesn't delay the others.
+     */
+    private suspend fun probeIdleSockets() {
+        val clients = (
+            connectionManager.getAllConnectedClients() +
+                listOfNotNull(connectionManager.getFocusedClient())
+            ).distinct()
+        for (client in clients) {
+            val silence = client.inboundSilenceMs() ?: continue
+            if (silence < FOREGROUND_PROBE_MIN_SILENCE_MS) continue
+            scope.launch { client.probeLiveness() }
         }
     }
 

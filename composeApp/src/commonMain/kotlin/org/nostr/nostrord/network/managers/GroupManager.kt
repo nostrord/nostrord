@@ -1068,6 +1068,15 @@ class GroupManager(
                 // window, an eaten REQ keeps being nudged).
                 if (muxTracker.isStale(relayUrl, now, MUX_STALE_REARM_MS)) {
                     muxTracker.clearRelay(relayUrl)
+                    // A zombie socket eats the re-sent REQ silently and update()
+                    // re-arms the staleness clock, deferring detection forever. When
+                    // the socket itself has been frame-silent for the whole window,
+                    // verify it: probeLiveness marks it dead if nothing answers, and
+                    // onConnectionLost drives reconnect + resubscribe + pending flush.
+                    val client = connectionManager.getClientForRelay(relayUrl)
+                    if (client != null && (client.inboundSilenceMs(now) ?: 0L) > MUX_STALE_REARM_MS) {
+                        scope.launch { client.probeLiveness() }
+                    }
                 }
                 refreshMuxSubscriptionsForRelay(relayUrl)
             } catch (_: Exception) {}
@@ -2868,6 +2877,7 @@ class GroupManager(
     /**
      * Insert one of the local user's own messages into [_messages] immediately,
      * reusing [messageIdIndex] so the relay's later echo of the same id is deduped.
+     *
      */
     private fun insertOwnMessage(groupId: String, message: NostrGroupClient.NostrMessage) {
         _messages.update { currentMap ->
