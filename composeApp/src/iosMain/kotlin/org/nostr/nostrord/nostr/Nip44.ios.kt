@@ -213,17 +213,20 @@ actual object Nip44 {
     }
 
     private fun quarterRound(s: IntArray, a: Int, b: Int, c: Int, d: Int) {
-        s[a] += s[b]; s[d] = (s[d] xor s[a]).rotateLeft(16)
-        s[c] += s[d]; s[b] = (s[b] xor s[c]).rotateLeft(12)
-        s[a] += s[b]; s[d] = (s[d] xor s[a]).rotateLeft(8)
-        s[c] += s[d]; s[b] = (s[b] xor s[c]).rotateLeft(7)
+        s[a] += s[b]
+        s[d] = (s[d] xor s[a]).rotateLeft(16)
+        s[c] += s[d]
+        s[b] = (s[b] xor s[c]).rotateLeft(12)
+        s[a] += s[b]
+        s[d] = (s[d] xor s[a]).rotateLeft(8)
+        s[c] += s[d]
+        s[b] = (s[b] xor s[c]).rotateLeft(7)
     }
 
-    private fun ByteArray.leInt(offset: Int): Int =
-        (this[offset].toInt() and 0xFF) or
-            ((this[offset + 1].toInt() and 0xFF) shl 8) or
-            ((this[offset + 2].toInt() and 0xFF) shl 16) or
-            ((this[offset + 3].toInt() and 0xFF) shl 24)
+    private fun ByteArray.leInt(offset: Int): Int = (this[offset].toInt() and 0xFF) or
+        ((this[offset + 1].toInt() and 0xFF) shl 8) or
+        ((this[offset + 2].toInt() and 0xFF) shl 16) or
+        ((this[offset + 3].toInt() and 0xFF) shl 24)
 
     private fun pad(plaintext: String): ByteArray {
         val unpadded = plaintext.encodeToByteArray()
