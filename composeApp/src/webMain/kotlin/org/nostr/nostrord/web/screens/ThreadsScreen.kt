@@ -23,6 +23,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.messageSendStatus
+import org.nostr.nostrord.web.components.sendStateIcon
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.modals.CreateThreadModal
 import react.ChildrenBuilder
@@ -439,6 +440,10 @@ private fun ChildrenBuilder.threadMessage(
             div {
                 className = ClassName("thread-msg-content")
                 +msg.content
+                // Inline send-state icon (clock/check) so no extra line shifts the list.
+                if (myPubkey != null && myPubkey == msg.pubkey) {
+                    sendStateIcon(status)
+                }
             }
             if (myPubkey != null && myPubkey == msg.pubkey) {
                 messageSendStatus(status, onRetry, onDismiss)

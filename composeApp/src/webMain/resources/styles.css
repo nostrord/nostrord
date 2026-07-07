@@ -5437,17 +5437,29 @@ body {
     white-space: pre-wrap;
 }
 
-/* Optimistic-send status under the author's own message. */
+/* Inline send-state icon (clock while sending, check when delivered) at the end
+   of the author's own message text; inline so the chat never gains a line.
+   Em-sized and baseline-nudged so it tracks the surrounding font and sits like
+   a text glyph in both chat (15px) and threads (14px). */
+.msg-state-icon {
+    display: inline-flex;
+    vertical-align: -0.15em;
+    margin-left: var(--space-xxs);
+    color: var(--color-text-muted);
+}
+
+.msg-state-icon .ico {
+    width: 1em;
+    height: 1em;
+}
+
+/* Optimistic-send failure row under the author's own message. */
 .msg-status {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     margin-top: var(--space-xxs);
     font-size: 12px;
-}
-
-.msg-status.sending {
-    color: var(--color-text-muted);
 }
 
 .msg-status.failed {

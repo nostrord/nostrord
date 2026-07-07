@@ -59,6 +59,7 @@ import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSendStatus
 import org.nostr.nostrord.web.components.messageSkeleton
 import org.nostr.nostrord.web.components.searchInput
+import org.nostr.nostrord.web.components.sendStateIcon
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
@@ -3012,8 +3013,14 @@ private val MessageRow =
                         props.onEventRef,
                         props.onGroupRef,
                     )
+                    // Send-state icon (own messages: clock while sending, check when
+                    // delivered) flows inline after the content so no extra line shifts
+                    // the chat.
+                    if (props.myPubkey != null && props.myPubkey == props.pubkey) {
+                        sendStateIcon(props.status)
+                    }
                 }
-                // Optimistic-send status (own messages only). Delivered = null = nothing.
+                // Failure row (own messages only): Not delivered + Retry / Dismiss.
                 if (props.myPubkey != null && props.myPubkey == props.pubkey) {
                     messageSendStatus(props.status, props.onRetrySend, props.onDismissFailed)
                 }
