@@ -11,7 +11,6 @@ import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private const val PQ_PUBKEY = "00000000000000000000000000000000000000000000000000000000feedface"
@@ -88,7 +87,11 @@ class PendingEventQueueTest {
         advanceTimeBy(1_000) // ordering-buffer debounce
         runCurrent()
 
-        assertNull(manager.messageStatus.value[message.id], "echo must resolve the Sending status")
+        assertEquals(
+            GroupManager.MessageStatus.Delivered,
+            manager.messageStatus.value[message.id],
+            "echo must resolve the Sending status to Delivered",
+        )
         assertTrue(pending.pendingEvents.value.isEmpty(), "echo must drop the queued retry")
 
         scope.cancel()

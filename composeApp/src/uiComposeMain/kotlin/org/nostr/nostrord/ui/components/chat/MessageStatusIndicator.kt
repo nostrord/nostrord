@@ -4,20 +4,52 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Optimistic-send status row shown under the author's own message. Sending: a muted "Sending..."
- * hint. Failed: the reason plus Retry / Dismiss. Shared by chat (MessageItem) and threads so the
- * indicator stays identical; the caller guards on "own message and status != null".
+ * Inline send-state icon for the author's own message: a muted clock while Sending, a check
+ * once Delivered. Rendered on the same line as the message content (no extra row, so the
+ * chat never shifts). Failed renders nothing here; [MessageStatusIndicator] handles it.
+ * Shared by chat (MessageItem) and threads.
+ */
+@Composable
+fun SendStateIcon(
+    status: GroupManager.MessageStatus,
+    modifier: Modifier = Modifier,
+) {
+    val (image, description) = when (status) {
+        is GroupManager.MessageStatus.Sending -> Icons.Default.Schedule to "Sending"
+        is GroupManager.MessageStatus.Delivered -> Icons.Default.Check to "Delivered"
+        is GroupManager.MessageStatus.Failed -> return
+    }
+    Icon(
+        imageVector = image,
+        contentDescription = description,
+        tint = NostrordColors.TextMuted,
+        // The caller bottom-aligns this in the content row; the 2dp lift keeps the
+        // glyph on the text baseline instead of down in the font's descent.
+        modifier = modifier.padding(start = Spacing.xxs, bottom = 2.dp).size(13.dp),
+    )
+}
+
+/**
+ * Failure row shown under the author's own message: the reason plus Retry / Dismiss.
+ * Sending/Delivered render nothing here; they show as an inline [SendStateIcon] instead.
+ * Shared by chat (MessageItem) and threads so the indicator stays identical.
  */
 @Composable
 fun MessageStatusIndicator(
@@ -25,36 +57,25 @@ fun MessageStatusIndicator(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    when (status) {
-        is GroupManager.MessageStatus.Sending -> {
-            Text(
-                text = "Sending...",
-                color = NostrordColors.TextMuted,
-                style = NostrordTypography.Timestamp,
-                modifier = Modifier.padding(top = Spacing.xxs),
-            )
-        }
-        is GroupManager.MessageStatus.Failed -> {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = Spacing.xxs),
-            ) {
-                Text(text = "Not delivered", color = NostrordColors.Error, style = NostrordTypography.Timestamp)
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    text = "Retry",
-                    color = NostrordColors.Error,
-                    style = NostrordTypography.Timestamp,
-                    modifier = Modifier.clickable { onRetry() },
-                )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    text = "Dismiss",
-                    color = NostrordColors.TextMuted,
-                    style = NostrordTypography.Timestamp,
-                    modifier = Modifier.clickable { onDismiss() },
-                )
-            }
-        }
+    if (status !is GroupManager.MessageStatus.Failed) return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = Spacing.xxs),
+    ) {
+        Text(text = "Not delivered", color = NostrordColors.Error, style = NostrordTypography.Timestamp)
+        Spacer(modifier = Modifier.width(Spacing.sm))
+        Text(
+            text = "Retry",
+            color = NostrordColors.Error,
+            style = NostrordTypography.Timestamp,
+            modifier = Modifier.clickable { onRetry() },
+        )
+        Spacer(modifier = Modifier.width(Spacing.sm))
+        Text(
+            text = "Dismiss",
+            color = NostrordColors.TextMuted,
+            style = NostrordTypography.Timestamp,
+            modifier = Modifier.clickable { onDismiss() },
+        )
     }
 }

@@ -435,22 +435,30 @@ fun MessageItem(
                         Spacer(modifier = Modifier.height(Spacing.xs))
                     }
 
-                    // Message content with NIP-30 custom emoji support
-                    MessageContent(
-                        content = message.content,
-                        tags = message.tags,
-                        onMentionClick = currentOnUsernameClick,
-                        onHashtagClick = { hashtag ->
-                            // TODO: Implement hashtag click handler (e.g., search for hashtag)
-                        },
-                        currentGroupId = currentGroupId,
-                        currentRelayUrl = currentRelayUrl,
-                        onNavigateToGroup = onNavigateToGroup,
-                    )
+                    // Message content with NIP-30 custom emoji support. The send-state
+                    // icon (own messages: clock while sending, check when delivered)
+                    // shares this row so the chat never gains an extra line and shifts.
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Box(modifier = Modifier.weight(1f, fill = false)) {
+                            MessageContent(
+                                content = message.content,
+                                tags = message.tags,
+                                onMentionClick = currentOnUsernameClick,
+                                onHashtagClick = { hashtag ->
+                                    // TODO: Implement hashtag click handler (e.g., search for hashtag)
+                                },
+                                currentGroupId = currentGroupId,
+                                currentRelayUrl = currentRelayUrl,
+                                onNavigateToGroup = onNavigateToGroup,
+                            )
+                        }
+                        if (isAuthor && messageStatus != null) {
+                            SendStateIcon(messageStatus)
+                        }
+                    }
 
-                    // Optimistic-send status indicator (own messages only). Delivered
-                    // messages have a null status and render nothing.
-                    if (isAuthor && messageStatus != null) {
+                    // Failure row (own messages only): Not delivered + Retry / Dismiss.
+                    if (isAuthor && messageStatus is GroupManager.MessageStatus.Failed) {
                         MessageStatusIndicator(
                             status = messageStatus,
                             onRetry = onRetrySend,

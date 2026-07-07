@@ -395,12 +395,15 @@ class GroupManager(
     /**
      * Delivery status of the local user's own messages (optimistic send).
      * Sending = the message is on screen and awaiting relay confirmation (or
-     * queued for auto-retry); Failed = the relay rejected it, retries were
-     * exhausted, or signing failed. A delivered message has NO entry here and
-     * renders without an indicator. Keyed by event id.
+     * queued for auto-retry); Delivered = the relay confirmed a send made this
+     * session (renders a check); Failed = the relay rejected it, retries were
+     * exhausted, or signing failed. Messages with no entry (history, other
+     * sessions) render without an indicator. Keyed by event id.
      */
     sealed interface MessageStatus {
         data object Sending : MessageStatus
+
+        data object Delivered : MessageStatus
 
         data class Failed(
             val reason: String,
@@ -2923,7 +2926,11 @@ class GroupManager(
     }
 
     private fun markDelivered(eventId: String) {
-        _messageStatus.update { it - eventId }
+        // Only tracked sends flip to Delivered; an id already dismissed (or from a
+        // previous session) stays absent so history never grows a stray check.
+        _messageStatus.update { statuses ->
+            if (eventId in statuses) statuses + (eventId to MessageStatus.Delivered) else statuses
+        }
     }
 
     private fun markFailed(eventId: String, groupId: String, eventJson: String?, reason: String, unsignedEvent: Event? = null) {
@@ -3953,7 +3960,10 @@ class GroupManager(
         val ownStatuses = _messageStatus.value
         if (ownStatuses.isNotEmpty()) {
             for (msg in messages) {
-                if (msg.id in ownStatuses) {
+                // Skip already-Delivered entries so relay re-deliveries of the same
+                // event don't re-fire the resolution work on every batch.
+                val status = ownStatuses[msg.id]
+                if (status != null && status !is MessageStatus.Delivered) {
                     markDelivered(msg.id)
                     pendingEventManager?.let { pending -> scope.launch { pending.removeByEventId(msg.id) } }
                 }

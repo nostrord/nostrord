@@ -50,6 +50,7 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.chat.MessageComposer
 import org.nostr.nostrord.ui.components.chat.MessageStatusIndicator
+import org.nostr.nostrord.ui.components.chat.SendStateIcon
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
 import org.nostr.nostrord.ui.screens.group.components.CreateThreadDialog
@@ -341,8 +342,18 @@ private fun ThreadMessage(
                     modifier = Modifier.padding(vertical = Spacing.xs),
                 )
             }
-            Text(msg.content, color = NostrordColors.TextContent, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
-            if (myPubkey != null && myPubkey == msg.pubkey && status != null) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    msg.content,
+                    color = NostrordColors.TextContent,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f, fill = false).padding(top = 2.dp),
+                )
+                if (myPubkey != null && myPubkey == msg.pubkey && status != null) {
+                    SendStateIcon(status)
+                }
+            }
+            if (myPubkey != null && myPubkey == msg.pubkey && status is GroupManager.MessageStatus.Failed) {
                 MessageStatusIndicator(status, onRetry, onDismiss)
             }
         }
