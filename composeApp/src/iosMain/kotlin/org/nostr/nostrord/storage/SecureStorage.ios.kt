@@ -498,8 +498,7 @@ actual object SecureStorage {
 
     // --- Helpers --------------------------------------------------------------
 
-    private fun allKeys(): List<String> =
-        defaults.dictionaryRepresentation().keys.mapNotNull { it as? String }
+    private fun allKeys(): List<String> = defaults.dictionaryRepresentation().keys.mapNotNull { it as? String }
 
     private fun removeKeysWithPrefix(prefix: String) {
         allKeys().forEach { if (it.startsWith(prefix)) defaults.removeObjectForKey(it) }

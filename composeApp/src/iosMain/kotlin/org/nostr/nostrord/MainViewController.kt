@@ -7,7 +7,7 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.svg.SvgDecoder
 import okio.Path.Companion.toPath
-import org.nostr.nostrord.ui.   util.ImageLoadEventListener
+import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask

@@ -13,9 +13,9 @@ import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import platform.CoreCrypto.CCCrypt
 import platform.CoreCrypto.kCCAlgorithmAES
+import platform.CoreCrypto.kCCBlockSizeAES128
 import platform.CoreCrypto.kCCDecrypt
 import platform.CoreCrypto.kCCEncrypt
-import platform.CoreCrypto.kCCBlockSizeAES128
 import platform.CoreCrypto.kCCOptionPKCS7Padding
 import platform.CoreCrypto.kCCSuccess
 import platform.posix.size_tVar

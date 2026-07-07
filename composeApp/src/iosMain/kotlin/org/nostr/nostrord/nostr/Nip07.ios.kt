@@ -12,6 +12,5 @@ actual object Nip07 {
 
     actual suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = unavailable()
 
-    private fun unavailable(): Nothing =
-        throw UnsupportedOperationException("NIP-07 is only available in browser environments")
+    private fun unavailable(): Nothing = throw UnsupportedOperationException("NIP-07 is only available in browser environments")
 }
