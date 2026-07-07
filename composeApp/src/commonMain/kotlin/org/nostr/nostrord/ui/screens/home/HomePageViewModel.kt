@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -106,6 +107,10 @@ class HomePageViewModel(
             SecureStorage.loadFollowingCacheFor(pubkey).map { pk -> Friend(pk, repo.userMetadata.value[pk]) }
         }
     },
+    // Off-Main dispatcher for the heavy combine transforms. Injectable so tests pass their
+    // test dispatcher: with the real Default here, advanceUntilIdle can't see the transform's
+    // in-flight work and the assertion races it.
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -231,7 +236,7 @@ class HomePageViewModel(
             // and re-runs for each of the ~50 metadata events that arrive in waves on home open;
             // running it on viewModelScope's Main dispatcher made it compete with composition. The
             // transform is pure, so flowOn is correctness-safe; stateIn still publishes on Main.
-        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(computeDispatcher).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
      * Rail-only projection of [myGroups]: drops the member-preview fields (people / memberCount /
@@ -521,7 +526,7 @@ class HomePageViewModel(
             // and re-runs for each of the ~50 metadata events that arrive in waves on home open;
             // running it on viewModelScope's Main dispatcher made it compete with composition. The
             // transform is pure, so flowOn is correctness-safe; stateIn still publishes on Main.
-        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(computeDispatcher).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Each tab shows skeletons while empty AND unresolved; the empty-state message
     // appears only once resolved (first group arrived, or the grace period elapsed).
@@ -683,7 +688,7 @@ class HomePageViewModel(
                 // Then hydrate the cache off the Main thread, TAGGED with the new pubkey (the tag !=
                 // active pubkey guard blocks the previous account's rows). Re-check the active pubkey
                 // after the load so a fast second switch doesn't clobber it with stale rows.
-                val rows = withContext(Dispatchers.Default) { loadFriendsCache(pk) }
+                val rows = withContext(computeDispatcher) { loadFriendsCache(pk) }
                 if (repo.activePubkey.value == pk) cachedFriends.value = pk to rows
             }
         }

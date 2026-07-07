@@ -52,7 +52,7 @@ class HomePageViewModelTest {
                 "wss://a" to setOf("g1"),
                 "wss://b" to setOf("g3", "unknown"),
             )
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         val ids = vm.myGroups.value.map { it.meta.id }
@@ -69,7 +69,7 @@ class HomePageViewModelTest {
         fake._groupsByRelay.value =
             mapOf("wss://a" to listOf(meta("g1", "Alpha", "cats"), meta("g2", "Beta", "dogs")))
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1", "g2"))
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         vm.setQuery("dogs")
@@ -108,7 +108,7 @@ class HomePageViewModelTest {
                     nip05 = null,
                 ),
             )
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         // Sorted by display name: Amy before Zoe, each carrying its metadata.
@@ -123,7 +123,7 @@ class HomePageViewModelTest {
         val fake = FakeNostrRepository()
         fake._following.value = emptySet()
         fake._contactListLoaded.value = true
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(emptyList(), vm.friends.value.map { it.pubkey })
@@ -138,7 +138,7 @@ class HomePageViewModelTest {
         fake._activePubkey.value = "a".repeat(64)
         fake._following.value = setOf("a1")
         fake._contactListLoaded.value = true
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("a1"), vm.friends.value.map { it.pubkey })
 
@@ -159,7 +159,7 @@ class HomePageViewModelTest {
         fake._activePubkey.value = "a".repeat(64)
         fake._following.value = setOf("a1")
         fake._contactListLoaded.value = true
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, vm.friendsLoading.value)
 
@@ -197,7 +197,7 @@ class HomePageViewModelTest {
         fake._activePubkey.value = "a".repeat(64)
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
         fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "Alpha")))
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, vm.myGroupsLoading.value)
 
@@ -217,7 +217,7 @@ class HomePageViewModelTest {
         // races the relay reconnect.
         val fake = FakeNostrRepository()
         fake._activePubkey.value = "a".repeat(64)
-        HomePageViewModel(fake)
+        HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(1, fake.requestContactListCount)
 
@@ -235,7 +235,7 @@ class HomePageViewModelTest {
         val cacheA = listOf(Friend("a1", null), Friend("a2", null))
         val fake = FakeNostrRepository()
         fake._activePubkey.value = "a".repeat(64)
-        val vm = HomePageViewModel(fake, loadFriendsCache = { pk -> if (pk == "a".repeat(64)) cacheA else emptyList() })
+        val vm = HomePageViewModel(fake, loadFriendsCache = { pk -> if (pk == "a".repeat(64)) cacheA else emptyList() }, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.runCurrent()
         // Account A's cached friends paint immediately (placeholders), no skeleton.
         assertEquals(setOf("a1", "a2"), vm.friends.value.map { it.pubkey }.toSet())
@@ -265,7 +265,7 @@ class HomePageViewModelTest {
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g2"))
         fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "Group One")))
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         val fgs = vm.friendsGroups.value
@@ -294,7 +294,7 @@ class HomePageViewModelTest {
             )
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g2"))
 
-        HomePageViewModel(fake)
+        HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         val byRelay =
@@ -317,7 +317,7 @@ class HomePageViewModelTest {
         // self + 2 friends + 4 others, interleaved, to prove ordering and the self/cap rules.
         fake._groupMembers.value = mapOf("g1" to listOf("me", "x1", "f1", "x2", "x3", "f2", "x4"))
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         // Friends first (member order), then other members to fill, self excluded, max 5.
@@ -345,7 +345,7 @@ class HomePageViewModelTest {
                 "big" to listOf("me", "x1", "x2", "x3", "x4", "x5"),
             )
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         val byId = vm.myGroups.value.associate { it.meta.id to it.people.map { p -> p.pubkey } }
@@ -364,7 +364,7 @@ class HomePageViewModelTest {
         // Member list: the friend plus three non-friends to fill the row.
         fake._groupMembers.value = mapOf("g1" to listOf("alice", "o1", "o2", "o3"))
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
@@ -388,7 +388,7 @@ class HomePageViewModelTest {
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g2"))
         fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "Curated One")))
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf("g1"), vm.recommendedGroups.value.map { it.meta.id })
@@ -417,7 +417,7 @@ class HomePageViewModelTest {
         fake._groupsByRelay.value =
             mapOf("wss://a" to listOf(meta("known", "Known"), meta("rknown", "Rec Known")))
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         // A friend's group with no metadata (almost always private: relays don't describe a
@@ -459,7 +459,7 @@ class HomePageViewModelTest {
                     ),
             )
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf("visible"), vm.friendsGroups.value.map { it.meta.id })
@@ -492,7 +492,7 @@ class HomePageViewModelTest {
         // wss://down failed NIP-11 / socket: its groups must not appear on discovery.
         fake._unreachableRelays.value = setOf("wss://down")
 
-        val vm = HomePageViewModel(fake)
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf("gf"), vm.friendsGroups.value.map { it.meta.id })
@@ -516,7 +516,7 @@ class HomePageViewModelTest {
         )
 
         val store = NotificationHistoryStore()
-        val vm = HomePageViewModel(FakeNostrRepository(), store)
+        val vm = HomePageViewModel(FakeNostrRepository(), store, computeDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(0, vm.notificationUnread.value)
 
