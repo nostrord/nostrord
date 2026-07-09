@@ -86,6 +86,7 @@ enum class SettingsSection(val label: String) {
     Appearance("Appearance"),
     Media("Media"),
     Notifications("Notifications"),
+    MutedUsers("Muted users"),
     Security("Security"),
 }
 
@@ -252,6 +253,11 @@ fun SettingsScreen(
         )
     }
 
+    val mutedUsersVm = viewModel { MutedUsersViewModel(AppModule.nostrRepository) }
+    val mutedUsersContent: @Composable () -> Unit = {
+        MutedUsersPanelContent(mutedUsersVm)
+    }
+
     val securityContent: @Composable () -> Unit = {
         SecurityPanelContent()
     }
@@ -305,6 +311,7 @@ fun SettingsScreen(
                 appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
+                mutedUsersContent = mutedUsersContent,
                 securityContent = securityContent,
             )
         } else {
@@ -321,6 +328,7 @@ fun SettingsScreen(
                 appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
+                mutedUsersContent = mutedUsersContent,
                 securityContent = securityContent,
             )
         }
@@ -343,6 +351,7 @@ private fun DesktopSettings(
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    mutedUsersContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -390,7 +399,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, mutedUsersContent, securityContent)
                     }
                 }
 
@@ -420,6 +429,7 @@ private fun MobileSettings(
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    mutedUsersContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
 ) {
     if (!showPanel) {
@@ -461,7 +471,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, mutedUsersContent, securityContent)
             }
         }
     }
@@ -518,6 +528,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Notifications", activeSection == SettingsSection.Notifications, compact = compact) {
         onSelectSection(SettingsSection.Notifications)
+    }
+    SettingsNavItem("Muted users", activeSection == SettingsSection.MutedUsers, compact = compact) {
+        onSelectSection(SettingsSection.MutedUsers)
     }
     if (PassphraseSettings.isApplicable) {
         SettingsNavItem("Security", activeSection == SettingsSection.Security, compact = compact) {
@@ -633,6 +646,7 @@ private fun SettingsPanel(
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    mutedUsersContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -654,6 +668,7 @@ private fun SettingsPanel(
             SettingsSection.Appearance -> appearanceContent()
             SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()
+            SettingsSection.MutedUsers -> mutedUsersContent()
             SettingsSection.Security -> securityContent()
         }
     }

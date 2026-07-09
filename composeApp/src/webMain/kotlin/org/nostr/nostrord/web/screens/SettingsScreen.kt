@@ -14,7 +14,9 @@ import org.nostr.nostrord.ui.screens.backup.BackupViewModel
 import org.nostr.nostrord.ui.screens.backup.MIN_BACKUP_PASSWORD
 import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
+import org.nostr.nostrord.ui.screens.settings.MutedUsersViewModel
 import org.nostr.nostrord.ui.screens.settings.SecurityViewModel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.isValidRelayUrl
@@ -55,7 +57,7 @@ external interface SettingsScreenProps : Props {
 }
 
 private val sections =
-    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Direct Messages", "Appearance", "Media", "Notifications", "Security")
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Direct Messages", "Appearance", "Media", "Notifications", "Muted users", "Security")
 
 /**
  * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
@@ -152,6 +154,7 @@ val SettingsScreen =
                     "Appearance" -> AppearancePanel()
                     "Media" -> MediaPanel()
                     "Notifications" -> NotificationsPanel()
+                    "Muted users" -> MutedUsersPanel()
                     "Security" -> SecurityPanel()
                 }
             }
@@ -747,6 +750,71 @@ private fun react.ChildrenBuilder.relayChip(label: String, active: Boolean, onTo
         +label
     }
 }
+
+// ── Muted users ──────────────────────────────────────────────────────────────
+
+/**
+ * The account's NIP-51 kind:10000 mute list with an Unmute action per user.
+ * Compose parity: MutedUsersPanelContent.kt.
+ */
+private val MutedUsersPanel =
+    FC<Props> {
+        val vm = useViewModel { MutedUsersViewModel(AppModule.nostrRepository) }
+        val muted = useStateFlow(vm.muted)
+        val userMetadata = useStateFlow(vm.userMetadata)
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-info-text")
+                +(
+                    "Muted users don't appear in chats, direct messages, or notifications. " +
+                        "Mutes sync to your other Nostr clients."
+                    )
+            }
+        }
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"MUTED USERS"
+            }
+            if (muted.isEmpty()) {
+                div {
+                    className = ClassName("settings-info-text")
+                    +"You haven't muted anyone. Mute someone from their profile to hide their messages."
+                }
+            }
+            muted.forEach { pubkey ->
+                val meta = userMetadata[pubkey]
+                val npub = Nip19.encodeNpub(pubkey)
+                val name =
+                    meta?.displayName?.takeIf { it.isNotBlank() }
+                        ?: meta?.name?.takeIf { it.isNotBlank() }
+                        ?: (npub.take(12) + "…")
+                div {
+                    key = pubkey
+                    className = ClassName("member-row")
+                    WebAvatar {
+                        url = meta?.picture
+                        seed = pubkey
+                        this.name = name
+                        cls = "member-avatar"
+                    }
+                    span {
+                        className = ClassName("member-name")
+                        +name
+                    }
+                    button {
+                        className = ClassName("btn-ghost")
+                        onClick = { vm.unmute(pubkey) }
+                        +"Unmute"
+                    }
+                }
+            }
+        }
+    }
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
