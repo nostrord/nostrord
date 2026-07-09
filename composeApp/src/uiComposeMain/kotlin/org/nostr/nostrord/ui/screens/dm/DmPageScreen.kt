@@ -17,7 +17,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.PersonRemove
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +54,7 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.DmEventSourceDialog
 import org.nostr.nostrord.ui.components.chat.DmMessageContextMenu
+import org.nostr.nostrord.ui.components.chat.DmRelaysDialog
 import org.nostr.nostrord.ui.components.chat.MessageComposer
 import org.nostr.nostrord.ui.components.chat.rightClickContextMenuModifier
 import org.nostr.nostrord.ui.components.layout.DmConversationList
@@ -170,6 +181,15 @@ fun DmPageScreen(
                 ?: metadata?.name?.takeIf { it.isNotBlank() }
                 ?: vm.npub.take(12) + "..."
 
+        val copyToClipboard = rememberClipboardWriter()
+        val isFollowing by vm.isFollowing.collectAsState()
+        var headerMenuOpen by remember { mutableStateOf(false) }
+        var relaysDialogOpen by remember { mutableStateOf(false) }
+        val peerRelays by remember(pubkey) { dmVm.peerDmRelays(pubkey) }.collectAsState()
+        if (relaysDialogOpen) {
+            DmRelaysDialog(relays = peerRelays, onDismiss = { relaysDialogOpen = false })
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -203,14 +223,59 @@ fun DmPageScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Surface(shape = NostrordShapes.shapeSmall, color = NostrordColors.BackgroundFloating) {
-                Text(
-                    "DM · encrypted",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+            Spacer(modifier = Modifier.weight(1f))
+            Box {
+                IconButton(onClick = { headerMenuOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = "More",
+                        tint = NostrordColors.TextSecondary,
+                    )
+                }
+                DropdownMenu(
+                    expanded = headerMenuOpen,
+                    onDismissRequest = { headerMenuOpen = false },
+                    containerColor = NostrordColors.Surface,
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("View profile") },
+                        leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                        onClick = {
+                            headerMenuOpen = false
+                            onOpenProfile(UserRoute(pubkey))
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (isFollowing) "Unfollow" else "Follow") },
+                        leadingIcon = {
+                            Icon(
+                                if (isFollowing) Icons.Outlined.PersonRemove else Icons.Outlined.PersonAdd,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            headerMenuOpen = false
+                            vm.toggleFollow()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy npub") },
+                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                        onClick = {
+                            headerMenuOpen = false
+                            copyToClipboard(vm.npub)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("View DM relays") },
+                        leadingIcon = { Icon(Icons.Outlined.Public, contentDescription = null) },
+                        onClick = {
+                            headerMenuOpen = false
+                            dmVm.loadPeerDmRelays(pubkey)
+                            relaysDialogOpen = true
+                        },
+                    )
+                }
             }
         }
         HorizontalDivider(color = NostrordColors.Divider)
@@ -248,7 +313,6 @@ fun DmPageScreen(
                 modifier = Modifier.widthIn(max = 320.dp),
             )
             val chatItems = remember(messages) { buildDmChatItems(messages) }
-            val copyToClipboard = rememberClipboardWriter()
             var menuForId by remember { mutableStateOf<String?>(null) }
             var menuAnchorPx by remember { mutableStateOf<Offset?>(null) }
             var sourceForId by remember { mutableStateOf<String?>(null) }
@@ -288,7 +352,6 @@ fun DmPageScreen(
                                 onDismiss = { menuForId = null },
                                 onViewSource = { sourceForId = m.id },
                                 onCopyText = { copyToClipboard(m.content) },
-                                onCopyJson = { copyToClipboard(m.eventJson()) },
                             )
                             // Web parity (.dm-bubble max-width 75%): the spacer eats the other
                             // 25% on the bubble's growth side; the Box owns the 75% slot and

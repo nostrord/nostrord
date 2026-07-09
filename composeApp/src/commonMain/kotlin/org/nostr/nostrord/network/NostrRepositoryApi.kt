@@ -144,6 +144,12 @@ interface NostrRepositoryApi {
     /** Our own effective NIP-17 DM relays (kind:10050, or the defaults until one is published). */
     val myDmRelays: StateFlow<List<String>>
 
+    /** Published kind:10050 DM relay lists by author pubkey, as they are fetched. */
+    val dmRelaysByPubkey: StateFlow<Map<String, List<String>>>
+
+    /** Fetch a peer's kind:10050 so [dmRelaysByPubkey] gains its entry (fire-and-forget). */
+    fun requestPeerDmRelays(pubkey: String)
+
     /** Send a NIP-17 direct message to [recipientPubkey]. */
     suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit>
 

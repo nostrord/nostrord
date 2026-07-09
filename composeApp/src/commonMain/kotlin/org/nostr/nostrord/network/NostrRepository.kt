@@ -1324,6 +1324,12 @@ class NostrRepository(
     private val _myDmRelays = MutableStateFlow<List<String>>(emptyList())
     override val myDmRelays: StateFlow<List<String>> = _myDmRelays.asStateFlow()
 
+    override val dmRelaysByPubkey: StateFlow<Map<String, List<String>>> = dmManager.dmRelaysByPubkey
+
+    override fun requestPeerDmRelays(pubkey: String) {
+        scope.launch { fetchDmRelays(pubkey) }
+    }
+
     // Fallback DM relays for users (and us) without a published kind:10050.
     private val defaultDmRelays =
         listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://auth.nostr1.com")
