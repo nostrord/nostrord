@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageComposer
 import org.nostr.nostrord.ui.components.layout.DmConversationList
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
@@ -50,6 +51,7 @@ import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.formatTime
 
 /**
  * Direct-message conversation page (NIP-17). Renders the decrypted thread and a composer that
@@ -240,22 +242,53 @@ fun DmPageScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.widthIn(max = 320.dp),
             )
-            messages.forEach { m ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
-                    horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start,
-                ) {
-                    Surface(
-                        shape = NostrordShapes.shapeMedium,
-                        color = if (m.mine) NostrordColors.Primary else NostrordColors.BackgroundFloating,
-                        modifier = Modifier.widthIn(max = 320.dp),
-                    ) {
-                        Text(
-                            m.content,
-                            color = if (m.mine) Color.White else NostrordColors.TextPrimary,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                        )
+            val chatItems = remember(messages) { buildDmChatItems(messages) }
+            chatItems.forEach { item ->
+                when (item) {
+                    is DmChatItem.DateSeparator -> DateSeparator(item.label)
+                    is DmChatItem.Message -> {
+                        val m = item.message
+                        // WhatsApp/Telegram-style: a small clock inside every bubble,
+                        // bottom-right under the text.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = if (item.firstInGroup) Spacing.sm else Spacing.xxs),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            // Web parity (.dm-bubble max-width 75%): the spacer eats the other
+                            // 25% on the bubble's growth side; the Box owns the 75% slot and
+                            // pins the bubble to the correct edge inside it.
+                            if (m.mine) Spacer(modifier = Modifier.weight(0.25f))
+                            Box(
+                                modifier = Modifier.weight(0.75f),
+                                contentAlignment = if (m.mine) Alignment.BottomEnd else Alignment.BottomStart,
+                            ) {
+                                Surface(
+                                    shape = NostrordShapes.shapeMedium,
+                                    color = if (m.mine) NostrordColors.Primary else NostrordColors.BackgroundFloating,
+                                ) {
+                                    // Clock rides beside the text's last line, bottom-aligned
+                                    // (web parity: the float-right .dm-bubble-time).
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                                        verticalAlignment = Alignment.Bottom,
+                                    ) {
+                                        Text(
+                                            m.content,
+                                            color = if (m.mine) Color.White else NostrordColors.TextPrimary,
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                        )
+                                        Text(
+                                            formatTime(m.createdAt),
+                                            color = if (m.mine) Color.White.copy(alpha = 0.7f) else NostrordColors.TextMuted,
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(start = Spacing.xs),
+                                        )
+                                    }
+                                }
+                            }
+                            if (!m.mine) Spacer(modifier = Modifier.weight(0.25f))
+                        }
                     }
                 }
             }

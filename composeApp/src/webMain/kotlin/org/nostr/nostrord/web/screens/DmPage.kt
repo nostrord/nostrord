@@ -4,9 +4,13 @@ import kotlinx.browser.document
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
+import org.nostr.nostrord.ui.screens.dm.DmChatItem
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
+import org.nostr.nostrord.ui.screens.dm.buildDmChatItems
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.formatDateTime
+import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.DmConversationList
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -211,13 +215,42 @@ val DmPage =
                         +"Beginning of your direct conversation with $name. Direct messages are encrypted (NIP-17)."
                     }
                 }
-                messages.forEach { m ->
-                    div {
-                        key = m.id
-                        className = ClassName(if (m.mine) "dm-msg mine" else "dm-msg")
-                        div {
-                            className = ClassName("dm-bubble")
-                            +m.content
+                buildDmChatItems(messages).forEach { item ->
+                    when (item) {
+                        is DmChatItem.DateSeparator ->
+                            div {
+                                key = "sep-${item.label}"
+                                className = ClassName("date-sep")
+                                span {
+                                    className = ClassName("date-sep-label")
+                                    +item.label
+                                }
+                            }
+                        is DmChatItem.Message -> {
+                            val m = item.message
+                            div {
+                                key = m.id
+                                className =
+                                    ClassName(
+                                        buildString {
+                                            append("dm-msg")
+                                            if (m.mine) append(" mine")
+                                            if (!item.firstInGroup) append(" grouped")
+                                        },
+                                    )
+                                // WhatsApp/Telegram-style: the clock floats bottom-right inside
+                                // every bubble (rides the last text line when it fits, wraps below
+                                // otherwise); hover shows the full date.
+                                div {
+                                    className = ClassName("dm-bubble")
+                                    title = formatDateTime(m.createdAt)
+                                    +m.content
+                                    span {
+                                        className = ClassName("dm-bubble-time")
+                                        +formatTime(m.createdAt)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
