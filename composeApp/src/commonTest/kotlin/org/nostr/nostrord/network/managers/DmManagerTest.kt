@@ -118,4 +118,69 @@ class DmManagerTest {
         val convo = dm.conversations.first { it.isNotEmpty() }
         assertEquals(0, convo.first().unread)
     }
+
+    @Test
+    fun `seen-on relays accumulate across every wrap arrival and dedupe`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val alice = signer()
+        val bob = signer()
+        val rumor = Nip17.buildRumor(alice.pubkey, bob.pubkey, "hi")
+        val wrap = Nip17.wrap(rumor, bob.pubkey, alice)
+        val wrapId = wrap.id!!
+
+        // Relay recorded before decrypt, then the wrap decrypts, then the same wrap arrives
+        // again from a second relay (deduped as a message, but its relay still counts).
+        dm.recordWrapRelay(wrapId, "wss://a.example")
+        dm.ingestGiftWrap(wrap, bob.pubkey, bob)
+        dm.recordWrapRelay(wrapId, "wss://b.example")
+        dm.recordWrapRelay(wrapId, "wss://a.example")
+
+        val msg = dm.messagesByPeer.value[alice.pubkey]!!.first()
+        assertEquals(listOf("wss://a.example", "wss://b.example"), msg.relays)
+        assertEquals(listOf("wss://a.example", "wss://b.example"), dm.seenRelaysSnapshot()[rumor.id])
+    }
+
+    @Test
+    fun `hydrate restores persisted seen-on relays onto messages`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val peer = "cd".repeat(32)
+        val msg = DmMessage(id = "rumor1", peerPubkey = peer, senderPubkey = peer, content = "hi", createdAt = 10L, mine = false)
+
+        dm.hydrate(listOf(msg), emptyMap(), mapOf("rumor1" to listOf("wss://seen.example")))
+
+        assertEquals(listOf("wss://seen.example"), dm.messagesByPeer.value[peer]?.first()?.relays)
+    }
+
+    @Test
+    fun `restored wrap-to-rumor link attaches a relay on the decrypt-skip path`() = runTest {
+        // A wrap decrypted in a previous session: its message is hydrated from cache and the
+        // wrap->rumor link is restored, but the wrap is never decrypted again this session.
+        val dm = DmManager(backgroundScope)
+        val peer = "cd".repeat(32)
+        val msg = DmMessage(id = "rumor1", peerPubkey = peer, senderPubkey = peer, content = "hi", createdAt = 10L, mine = false)
+        dm.hydrate(listOf(msg), emptyMap(), emptyMap(), mapOf("wrap1" to "rumor1"))
+
+        // Re-streamed wrap: only recordWrapRelay runs (no ingestGiftWrap), yet the relay attaches.
+        dm.recordWrapRelay("wrap1", "wss://seen.example")
+
+        assertEquals(listOf("wss://seen.example"), dm.messagesByPeer.value[peer]?.first()?.relays)
+        assertEquals(mapOf("wrap1" to "rumor1"), dm.wrapToRumorSnapshot())
+    }
+
+    @Test
+    fun `onSeenRelaysChanged fires when a new relay is recorded`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val alice = signer()
+        val bob = signer()
+        val rumor = Nip17.buildRumor(alice.pubkey, bob.pubkey, "hi")
+        val wrap = Nip17.wrap(rumor, bob.pubkey, alice)
+        dm.ingestGiftWrap(wrap, bob.pubkey, bob)
+
+        var fired = 0
+        dm.onSeenRelaysChanged = { fired++ }
+        val wrapId = wrap.id!!
+        dm.recordWrapRelay(wrapId, "wss://new.example")
+        dm.recordWrapRelay(wrapId, "wss://new.example") // duplicate: no extra fire
+        assertEquals(1, fired)
+    }
 }

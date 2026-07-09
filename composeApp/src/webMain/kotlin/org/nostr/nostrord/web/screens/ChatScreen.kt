@@ -3201,7 +3201,7 @@ private val MessageRow =
         }
     }
 
-private fun ChildrenBuilder.ctxItem(
+internal fun ChildrenBuilder.ctxItem(
     ic: Ic,
     label: String,
     danger: Boolean = false,

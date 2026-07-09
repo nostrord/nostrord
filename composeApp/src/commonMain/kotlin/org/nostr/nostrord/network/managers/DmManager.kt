@@ -23,6 +23,12 @@ data class DmMessage(
     val content: String,
     val createdAt: Long,
     val mine: Boolean,
+    /** Full decrypted kind:14 rumor as NIP-01 JSON (unsigned). Null on messages cached
+     *  before this field existed; DmMessage.eventJson() reconstructs a fallback. */
+    val rumorJson: String? = null,
+    /** Normalized relay urls this message's gift wrap was seen on. In-memory only
+     *  (session-accumulated); empty for messages hydrated from cache. */
+    val relays: List<String> = emptyList(),
 )
 
 /** A conversation summary derived from its messages. */
@@ -116,7 +122,12 @@ class DmManager(
                 sender
             } ?: return true
 
-        if (!seenRumorIds.add(rumorId)) return true
+        if (!seenRumorIds.add(rumorId)) {
+            // Same rumor from another relay or the self-wrap echo of an optimistic send:
+            // nothing new to show, but its relay still counts for "seen on".
+            linkWrapToRumor(giftWrap.id, rumorId, peer)
+            return true
+        }
         val message =
             DmMessage(
                 id = rumorId,
@@ -125,8 +136,10 @@ class DmManager(
                 content = rumor.content,
                 createdAt = rumor.createdAt,
                 mine = sender == myPubkey,
+                rumorJson = rumor.toJsonString(),
             )
         addMessage(peer, message)
+        linkWrapToRumor(giftWrap.id, rumorId, peer)
         return true
     }
 
@@ -143,16 +156,77 @@ class DmManager(
                 content = rumor.content,
                 createdAt = rumor.createdAt,
                 mine = true,
+                rumorJson = rumor.toJsonString(),
             ),
         )
     }
 
     private fun addMessage(peer: String, message: DmMessage) {
+        peerByRumor[message.id] = peer
         _messagesByPeer.update { current ->
             val merged = (current[peer].orEmpty() + message).sortedBy { it.createdAt }
             current + (peer to merged)
         }
     }
+
+    // Relays each DM was seen on. Recorded on EVERY wrap arrival — including the duplicates
+    // the decrypt pipeline skips (the same wrap sits on several DM relays) — so "seen on"
+    // keeps growing after the first decrypt. Keyed by rumor id (stable across restarts) so
+    // NostrRepository can persist it; wrapRelays buffers arrivals seen before decrypt.
+    private val wrapRelays = mutableMapOf<String, MutableSet<String>>()
+    private val rumorByWrap = mutableMapOf<String, String>()
+    private val peerByRumor = mutableMapOf<String, String>()
+    private val relaysByRumor = mutableMapOf<String, MutableSet<String>>()
+
+    /** Set by NostrRepository to persist the seen-on + wrap-to-rumor maps when they grow. */
+    var onSeenRelaysChanged: (() -> Unit)? = null
+
+    /** Record that [wrapId] was delivered by [relayUrl] (normalized). Safe pre-decrypt. */
+    fun recordWrapRelay(wrapId: String, relayUrl: String) {
+        if (relayUrl.isBlank()) return
+        wrapRelays.getOrPut(wrapId) { mutableSetOf() }.add(relayUrl)
+        // Known rumor (decrypted this session, or the wrap->rumor link restored from disk):
+        // attach immediately. This is what lets a re-streamed but already-decrypted wrap add
+        // its relay without paying the decrypt again.
+        rumorByWrap[wrapId]?.let { mergeRelays(it, listOf(relayUrl)) }
+    }
+
+    private fun linkWrapToRumor(wrapId: String?, rumorId: String, peer: String) {
+        peerByRumor[rumorId] = peer
+        if (wrapId == null) return
+        val isNew = rumorByWrap.put(wrapId, rumorId) != rumorId
+        // Optimistic sends have no wrap of their own; adopt the echo's buffered relays.
+        wrapRelays[wrapId]?.let { mergeRelays(rumorId, it) }
+        // Persist the new link so a later session attaches relays on the decrypt-skip path.
+        if (isNew) onSeenRelaysChanged?.invoke()
+    }
+
+    /** Snapshot of the wrap-id to rumor-id links, for persistence. */
+    fun wrapToRumorSnapshot(): Map<String, String> = rumorByWrap.toMap()
+
+    /** Merge [relays] into the rumor's seen-on set; sync the visible message + persist on change. */
+    private fun mergeRelays(rumorId: String, relays: Collection<String>) {
+        if (relays.isEmpty()) return
+        val set = relaysByRumor.getOrPut(rumorId) { mutableSetOf() }
+        if (!set.addAll(relays)) return
+        syncMessageRelays(rumorId)
+        onSeenRelaysChanged?.invoke()
+    }
+
+    private fun syncMessageRelays(rumorId: String) {
+        val peer = peerByRumor[rumorId] ?: return
+        val relays = relaysByRumor[rumorId]?.sorted() ?: return
+        _messagesByPeer.update { current ->
+            val msgs = current[peer] ?: return@update current
+            current + (
+                peer to
+                    msgs.map { m -> if (m.id == rumorId && m.relays != relays) m.copy(relays = relays) else m }
+                )
+        }
+    }
+
+    /** Snapshot of seen-on relays keyed by rumor id, for persistence. */
+    fun seenRelaysSnapshot(): Map<String, List<String>> = relaysByRumor.mapValues { it.value.sorted() }
 
     /** Mark a conversation read up to its newest message; clears its unread count. */
     fun markRead(peer: String) {
@@ -160,14 +234,31 @@ class DmManager(
         _lastReadByPeer.update { it + (peer to maxOf(it[peer] ?: 0L, latest)) }
     }
 
-    /** Restore decrypted messages + read state from disk on login (before the inbox streams). */
-    fun hydrate(messages: List<DmMessage>, lastRead: Map<String, Long>) {
+    /** Restore decrypted messages + read state + seen-on relays from disk on login. */
+    fun hydrate(
+        messages: List<DmMessage>,
+        lastRead: Map<String, Long>,
+        seenRelays: Map<String, List<String>> = emptyMap(),
+        wrapToRumor: Map<String, String> = emptyMap(),
+    ) {
+        seenRelays.forEach { (rumorId, relays) -> relaysByRumor[rumorId] = relays.toMutableSet() }
+        // Restore the wrap->rumor links so a re-streamed, already-processed wrap can attach its
+        // relay on the decrypt-skip path (recordWrapRelay) instead of being dropped.
+        rumorByWrap.putAll(wrapToRumor)
         if (messages.isNotEmpty()) {
-            messages.forEach { seenRumorIds.add(it.id) }
+            messages.forEach {
+                seenRumorIds.add(it.id)
+                // Late wrap arrivals must find hydrated messages too for "seen on".
+                peerByRumor[it.id] = it.peerPubkey
+            }
             _messagesByPeer.value =
                 messages
                     .groupBy { it.peerPubkey }
-                    .mapValues { (_, msgs) -> msgs.sortedBy { it.createdAt } }
+                    .mapValues { (_, msgs) ->
+                        msgs.sortedBy { it.createdAt }.map { m ->
+                            relaysByRumor[m.id]?.sorted()?.let { m.copy(relays = it) } ?: m
+                        }
+                    }
         }
         if (lastRead.isNotEmpty()) _lastReadByPeer.value = lastRead
     }
@@ -190,6 +281,10 @@ class DmManager(
     /** Drop all state on account switch. */
     fun clear() {
         seenRumorIds.clear()
+        wrapRelays.clear()
+        rumorByWrap.clear()
+        peerByRumor.clear()
+        relaysByRumor.clear()
         _messagesByPeer.value = emptyMap()
         _dmRelaysByPubkey.value = emptyMap()
         _lastReadByPeer.value = emptyMap()

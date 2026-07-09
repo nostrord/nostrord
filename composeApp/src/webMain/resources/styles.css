@@ -2703,6 +2703,35 @@ body {
     color: rgb(255 255 255 / 0.7);
 }
 
+/* DM "View source" modal: monospace rumor JSON + relay list. */
+.dm-source-json {
+    max-height: 320px;
+    margin: var(--space-sm) 0;
+    padding: var(--space-sm);
+    overflow: auto;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+.dm-source-relays-label {
+    margin-top: var(--space-sm);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.dm-source-relay {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    overflow-wrap: anywhere;
+}
+
 .dm-bubble {
     max-width: 75%;
     padding: 8px 12px;

@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -41,7 +42,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.chat.DateSeparator
+import org.nostr.nostrord.ui.components.chat.DmEventSourceDialog
+import org.nostr.nostrord.ui.components.chat.DmMessageContextMenu
 import org.nostr.nostrord.ui.components.chat.MessageComposer
+import org.nostr.nostrord.ui.components.chat.rightClickContextMenuModifier
 import org.nostr.nostrord.ui.components.layout.DmConversationList
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.layout.PageHeader
@@ -52,6 +56,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * Direct-message conversation page (NIP-17). Renders the decrypted thread and a composer that
@@ -243,6 +248,18 @@ fun DmPageScreen(
                 modifier = Modifier.widthIn(max = 320.dp),
             )
             val chatItems = remember(messages) { buildDmChatItems(messages) }
+            val copyToClipboard = rememberClipboardWriter()
+            var menuForId by remember { mutableStateOf<String?>(null) }
+            var menuAnchorPx by remember { mutableStateOf<Offset?>(null) }
+            var sourceForId by remember { mutableStateOf<String?>(null) }
+            messages.firstOrNull { it.id == sourceForId }?.let { src ->
+                DmEventSourceDialog(
+                    json = src.prettyEventJson(),
+                    relays = src.relays,
+                    onCopyJson = { copyToClipboard(src.eventJson()) },
+                    onDismiss = { sourceForId = null },
+                )
+            }
             chatItems.forEach { item ->
                 when (item) {
                     is DmChatItem.DateSeparator -> DateSeparator(item.label)
@@ -251,9 +268,28 @@ fun DmPageScreen(
                         // WhatsApp/Telegram-style: a small clock inside every bubble,
                         // bottom-right under the text.
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = if (item.firstInGroup) Spacing.sm else Spacing.xxs),
+                            modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (item.firstInGroup) Spacing.sm else Spacing.xxs)
+                                // Tap (mobile) / right-click (desktop) opens the context menu
+                                // at the pointer, same interaction as group chat rows.
+                                .then(
+                                    rightClickContextMenuModifier { clickOffset ->
+                                        menuAnchorPx = clickOffset
+                                        menuForId = m.id
+                                    },
+                                ),
                             verticalAlignment = Alignment.Bottom,
                         ) {
+                            DmMessageContextMenu(
+                                visible = menuForId == m.id,
+                                anchorOffsetPx = menuAnchorPx,
+                                onDismiss = { menuForId = null },
+                                onViewSource = { sourceForId = m.id },
+                                onCopyText = { copyToClipboard(m.content) },
+                                onCopyJson = { copyToClipboard(m.eventJson()) },
+                            )
                             // Web parity (.dm-bubble max-width 75%): the spacer eats the other
                             // 25% on the bubble's growth side; the Box owns the 75% slot and
                             // pins the bubble to the correct edge inside it.
