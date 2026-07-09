@@ -193,7 +193,7 @@ fun MessageContextMenu(
  * a cursor anchor opens rightward/downward from the click; a null anchor (the
  * hover More button) hangs the menu off the row's right edge (opens leftward).
  */
-private class MessageMenuPositionProvider(
+internal class MessageMenuPositionProvider(
     private val anchorOffsetPx: Offset?,
     private val anchorWidthPx: Int,
     private val marginPx: Int,
@@ -472,7 +472,7 @@ private fun QuickReactionButton(
  * Individual context menu item.
  */
 @Composable
-private fun ContextMenuItem(
+internal fun ContextMenuItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
@@ -538,7 +538,7 @@ private fun ContextMenuItem(
  * Divider between menu sections.
  */
 @Composable
-private fun ContextMenuDivider() {
+internal fun ContextMenuDivider() {
     HorizontalDivider(
         // Web `.ctx-divider` has margin 6px 4px.
         modifier = Modifier.padding(horizontal = Spacing.xs, vertical = 6.dp),

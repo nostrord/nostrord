@@ -65,12 +65,16 @@ import org.nostr.nostrord.storage.isGroupFetchLazy
 import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
 import org.nostr.nostrord.storage.loadDmProcessedWrapIds
+import org.nostr.nostrord.storage.loadDmSeenRelays
 import org.nostr.nostrord.storage.loadDmSyncCursor
+import org.nostr.nostrord.storage.loadDmWrapRumor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveDmLastRead
 import org.nostr.nostrord.storage.saveDmProcessedWrapIds
+import org.nostr.nostrord.storage.saveDmSeenRelays
 import org.nostr.nostrord.storage.saveDmSyncCursor
+import org.nostr.nostrord.storage.saveDmWrapRumor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.storage.setDmCacheMigratedFor
@@ -236,6 +240,7 @@ class NostrRepository(
     @kotlin.concurrent.Volatile
     private var dmInboxEosedRelays: Set<String> = emptySet()
     private var dmProcessedSaveJob: kotlinx.coroutines.Job? = null
+    private var dmSeenRelaysSaveJob: kotlinx.coroutines.Job? = null
 
     // Upper bound on how long a bunker account holds its DM gift-wrap backlog
     // while the active relay signs its NIP-42 AUTH. awaitAuthOrTimeout returns
@@ -1474,7 +1479,11 @@ class NostrRepository(
         createdAt = createdAt,
         kind = DM_CACHE_KIND,
         content = content,
-        tagsJson = "[]",
+        // The rumor's real tags: with them the row IS the kind:14 rumor (DM_CACHE_KIND = 14),
+        // so toDmMessage can rebuild the exact event JSON across restarts.
+        tagsJson = rumorJson?.let { rj ->
+            runCatching { Json.parseToJsonElement(rj).jsonObject["tags"]?.toString() }.getOrNull()
+        } ?: "[]",
     )
 
     private fun org.nostr.nostrord.storage.cache.CachedMsg.toDmMessage(myPubkey: String): DmMessage = DmMessage(
@@ -1484,6 +1493,15 @@ class NostrRepository(
         content = content,
         createdAt = createdAt,
         mine = pubkey == myPubkey,
+        rumorJson =
+        buildJsonObject {
+            put("id", id)
+            put("pubkey", pubkey)
+            put("created_at", createdAt)
+            put("kind", kind)
+            put("tags", runCatching { Json.parseToJsonElement(tagsJson) }.getOrElse { JsonArray(emptyList()) })
+            put("content", content)
+        }.toString(),
     )
 
     /**
@@ -1521,7 +1539,12 @@ class NostrRepository(
                 emptyList()
             }
         dmPersistedIds = cached.mapTo(HashSet()) { it.id }
-        dmManager.hydrate(cached.map { it.toDmMessage(myPub) }, SecureStorage.loadDmLastRead(myPub))
+        dmManager.hydrate(
+            cached.map { it.toDmMessage(myPub) },
+            SecureStorage.loadDmLastRead(myPub),
+            SecureStorage.loadDmSeenRelays(myPub),
+            SecureStorage.loadDmWrapRumor(myPub),
+        )
     }
 
     /** Persist decrypted messages + read state whenever they change (one collector per session). */
@@ -1556,6 +1579,17 @@ class NostrRepository(
                     SecureStorage.saveDmLastRead(myPub, reads)
                 }
             }
+        // Persist the "seen on" relay map (debounced) so View source keeps it across restarts.
+        dmManager.onSeenRelaysChanged = { scheduleSaveSeenRelays(myPub) }
+    }
+
+    private fun scheduleSaveSeenRelays(myPub: String) {
+        dmSeenRelaysSaveJob?.cancel()
+        dmSeenRelaysSaveJob = scope.launch {
+            delay(2_000)
+            SecureStorage.saveDmSeenRelays(myPub, dmManager.seenRelaysSnapshot())
+            SecureStorage.saveDmWrapRumor(myPub, dmManager.wrapToRumorSnapshot())
+        }
     }
 
     /** (Re)subscribe to the kind:1059 inbox on all DM relays. Idempotent; also run on reconnect. */
@@ -3783,6 +3817,9 @@ class NostrRepository(
                 val wrapId = giftWrap.id
                 if (wrapId != null) {
                     if (wrapId !in dmReceivedWrapIds) dmReceivedWrapIds = dmReceivedWrapIds + wrapId
+                    // Before any dedup skip: the same wrap sits on several DM relays, and every
+                    // delivery counts for the message's "seen on" relay list.
+                    dmManager.recordWrapRelay(wrapId, client.getRelayUrl().normalizeRelayUrl())
                     // Already decrypted, or given up this session: skip the (expensive) round-trip.
                     if (wrapId in dmProcessedWrapIds || wrapId in dmGivenUpWrapIds) {
                         maybeLatchDmFullSync(myPub)

@@ -1,12 +1,15 @@
 package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmChatItem
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.screens.dm.buildDmChatItems
+import org.nostr.nostrord.ui.screens.dm.eventJson
+import org.nostr.nostrord.ui.screens.dm.prettyEventJson
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.formatDateTime
@@ -19,9 +22,11 @@ import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
+import org.nostr.nostrord.web.modals.DmEventSourceModal
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -37,6 +42,7 @@ import react.useState
 import web.cssom.ClassName
 import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
+import kotlin.math.abs
 
 external interface DmPageProps : Props {
     /** Peer of the open conversation; null shows the section's empty hero. */
@@ -135,6 +141,35 @@ val DmPage =
         val (uploadCount, setUploadCount) = useState { 0 }
         val (uploadError, setUploadError) = useState<String?> { null }
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
+
+        // Context menu (right-click / long-press on a bubble), mirroring ChatScreen's
+        // two-stage pattern trimmed to the DM action set.
+        val (menuFor, setMenuFor) = useState<String?> { null }
+        // Message whose source (rumor JSON + relays) is shown in the modal.
+        val (sourceFor, setSourceFor) = useState<String?> { null }
+        val (menuAt, setMenuAt) = useState { 0 to 0 }
+        val menuRef = useRef<HTMLDivElement>(null)
+        val longPressTimer = useRef(0)
+        val longPressReady = useRef(false)
+        val touchStartX = useRef(0.0)
+        val touchStartY = useRef(0.0)
+        // Timestamp (ms) of a touch-opened menu, to swallow the trailing ghost click.
+        val menuOpenedAt = useRef(0.0)
+
+        // Place the fixed menu at its anchor, flipping up/left when it would overflow.
+        useEffect(menuFor) {
+            if (menuFor == null) return@useEffect
+            val el = menuRef.current?.asDynamic() ?: return@useEffect
+            val w = el.offsetWidth as Int
+            val h = el.offsetHeight as Int
+            var left = menuAt.first
+            if (left + w > window.innerWidth - 8) left = (window.innerWidth - 8 - w).coerceAtLeast(8)
+            var top = menuAt.second
+            if (top + h > window.innerHeight - 8) top = (menuAt.second - h).coerceAtLeast(8)
+            el.style.left = "${left}px"
+            el.style.top = "${top}px"
+            el.style.visibility = "visible"
+        }
         useEscClose { if (emojiOpen) setEmojiOpen(false) }
 
         fun isMediaMime(type: String?): Boolean = type != null && (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
@@ -238,6 +273,55 @@ val DmPage =
                                             if (!item.firstInGroup) append(" grouped")
                                         },
                                     )
+                                // First right-click opens our menu at the cursor; with it open the
+                                // second lands on the overlay, which closes ours without
+                                // preventDefault so the native menu shows (Telegram-style).
+                                onContextMenu = { event ->
+                                    if (menuFor == null) {
+                                        event.preventDefault()
+                                        menuOpenedAt.current = 0.0
+                                        setMenuAt(event.clientX.toInt() to event.clientY.toInt())
+                                        setMenuFor(m.id)
+                                    } else {
+                                        setMenuFor(null)
+                                    }
+                                }
+                                // Stationary 380ms hold arms the long-press; the menu opens on
+                                // touchend so the page can't jump while the finger is down.
+                                onTouchStart = { event ->
+                                    val t = event.asDynamic().touches[0]
+                                    touchStartX.current = t.clientX as Double
+                                    touchStartY.current = t.clientY as Double
+                                    longPressReady.current = false
+                                    window.clearTimeout(longPressTimer.current ?: 0)
+                                    longPressTimer.current = window.setTimeout({
+                                        longPressReady.current = true
+                                        val nav = window.navigator.asDynamic()
+                                        if (nav.vibrate != null) nav.vibrate(15)
+                                    }, 380)
+                                }
+                                onTouchMove = { event ->
+                                    val t = event.asDynamic().touches[0]
+                                    val dx = (t.clientX as Double) - (touchStartX.current ?: 0.0)
+                                    val dy = (t.clientY as Double) - (touchStartY.current ?: 0.0)
+                                    if (abs(dx) > 10.0 || abs(dy) > 10.0) {
+                                        window.clearTimeout(longPressTimer.current ?: 0)
+                                        longPressReady.current = false
+                                    }
+                                }
+                                onTouchEnd = { event ->
+                                    window.clearTimeout(longPressTimer.current ?: 0)
+                                    if (longPressReady.current == true && menuFor == null) {
+                                        // Suppress the synthesized click so it can't hit the
+                                        // overlay and instantly close the menu we're opening.
+                                        event.preventDefault()
+                                        menuOpenedAt.current = kotlin.js.Date.now()
+                                        setMenuAt(
+                                            (touchStartX.current ?: 0.0).toInt() to (touchStartY.current ?: 0.0).toInt(),
+                                        )
+                                        setMenuFor(m.id)
+                                    }
+                                }
                                 // WhatsApp/Telegram-style: the clock floats bottom-right inside
                                 // every bubble (rides the last text line when it fits, wraps below
                                 // otherwise); hover shows the full date.
@@ -253,6 +337,51 @@ val DmPage =
                             }
                         }
                     }
+                }
+            }
+
+            val menuMsg = messages.firstOrNull { it.id == menuFor }
+            if (menuMsg != null) {
+                div {
+                    className = ClassName("ctx-overlay")
+                    onTouchStart = { it.stopPropagation() }
+                    onTouchMove = { it.stopPropagation() }
+                    onTouchEnd = { it.stopPropagation() }
+                    onClick = {
+                        // Ignore the synthesized click that trails a touch-open.
+                        if (kotlin.js.Date.now() - (menuOpenedAt.current ?: 0.0) > 400.0) setMenuFor(null)
+                    }
+                    // Close without preventDefault so the browser shows its native menu.
+                    onContextMenu = { setMenuFor(null) }
+                }
+                div {
+                    ref = menuRef
+                    className = ClassName("ctx-menu")
+                    onTouchStart = { it.stopPropagation() }
+                    onTouchMove = { it.stopPropagation() }
+                    onTouchEnd = { it.stopPropagation() }
+                    ctxItem(Ic.Visibility, "View source") {
+                        setSourceFor(menuMsg.id)
+                        setMenuFor(null)
+                    }
+                    ctxItem(Ic.ContentCopy, "Copy text") {
+                        copyToClipboard(menuMsg.content)
+                        setMenuFor(null)
+                    }
+                    ctxItem(Ic.Code, "Copy event JSON") {
+                        copyToClipboard(menuMsg.eventJson())
+                        setMenuFor(null)
+                    }
+                }
+            }
+
+            val sourceMsg = messages.firstOrNull { it.id == sourceFor }
+            if (sourceMsg != null) {
+                DmEventSourceModal {
+                    json = sourceMsg.prettyEventJson()
+                    relays = sourceMsg.relays.toTypedArray()
+                    onCopy = { copyToClipboard(sourceMsg.eventJson()) }
+                    onClose = { setSourceFor(null) }
                 }
             }
 

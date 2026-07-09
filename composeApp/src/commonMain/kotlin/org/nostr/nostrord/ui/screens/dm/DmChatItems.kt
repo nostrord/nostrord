@@ -1,7 +1,43 @@
 package org.nostr.nostrord.ui.screens.dm
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.nostr.nostrord.network.managers.DmMessage
+import org.nostr.nostrord.nostr.Nip17
 import org.nostr.nostrord.utils.getDateLabel
+
+/**
+ * NIP-01 JSON of the decrypted kind:14 rumor for the context menu's "Copy event JSON".
+ * Messages cached before rumorJson existed fall back to a reconstruction from the
+ * reduced model (tags survive only as the recipient `p` on own messages).
+ */
+/** [eventJson] pretty-printed for the "View source" modal. */
+fun DmMessage.prettyEventJson(): String = runCatching {
+    dmPrettyJson.encodeToString(JsonElement.serializer(), Json.parseToJsonElement(eventJson()))
+}.getOrElse { eventJson() }
+
+private val dmPrettyJson = Json { prettyPrint = true }
+
+fun DmMessage.eventJson(): String = rumorJson ?: buildJsonObject {
+    put("id", id)
+    put("pubkey", senderPubkey)
+    put("created_at", createdAt)
+    put("kind", Nip17.KIND_CHAT)
+    putJsonArray("tags") {
+        if (mine) {
+            addJsonArray {
+                add("p")
+                add(peerPubkey)
+            }
+        }
+    }
+    put("content", content)
+}.toString()
 
 /** Consecutive same-side bubbles within this window render as one visual group. */
 const val DM_GROUP_WINDOW_SECONDS = 5 * 60L

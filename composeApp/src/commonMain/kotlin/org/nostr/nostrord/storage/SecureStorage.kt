@@ -920,6 +920,50 @@ fun SecureStorage.saveDmProcessedWrapIds(
     }
 }
 
+// Relays each DM rumor's gift wrap was seen on, keyed by rumor id, so the "View source"
+// modal's "Seen on" list survives restarts instead of only covering the current session.
+private fun dmSeenRelaysKey(pubkey: String): String = "dm_seen_relays_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmSeenRelays(pubkey: String): Map<String, List<String>> {
+    if (pubkey.isBlank()) return emptyMap()
+    val raw = getStringPref(dmSeenRelaysKey(pubkey), "") ?: ""
+    if (raw.isBlank()) return emptyMap()
+    return runCatching { Json.decodeFromString<Map<String, List<String>>>(raw) }.getOrDefault(emptyMap())
+}
+
+fun SecureStorage.saveDmSeenRelays(
+    pubkey: String,
+    seen: Map<String, List<String>>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmSeenRelaysKey(pubkey), Json.encodeToString(seen))
+    } catch (_: Exception) {
+    }
+}
+
+// Gift-wrap id -> rumor id links, so a re-streamed but already-decrypted wrap can attach its
+// delivering relay to the right message without paying the decrypt again (View source "Seen on").
+private fun dmWrapRumorKey(pubkey: String): String = "dm_wrap_rumor_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmWrapRumor(pubkey: String): Map<String, String> {
+    if (pubkey.isBlank()) return emptyMap()
+    val raw = getStringPref(dmWrapRumorKey(pubkey), "") ?: ""
+    if (raw.isBlank()) return emptyMap()
+    return runCatching { Json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+}
+
+fun SecureStorage.saveDmWrapRumor(
+    pubkey: String,
+    links: Map<String, String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmWrapRumorKey(pubkey), Json.encodeToString(links))
+    } catch (_: Exception) {
+    }
+}
+
 // Notification history — persisted feed of cross-relay notifications shown in
 // the notification center. Scoped by pubkey so multi-account devices stay isolated.
 private fun notificationHistoryKey(pubkey: String): String = "notification_history_${pubkeyDigest(pubkey)}"
