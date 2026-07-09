@@ -18,6 +18,9 @@ class UnreadManager(
     private val isRestricted: (String) -> Boolean = { false },
     private val isAppFocused: () -> Boolean = { true },
     private val findMessageAuthor: (messageId: String) -> String? = { null },
+    // NIP-51 muted authors: their messages/reactions never bump badges or notify.
+    // Checked per event (not per group) so unread counts match the filtered chat view.
+    private val isMutedAuthor: (pubkey: String) -> Boolean = { false },
     // Per-group notification gate (issue #70). `isDirect` is true for replies,
     // mentions and reactions to the user's own message. Returning false suppresses
     // the notification callbacks below WITHOUT touching the unread badge — a muted
@@ -175,7 +178,7 @@ class UnreadManager(
             previousHighWater,
         )
         val qualifying = newMessages.filter {
-            it.kind == 9 && it.pubkey != pubkey && it.createdAt > anchor
+            it.kind == 9 && it.pubkey != pubkey && it.createdAt > anchor && !isMutedAuthor(it.pubkey)
         }
         if (qualifying.isEmpty()) {
             if (highWaterAdvanced) persistEntries()
@@ -231,6 +234,7 @@ class UnreadManager(
     fun onReactionReceived(groupId: String, reaction: NostrGroupClient.NostrReaction) {
         val pubkey = currentPubkey ?: return
         if (reaction.pubkey == pubkey) return
+        if (isMutedAuthor(reaction.pubkey)) return
         if (!isJoined(groupId) || isRestricted(groupId)) return
         val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
         val previousHighWater = _latestMessageTimestamps.value[groupId] ?: 0L

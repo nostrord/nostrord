@@ -301,6 +301,9 @@ object AppModule {
             findMessageAuthor = { messageId ->
                 groupManager.findMessageByIdAcrossGroups(messageId)?.second?.pubkey
             },
+            // Deferred to call time: by the first message flush the repository exists,
+            // so this lazy access never cycles with unreadManager's own construction.
+            isMutedAuthor = { pubkey -> pubkey in nostrRepository.mutedPubkeys.value },
             shouldNotify = { groupId, isDirect ->
                 notificationSettings.shouldNotify(
                     notificationSettings.effectiveLevelFor(groupId),

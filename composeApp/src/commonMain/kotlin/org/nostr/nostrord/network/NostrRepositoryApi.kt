@@ -207,6 +207,13 @@ interface NostrRepositoryApi {
      */
     val contactListLoaded: StateFlow<Boolean>
 
+    /**
+     * The active account's publicly muted pubkeys from its NIP-51 kind:10000 mute list.
+     * Hydrated from the per-account cache at login and kept in sync with the relays.
+     * Messages, DM conversations, and notifications from these authors are hidden.
+     */
+    val mutedPubkeys: StateFlow<Set<String>>
+
     // --- Initialization ---
     fun forceInitialized()
 
@@ -650,6 +657,12 @@ interface NostrRepositoryApi {
      * contact list and publish it once (a single event, not one per pubkey).
      */
     suspend fun followUsers(pubkeys: Set<String>): Result<Unit>
+
+    /** Add [pubkey] to the active account's kind:10000 mute list and publish it. */
+    suspend fun muteUser(pubkey: String): Result<Unit>
+
+    /** Remove [pubkey] from the active account's kind:10000 mute list and publish it. */
+    suspend fun unmuteUser(pubkey: String): Result<Unit>
 
     suspend fun updateProfileMetadata(
         displayName: String? = null,
