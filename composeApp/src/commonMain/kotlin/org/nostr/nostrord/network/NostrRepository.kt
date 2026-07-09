@@ -66,12 +66,16 @@ import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
 import org.nostr.nostrord.storage.loadDmProcessedWrapIds
 import org.nostr.nostrord.storage.loadDmSyncCursor
+import org.nostr.nostrord.storage.loadKind10000TimestampFor
+import org.nostr.nostrord.storage.loadMuteListFor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveDmLastRead
 import org.nostr.nostrord.storage.saveDmProcessedWrapIds
 import org.nostr.nostrord.storage.saveDmSyncCursor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
+import org.nostr.nostrord.storage.saveKind10000TimestampFor
+import org.nostr.nostrord.storage.saveMuteListFor
 import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.storage.setDmCacheMigratedFor
 import org.nostr.nostrord.utils.AppError
@@ -572,6 +576,52 @@ class NostrRepository(
         }
     }
 
+    // ===== NIP-51 mute list (kind:10000) =====
+    // Mirrors the kind:3 handling above: optimistic local set + debounced publish that
+    // preserves foreign tags/content, per-account persistence, staleness-guarded ingest.
+
+    private val _mutedPubkeys = MutableStateFlow<Set<String>>(emptySet())
+    override val mutedPubkeys: StateFlow<Set<String>> = _mutedPubkeys.asStateFlow()
+    private var muteListCreatedAt = 0L
+    private var muteListContent = ""
+    private var muteListTags: List<List<String>> = emptyList()
+    private var muteListRequested = false
+    private var pendingMuteListPublish: Job? = null
+    private var hasUnpublishedMuteChanges = false
+    private val muteListMutex = Mutex()
+
+    private fun handleKind10000Event(event: JsonObject) {
+        // Only the active account's own list drives [mutedPubkeys].
+        val pubKey = sessionManager.getPublicKey() ?: return
+        val eventPubkey = event["pubkey"]?.jsonPrimitive?.contentOrNull ?: return
+        if (eventPubkey != pubKey) return
+        val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+        // muteListCreatedAt is floored by the persisted timestamp (hydrateMuteListFromCache),
+        // so a lagging relay can't resurrect mutes removed in a previous session.
+        if (createdAt < muteListCreatedAt) return
+        val tags =
+            event["tags"]?.jsonArray.orEmpty().map { tag ->
+                tag.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+            }
+        muteListCreatedAt = createdAt
+        muteListContent = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
+        muteListTags = tags
+        muteListRequested = true
+        // Keep the optimistic set while local taps are unpublished, so a relay echo
+        // arriving mid-mute doesn't clobber a just-tapped mute.
+        if (!hasUnpublishedMuteChanges) {
+            _mutedPubkeys.value = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(tags)
+            SecureStorage.saveMuteListFor(pubKey, _mutedPubkeys.value.toList())
+            SecureStorage.saveKind10000TimestampFor(pubKey, createdAt)
+        }
+    }
+
+    /** Seed [mutedPubkeys] from the per-account cache so filtering works before the network answers. */
+    private fun hydrateMuteListFromCache(pubkey: String) {
+        _mutedPubkeys.value = SecureStorage.loadMuteListFor(pubkey).toSet()
+        muteListCreatedAt = SecureStorage.loadKind10000TimestampFor(pubkey)
+    }
+
     override fun forceInitialized() {
         _isInitialized.value = true
     }
@@ -798,6 +848,7 @@ class NostrRepository(
                     unreadManager.initialize(pubkey)
                     notificationSettings?.initialize(pubkey)
                     notificationHistoryStore?.initialize(pubkey)
+                    hydrateMuteListFromCache(pubkey)
                     initializeOutboxModel()
                     scope.launch {
                         outboxManager.loadJoinedGroupsFromNostr(pubkey) { msg, c ->
@@ -862,6 +913,7 @@ class NostrRepository(
                 unreadManager.initialize(pubkey)
                 notificationSettings?.initialize(pubkey)
                 notificationHistoryStore?.initialize(pubkey)
+                hydrateMuteListFromCache(pubkey)
                 // Arm catch-up so the first mux refresh after connect replays
                 // messages that arrived while the app was closed (notifications
                 // + unread). Must run after notificationHistoryStore.initialize
@@ -1197,6 +1249,7 @@ class NostrRepository(
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
+            hydrateMuteListFromCache(newPubkey)
             // Arm catch-up so the first mux refresh after connect() replays the
             // backlog accumulated while this identity was logged out. A fresh
             // identity has no backlog, so skip it there. Must run after
@@ -1300,7 +1353,7 @@ class NostrRepository(
 
     // ===== Direct messages (NIP-17 over NIP-59 gift wraps) =====
 
-    private val dmManager = DmManager(scope)
+    private val dmManager = DmManager(scope, mutedPubkeys)
 
     /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
     override val dmConversations: StateFlow<List<DmConversation>> get() = dmManager.conversations
@@ -1714,6 +1767,15 @@ class NostrRepository(
         hasUnpublishedContactChanges = false
         _contactListLoaded.value = false
         _following.value = emptySet()
+        // The mute list is per-account too; same lifecycle as the contact list.
+        pendingMuteListPublish?.cancel()
+        pendingMuteListPublish = null
+        hasUnpublishedMuteChanges = false
+        muteListCreatedAt = 0L
+        muteListContent = ""
+        muteListTags = emptyList()
+        muteListRequested = false
+        _mutedPubkeys.value = emptySet()
         dmPersistenceJobs.forEach { it.cancel() }
         dmPersistenceJobs.clear()
         dmManager.clear()
@@ -1766,6 +1828,9 @@ class NostrRepository(
         val pubkey = sessionManager.getPublicKey() ?: return
         // The contact list is per-account; drop the prior account's before the swap.
         resetContactListState()
+        // Re-seed the incoming account's mutes so filtering holds through the swap;
+        // the network refresh rides the requestContactList() below.
+        hydrateMuteListFromCache(pubkey)
         // Same session-cache teardown the full-logout path runs, so a warm swap does not
         // leak account A's restricted-relay / dedup state into account B (which otherwise
         // left B's groups dark until an app restart). Runs BEFORE B's re-derive below.
@@ -3203,7 +3268,12 @@ class NostrRepository(
                 }
             }
         }
-        if (sent > 0) contactListRequested = true
+        if (sent > 0) {
+            contactListRequested = true
+            // The same REQ carries the kind:10000 filter (see NostrGroupClient.requestContactList),
+            // so the mute list is fetched, and retried, together with the contact list.
+            muteListRequested = true
+        }
     }
 
     /**
@@ -3333,6 +3403,101 @@ class NostrRepository(
                 Result.Success(Unit)
             } catch (e: Exception) {
                 Result.Error(AppError.Unknown(e.message ?: "Failed to update contact list", e))
+            }
+        }
+    }
+
+    override suspend fun muteUser(pubkey: String): Result<Unit> {
+        // Muting yourself would hide your own messages everywhere; ignore it.
+        if (pubkey.isBlank() || pubkey == sessionManager.getPublicKey()) return Result.Success(Unit)
+        applyMuteChange { it + pubkey }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun unmuteUser(pubkey: String): Result<Unit> {
+        applyMuteChange { it - pubkey }
+        return Result.Success(Unit)
+    }
+
+    /**
+     * Flips [mutedPubkeys] immediately (filtering reacts without a relay round-trip),
+     * persists the set, and schedules a single debounced kind:10000 publish so rapid
+     * taps (bulk unmute in Settings) coalesce into one event.
+     */
+    private fun applyMuteChange(transform: (Set<String>) -> Set<String>) {
+        val next = transform(_mutedPubkeys.value)
+        if (next == _mutedPubkeys.value) return
+        _mutedPubkeys.value = next
+        sessionManager.getPublicKey()?.let { SecureStorage.saveMuteListFor(it, next.toList()) }
+        hasUnpublishedMuteChanges = true
+        pendingMuteListPublish?.cancel()
+        pendingMuteListPublish =
+            scope.launch {
+                delay(contactListPublishDebounceMs)
+                publishMuteList()
+            }
+    }
+
+    /**
+     * Builds, signs and publishes a fresh kind:10000 from [mutedPubkeys], preserving
+     * non-"p" tags and the (possibly NIP-44 encrypted) content of the last known list so
+     * entries added by other clients aren't clobbered. On the first run it best-effort
+     * fetches the existing list (it rides the kind:3 REQ) before overwriting.
+     */
+    private suspend fun publishMuteList(): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return muteListMutex.withLock {
+            if (!muteListRequested) {
+                contactListMutex.withLock { requestContactListLocked() }
+                withTimeoutOrNull(3_000L) { mutedPubkeys.first { muteListCreatedAt > 0L } }
+            }
+
+            val newTags = org.nostr.nostrord.nostr.Nip51.rebuildMuteTags(muteListTags, _mutedPubkeys.value)
+            try {
+                val event = org.nostr.nostrord.nostr.Event(
+                    pubkey = pubKey,
+                    createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                    kind = org.nostr.nostrord.nostr.Nip51.KIND_MUTE_LIST,
+                    tags = newTags,
+                    content = muteListContent,
+                )
+                val signedEvent = sessionManager.signEvent(event)
+                val eventId = signedEvent.id
+                    ?: return@withLock Result.Error(AppError.Unknown("Event has no id after signing", null))
+                val message = buildJsonArray {
+                    add("EVENT")
+                    add(signedEvent.toJsonObject())
+                }.toString()
+
+                // Same routing as kind:3: general-purpose relays only, never NIP-29 relays
+                // (they don't serve replaceable lists back).
+                val nip29Relays = outboxManager.kind10009Relays.value + connectionManager.currentRelayUrl.value
+                val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays)
+                    .distinct()
+                    .filter { it !in nip29Relays }
+                val clients = targets.mapNotNull { relayUrl ->
+                    connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                        ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)?.takeIf { it.isConnected() }
+                }
+                if (clients.isEmpty()) {
+                    return@withLock Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+                }
+                val results = clients.map { client ->
+                    scope.async { client.sendAndAwaitOkOrError(message, eventId) }
+                }.awaitAll()
+                if (results.none { it is PublishResult.Success }) {
+                    return@withLock Result.Error(AppError.Network.PublishRejected(results.summarizeFailures()))
+                }
+
+                muteListCreatedAt = signedEvent.createdAt
+                muteListTags = newTags
+                muteListRequested = true
+                hasUnpublishedMuteChanges = false
+                SecureStorage.saveKind10000TimestampFor(pubKey, signedEvent.createdAt)
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(AppError.Unknown(e.message ?: "Failed to update mute list", e))
             }
         }
     }
@@ -3771,6 +3936,10 @@ class NostrRepository(
             }
             if (kind == 3) {
                 handleKind3Event(event)
+                return
+            }
+            if (kind == org.nostr.nostrord.nostr.Nip51.KIND_MUTE_LIST) {
+                handleKind10000Event(event)
                 return
             }
             // NIP-17 DM gift wrap addressed to us: decrypt with the active signer.
@@ -4380,6 +4549,12 @@ class NostrRepository(
                 // Handle kind:3 (NIP-02 contact list) for the active account
                 if (kind == 3) {
                     handleKind3Event(event)
+                    return
+                }
+
+                // Handle kind:10000 (NIP-51 mute list) for the active account
+                if (kind == org.nostr.nostrord.nostr.Nip51.KIND_MUTE_LIST) {
+                    handleKind10000Event(event)
                     return
                 }
             }

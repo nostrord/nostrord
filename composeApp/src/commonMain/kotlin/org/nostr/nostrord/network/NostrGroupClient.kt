@@ -923,6 +923,16 @@ class NostrGroupClient(
                     put("limit", 1)
                 },
             )
+            // The NIP-51 mute list (kind:10000) rides the same REQ as its own filter
+            // (a shared filter with limit 1 would return only the newer of the two
+            // events), so the contact-list retry machinery covers it too.
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(10000) }
+                    putJsonArray("authors") { add(pubkey) }
+                    put("limit", 1)
+                },
+            )
         }
         sendJson(req)
         return subId
