@@ -32,6 +32,9 @@ class DmViewModel(
     val totalUnread = repo.totalDmUnread
     val userMetadata = repo.userMetadata
 
+    /** Published kind:10050 DM relays by author, for the header "DM relays" view. */
+    val dmRelaysByPubkey = repo.dmRelaysByPubkey
+
     val followsConversations: StateFlow<List<DmConversation>> =
         partition(keepFollowed = true)
 
@@ -47,6 +50,14 @@ class DmViewModel(
     private fun partition(keepFollowed: Boolean): StateFlow<List<DmConversation>> = combine(repo.dmConversations, repo.following) { convos, follows ->
         convos.filter { (it.peerPubkey in follows) == keepFollowed }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    /** A peer's published kind:10050 DM relays (empty until fetched, or if none published). */
+    fun peerDmRelays(peerPubkey: String): StateFlow<List<String>> = repo.dmRelaysByPubkey
+        .map { it[peerPubkey].orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    /** Fetch the peer's kind:10050 so [peerDmRelays] fills in (for the header "DM relays" view). */
+    fun loadPeerDmRelays(peerPubkey: String) = repo.requestPeerDmRelays(peerPubkey)
 
     fun getPublicKey(): String? = repo.getPublicKey()
 

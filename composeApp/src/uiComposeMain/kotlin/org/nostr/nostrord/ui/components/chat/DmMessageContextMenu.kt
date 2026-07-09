@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.runtime.Composable
@@ -48,7 +47,6 @@ fun DmMessageContextMenu(
     onDismiss: () -> Unit,
     onViewSource: () -> Unit,
     onCopyText: () -> Unit,
-    onCopyJson: () -> Unit,
 ) {
     if (!visible) return
     val marginPx = with(LocalDensity.current) { 8.dp.roundToPx() }
@@ -116,14 +114,6 @@ fun DmMessageContextMenu(
                         label = "Copy text",
                         onClick = {
                             onCopyText()
-                            onDismiss()
-                        },
-                    )
-                    ContextMenuItem(
-                        icon = Icons.Outlined.Code,
-                        label = "Copy event JSON",
-                        onClick = {
-                            onCopyJson()
                             onDismiss()
                         },
                     )

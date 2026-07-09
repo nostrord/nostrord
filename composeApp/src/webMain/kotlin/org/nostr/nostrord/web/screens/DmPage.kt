@@ -27,6 +27,7 @@ import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.modals.DmEventSourceModal
+import org.nostr.nostrord.web.modals.DmRelaysModal
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -142,6 +143,12 @@ val DmPage =
         val (uploadError, setUploadError) = useState<String?> { null }
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
 
+        // Header kebab menu + its DM-relays modal.
+        val isFollowing = useStateFlow(vm.isFollowing)
+        val peerRelays = useStateFlow(dmVm.dmRelaysByPubkey)[pubkey].orEmpty()
+        val (headerMenuOpen, setHeaderMenuOpen) = useState { false }
+        val (relaysOpen, setRelaysOpen) = useState { false }
+
         // Context menu (right-click / long-press on a bubble), mirroring ChatScreen's
         // two-stage pattern trimmed to the DM action set.
         val (menuFor, setMenuFor) = useState<String?> { null }
@@ -222,9 +229,39 @@ val DmPage =
                         +name
                     }
                 }
-                span {
-                    className = ClassName("dm-chip")
-                    +"DM · encrypted"
+                div {
+                    className = ClassName("dm-header-menu-wrap")
+                    button {
+                        className = ClassName("icon-btn")
+                        onClick = { setHeaderMenuOpen(true) }
+                        icon(Ic.MoreVert)
+                    }
+                    if (headerMenuOpen) {
+                        div {
+                            className = ClassName("dm-header-menu-backdrop")
+                            onClick = { setHeaderMenuOpen(false) }
+                        }
+                        div {
+                            className = ClassName("dm-header-menu")
+                            ctxItem(Ic.Person, "View profile") {
+                                setHeaderMenuOpen(false)
+                                props.onOpenProfile(UserRoute(pubkey))
+                            }
+                            ctxItem(if (isFollowing) Ic.PersonRemove else Ic.PersonAdd, if (isFollowing) "Unfollow" else "Follow") {
+                                setHeaderMenuOpen(false)
+                                vm.toggleFollow()
+                            }
+                            ctxItem(Ic.ContentCopy, "Copy npub") {
+                                setHeaderMenuOpen(false)
+                                copyToClipboard(vm.npub)
+                            }
+                            ctxItem(Ic.Public, "View DM relays") {
+                                setHeaderMenuOpen(false)
+                                dmVm.loadPeerDmRelays(pubkey)
+                                setRelaysOpen(true)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -368,10 +405,6 @@ val DmPage =
                         copyToClipboard(menuMsg.content)
                         setMenuFor(null)
                     }
-                    ctxItem(Ic.Code, "Copy event JSON") {
-                        copyToClipboard(menuMsg.eventJson())
-                        setMenuFor(null)
-                    }
                 }
             }
 
@@ -382,6 +415,14 @@ val DmPage =
                     relays = sourceMsg.relays.toTypedArray()
                     onCopy = { copyToClipboard(sourceMsg.eventJson()) }
                     onClose = { setSourceFor(null) }
+                }
+            }
+            // Rendered after the message list so toggling it never shifts the list's
+            // sibling position (which would remount it and reset the scroll to the top).
+            if (relaysOpen) {
+                DmRelaysModal {
+                    relays = peerRelays.toTypedArray()
+                    onClose = { setRelaysOpen(false) }
                 }
             }
 
