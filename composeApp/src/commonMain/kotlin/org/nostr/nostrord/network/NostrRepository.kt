@@ -1406,15 +1406,18 @@ class NostrRepository(
         // Make ourselves reachable: publish a default kind:10050 only if the account truly has none.
         // Gate on the fetch landing an event (our pubkey appearing in dmRelaysByPubkey), not a fixed
         // delay - the old 4s fired before the fetch finished and overwrote existing lists with the
-        // defaults.
-        scope.launch {
-            val found = withTimeoutOrNull(12_000) { dmManager.dmRelaysByPubkey.first { myPub in it } } != null
-            if (found) {
-                _myDmRelays.value = dmRelaysFor(myPub)
-            } else {
-                publishDmRelayList(defaultDmRelays)
+        // defaults. Registered as a dmPersistenceJob: stopDmInbox clears dmRelaysByPubkey and the
+        // ingest guard drops the real 10050 while disabled, so an orphaned job would deterministically
+        // time out and overwrite the user's published list with the defaults mid-disable.
+        dmPersistenceJobs +=
+            scope.launch {
+                val found = withTimeoutOrNull(12_000) { dmManager.dmRelaysByPubkey.first { myPub in it } } != null
+                if (found) {
+                    _myDmRelays.value = dmRelaysFor(myPub)
+                } else if (AppModule.dmSettings.dmEnabled.value && dmInboxStarted) {
+                    publishDmRelayList(defaultDmRelays)
+                }
             }
-        }
 
         // Retry undecrypted wraps as the (flaky) bunker signer recovers: a timed-out nip44_decrypt
         // leaves its wrap un-acked, so periodically re-stream the inbox window. The persisted dedup
