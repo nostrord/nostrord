@@ -63,6 +63,10 @@ data class DmConversation(
  */
 class DmManager(
     private val scope: CoroutineScope,
+    // NIP-51 muted authors: their conversations and unread counts are hidden at the
+    // source so no badge points at a conversation the lists don't show. Messages stay
+    // cached, so an unmute restores the conversation instantly.
+    private val mutedPubkeys: StateFlow<Set<String>> = MutableStateFlow(emptySet()),
 ) {
     private val _messagesByPeer = MutableStateFlow<Map<String, List<DmMessage>>>(emptyMap())
     val messagesByPeer: StateFlow<Map<String, List<DmMessage>>> = _messagesByPeer.asStateFlow()
@@ -72,8 +76,9 @@ class DmManager(
     val lastReadByPeer: StateFlow<Map<String, Long>> = _lastReadByPeer.asStateFlow()
 
     val conversations: StateFlow<List<DmConversation>> =
-        combine(_messagesByPeer, _lastReadByPeer) { byPeer, reads ->
+        combine(_messagesByPeer, _lastReadByPeer, mutedPubkeys) { byPeer, reads, muted ->
             byPeer.entries
+                .filter { (peer, _) -> peer !in muted }
                 .mapNotNull { (peer, msgs) ->
                     val last = msgs.maxByOrNull { it.createdAt } ?: return@mapNotNull null
                     val lastRead = reads[peer] ?: 0L
@@ -86,8 +91,9 @@ class DmManager(
 
     /** Unread count per peer (incoming messages newer than the read high-water), zero entries dropped. */
     val unreadByPeer: StateFlow<Map<String, Int>> =
-        combine(_messagesByPeer, _lastReadByPeer) { byPeer, reads ->
+        combine(_messagesByPeer, _lastReadByPeer, mutedPubkeys) { byPeer, reads, muted ->
             byPeer
+                .filterKeys { it !in muted }
                 .mapValues { (peer, msgs) ->
                     val lastRead = reads[peer] ?: 0L
                     msgs.count { !it.mine && it.createdAt > lastRead }

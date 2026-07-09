@@ -461,6 +461,23 @@ class FakeNostrRepository : NostrRepositoryApi {
         return Result.Success(Unit)
     }
 
+    val _mutedPubkeys = MutableStateFlow<Set<String>>(emptySet())
+    override val mutedPubkeys: StateFlow<Set<String>> = _mutedPubkeys
+
+    override suspend fun muteUser(pubkey: String): Result<Unit> {
+        calls += "muteUser:$pubkey"
+        if (pubkey.isNotBlank() && pubkey != fakePublicKey) {
+            _mutedPubkeys.value = _mutedPubkeys.value + pubkey
+        }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun unmuteUser(pubkey: String): Result<Unit> {
+        calls += "unmuteUser:$pubkey"
+        _mutedPubkeys.value = _mutedPubkeys.value - pubkey
+        return Result.Success(Unit)
+    }
+
     override suspend fun updateProfileMetadata(
         displayName: String?,
         name: String?,

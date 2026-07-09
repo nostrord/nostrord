@@ -486,6 +486,52 @@ fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
     }
 }
 
+// ── Per-account mute list (NIP-51 kind:10000) ───────────────────────────────
+// Public muted pubkeys, hydrated at login so message filtering works before the
+// network answers. The timestamp floors the kind:10000 staleness check so a lagging
+// relay can't resurrect mutes removed in a previous session (same guard as kind:10009).
+private fun muteListKey(pubkey: String) = "mute_list_${pubkeyDigest(pubkey)}"
+
+private fun kind10000TimestampKey(pubkey: String) = "kind10000_latest_ts_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveMuteListFor(
+    pubkey: String,
+    muted: List<String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(
+            muteListKey(pubkey),
+            Json.encodeToString(ListSerializer(String.serializer()), muted),
+        )
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadMuteListFor(pubkey: String): List<String> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(muteListKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(ListSerializer(String.serializer()), raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+fun SecureStorage.saveKind10000TimestampFor(
+    pubkey: String,
+    timestamp: Long,
+) {
+    if (pubkey.isBlank()) return
+    saveStringPref(kind10000TimestampKey(pubkey), timestamp.toString())
+}
+
+fun SecureStorage.loadKind10000TimestampFor(pubkey: String): Long {
+    if (pubkey.isBlank()) return 0L
+    return getStringPref(kind10000TimestampKey(pubkey), "0").toLongOrNull() ?: 0L
+}
+
 // ── Per-account group membership cache ──────────────────────────────────────
 // One JSON blob per account holding every known group's members/admins/roles
 // (NIP-29 kind:39002/39001/39003) plus each list's source-event timestamp, so a

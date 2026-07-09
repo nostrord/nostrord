@@ -91,7 +91,21 @@ class GroupViewModel(
     private val repo: NostrRepositoryApi,
     val groupId: String,
 ) : ViewModel() {
-    val messages = repo.messages
+    /**
+     * Chat messages with NIP-51 muted authors filtered out. The raw repo cache stays
+     * untouched (membership derivation below reads it directly), so an unmute restores
+     * the author's messages instantly without a re-fetch.
+     */
+    val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> =
+        combine(repo.messages, repo.mutedPubkeys) { byGroup, muted ->
+            if (muted.isEmpty()) {
+                byGroup
+            } else {
+                byGroup.mapValues { (_, list) -> list.filter { it.pubkey !in muted } }
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, repo.messages.value)
+
+    val mutedPubkeys = repo.mutedPubkeys
     val messageStatus = repo.messageStatus
     val connectionState = repo.connectionState
     val joinedGroups = repo.joinedGroups
