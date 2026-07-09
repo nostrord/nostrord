@@ -376,8 +376,13 @@ compose.desktop {
             }
 
             windows {
-                iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
+                // Same trap as macOS: jpackage requires .ico here; a .png is silently
+                // ignored and the exe/taskbar shows the default Java icon (#107).
+                iconFile.set(project.file("src/jvmMain/resources/icon.ico"))
                 menuGroup = "Nostrord"
+                shortcut = true
+                // Stable GUID so MSI upgrades replace the install instead of duplicating it.
+                upgradeUuid = "9f3a6c1e-2d47-4b8a-9c05-7d1e84a3f6b2"
             }
         }
 

@@ -1,5 +1,6 @@
 package org.nostr.nostrord.startup
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
@@ -32,10 +33,27 @@ object StartupResolver {
     }
 
     /**
-     * Clear external launch context after it has been consumed.
+     * Clear external launch context after it has been consumed. Also drops the
+     * replayed runtime event so a later UI mount doesn't re-navigate to it.
      */
     fun clearExternalLaunchContext() {
         externalLaunchContext = null
+        runtimeLaunchEvents.resetReplayCache()
+    }
+
+    /**
+     * Deep link arriving while the process is already running (second desktop
+     * instance forwarding its argv, Android onNewIntent). The mounted app UI
+     * collects [runtimeLaunchEvents] and navigates immediately; the stored
+     * context covers the not-mounted case (login screen, onboarding), where
+     * [resolveInitialScreen] picks it up on the next resolve. replay = 1 so an
+     * event posted before the collector mounts is not lost.
+     */
+    val runtimeLaunchEvents = MutableSharedFlow<ExternalLaunchContext>(replay = 1)
+
+    fun postRuntimeLaunch(context: ExternalLaunchContext) {
+        externalLaunchContext = context
+        runtimeLaunchEvents.tryEmit(context)
     }
 
     /**
