@@ -1,6 +1,7 @@
 package org.nostr.nostrord
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toPainter
@@ -26,6 +27,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
+import kotlinx.coroutines.flow.MutableSharedFlow
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
@@ -36,6 +38,8 @@ import org.nostr.nostrord.ui.util.ImageLoadEventListener
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
+import org.nostr.nostrord.utils.SingleInstance
+import org.nostr.nostrord.utils.WindowsProtocolRegistrar
 import org.nostr.nostrord.utils.toRelayUrl
 import java.io.File
 import java.net.URI
@@ -82,6 +86,9 @@ private fun parseDeepLinkUrl(url: String): ExternalLaunchContext? {
     }
 }
 
+// Second-instance arrivals (deep link or plain relaunch) raise the existing window.
+private val focusRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
 fun main(args: Array<String> = emptyArray()) {
     // Without this, AWT EDT / coroutine crashes on Linux JBR surface as native
     // GTK error dialogs whose body is just the offending class name (truncated
@@ -103,6 +110,22 @@ fun main(args: Array<String> = emptyArray()) {
                 ex.printStackTrace(System.err)
             }
     }
+
+    // Windows resolves nostrord:// through HKCU registry keys the app writes itself
+    // (jpackage/WiX cannot register URI schemes); macOS uses CFBundleURLTypes instead.
+    WindowsProtocolRegistrar.registerIfNeeded()
+
+    // With the app already open, the OS protocol handler starts a second process;
+    // it forwards its argv to the running instance (which routes the deep link and
+    // raises its window) and exits before any UI comes up.
+    val isPrimary =
+        SingleInstance.acquireOrForward(args) { message ->
+            if (message.isNotBlank()) {
+                parseDeepLinkUrl(message)?.let { StartupResolver.postRuntimeLaunch(it) }
+            }
+            focusRequests.tryEmit(Unit)
+        }
+    if (!isPrimary) return
 
     // Parse deep link from CLI args (e.g., OS protocol handler passes URL as first arg)
     args.firstOrNull()?.let { url ->
@@ -226,6 +249,16 @@ fun main(args: Array<String> = emptyArray()) {
                             get() = windowState.placement == WindowPlacement.Maximized
                     }
                 }
+
+            // Deep link / relaunch while running: un-minimize and raise the window.
+            // Compose Desktop's Main dispatcher is the EDT, so touching AWT here is safe.
+            LaunchedEffect(Unit) {
+                focusRequests.collect {
+                    windowState.isMinimized = false
+                    window.toFront()
+                    window.requestFocus()
+                }
+            }
 
             CompositionLocalProvider(
                 LocalDesktopWindowControls provides controls,

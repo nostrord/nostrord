@@ -119,7 +119,9 @@ class MainActivity : ComponentActivity() {
             } else {
                 ExternalLaunchContext.OpenRelay(relayUrl)
             }
-        StartupResolver.setExternalLaunchContext(context)
+        // Also emits the runtime event so an already-running app (onNewIntent)
+        // navigates immediately; at cold start the boot resolve consumes it first.
+        StartupResolver.postRuntimeLaunch(context)
     }
 }
 

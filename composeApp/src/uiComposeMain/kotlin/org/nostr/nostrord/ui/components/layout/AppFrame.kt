@@ -102,6 +102,8 @@ import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.startup.ExternalLaunchContext
+import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
@@ -193,6 +195,31 @@ fun AppFrame() {
     // a group so back returns Home instead of leaving the app, and no-ops for plain Home.
     fun restoredStartRoute(): HashRoute? = restoredRoute(AppModule.nostrRepository.getPublicKey()?.let { SecureStorage.getLastRoute(it) })
     val history = remember { NavigationHistory().apply { seedDeepLink(restoredStartRoute()) } }
+
+    // Deep link arriving while the app is already open (second desktop instance
+    // forwarding nostrord://, Android onNewIntent). Cold-start deep links go through
+    // StartupResolver.resolveInitialScreen instead; this covers the running app.
+    // GroupRoute carries invite/message, so the existing groupRoute effect below does
+    // the relay switch and the group page does the auto-join, same as any navigation.
+    LaunchedEffect(Unit) {
+        StartupResolver.runtimeLaunchEvents.collect { ctx ->
+            StartupResolver.clearExternalLaunchContext()
+            when (ctx) {
+                is ExternalLaunchContext.OpenGroup ->
+                    history.navigate(
+                        GroupRoute(
+                            relayUrl = ctx.relayUrl ?: AppModule.nostrRepository.currentRelayUrl.value,
+                            groupId = ctx.groupId,
+                            inviteCode = ctx.inviteCode,
+                            messageId = ctx.messageId,
+                        ),
+                    )
+                is ExternalLaunchContext.OpenRelay -> history.navigate(RelayRoute(ctx.relayUrl))
+                is ExternalLaunchContext.OpenNotifications -> history.navigate(NotificationsRoute)
+                is ExternalLaunchContext.OpenHome -> history.navigate(null)
+            }
+        }
+    }
     val nav by history.state.collectAsState()
     val route = nav.current
     val groupRoute = route as? GroupRoute
