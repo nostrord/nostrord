@@ -136,6 +136,8 @@ fun UserProfileModal(
     // Follow state from the active account's kind:3 contact list (fetched once on open).
     val scope = rememberCoroutineScope()
     val following by AppModule.nostrRepository.following.collectAsState()
+    val mutedPubkeys by AppModule.nostrRepository.mutedPubkeys.collectAsState()
+    val isMuted = pubkey in mutedPubkeys
     val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
     val isFollowing = pubkey in following
     var followBusy by remember(pubkey) { mutableStateOf(false) }
@@ -346,8 +348,8 @@ fun UserProfileModal(
                                 }
                                 // Mention only exists inside a group chat (where a composer
                                 // can receive it); elsewhere (home sidebar, etc.) the row is
-                                // absent rather than shown disabled. Mute / report join when
-                                // their backends land (mute list, NIP-56 reports).
+                                // absent rather than shown disabled. Report joins when its
+                                // backend lands (NIP-56 reports).
                                 if (onMention != null) {
                                     ProfileActionRow(
                                         label = "Mention",
@@ -356,7 +358,18 @@ fun UserProfileModal(
                                         onMention.invoke(pubkey)
                                     }
                                 }
-                                ProfileActionRow(label = "Mute user", emoji = "🔕", enabled = false) {}
+                                ProfileActionRow(
+                                    label = if (isMuted) "Unmute user" else "Mute user",
+                                    emoji = "🔕",
+                                ) {
+                                    scope.launch {
+                                        if (isMuted) {
+                                            AppModule.nostrRepository.unmuteUser(pubkey)
+                                        } else {
+                                            AppModule.nostrRepository.muteUser(pubkey)
+                                        }
+                                    }
+                                }
                                 ProfileActionRow(label = "Report user", icon = Icons.Default.Shield, enabled = false) {}
 
                                 if (iAmAdmin && onRemoveFromGroup != null) {

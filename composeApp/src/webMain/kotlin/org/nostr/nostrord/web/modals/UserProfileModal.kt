@@ -72,6 +72,8 @@ val UserProfileModal =
         val (removeError, setRemoveError) = useState<String?> { null }
         val following = useStateFlow(AppModule.nostrRepository.following)
         val isFollowing = pubkey in following
+        val mutedPubkeys = useStateFlow(AppModule.nostrRepository.mutedPubkeys)
+        val isMuted = pubkey in mutedPubkeys
         val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         val (followBusy, setFollowBusy) = useState { false }
 
@@ -206,14 +208,21 @@ val UserProfileModal =
                             }
                             // Mention only exists inside a group chat (where a composer can
                             // receive it); elsewhere the row is absent rather than shown
-                            // disabled. Mute / report join when their backends land (mute
-                            // list, NIP-56 reports).
+                            // disabled. Report joins when its backend lands (NIP-56 reports).
                             props.onMention?.let { onMention ->
                                 actionRow(Ic.Reply, "Mention") {
                                     onMention(pubkey)
                                 }
                             }
-                            actionRow(null, "Mute user", disabled = true, emoji = "🔕") {}
+                            actionRow(null, if (isMuted) "Unmute user" else "Mute user", emoji = "🔕") {
+                                launchApp {
+                                    if (isMuted) {
+                                        AppModule.nostrRepository.unmuteUser(pubkey)
+                                    } else {
+                                        AppModule.nostrRepository.muteUser(pubkey)
+                                    }
+                                }
+                            }
                             actionRow(Ic.Shield, "Report user", disabled = true) {}
 
                             val groupId = props.groupId
