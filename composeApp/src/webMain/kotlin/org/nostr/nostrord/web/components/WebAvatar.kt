@@ -65,12 +65,18 @@ val WebAvatar =
 
         val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
         val kind = props.kind ?: AvatarKind.USER
-        // Drop the retained URL when this component is reused for a DIFFERENT identity (list
-        // slot reuse): without this, a member row recycled for another user would briefly show
-        // the previous user's avatar (leaked picture).
+        // Drop the retained URL AND load state when this component is reused for a DIFFERENT
+        // identity (list slot reuse, or the DM header switching peers): without this, the
+        // previous identity's photo stays at opacity 1 (loaded == true) and paints for a frame
+        // before the url effect recomputes, leaking the old avatar. Resetting during render (a
+        // React-sanctioned prop-change adjustment, guarded by the ref so it runs once) discards
+        // this render before it commits, so the stale picture never shows.
         if (lastSeedRef.current != seed) {
             lastSeedRef.current = seed
             lastUrlRef.current = null
+            setLoaded(false)
+            setErrored(false)
+            setAttempts(0)
         }
         // Keep the last good picture if the URL transiently drops to null/blank for the SAME
         // identity (metadata churn, an LRU eviction that briefly removes the entry, or a parent
