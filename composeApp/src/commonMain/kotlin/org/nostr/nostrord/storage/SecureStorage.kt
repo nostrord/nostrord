@@ -487,36 +487,27 @@ fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
 }
 
 // ── Per-account mute list (NIP-51 kind:10000) ───────────────────────────────
-// Public muted pubkeys, hydrated at login so message filtering works before the
-// network answers. The timestamp floors the kind:10000 staleness check so a lagging
-// relay can't resurrect mutes removed in a previous session (same guard as kind:10009).
+// One JSON blob per account with the full last-known list (public tags, raw encrypted
+// content, decrypted private section), hydrated at login so filtering works before the
+// network answers AND so a publish never rebuilds from a partial base (which would clobber
+// words/private mutes written by other clients). The blob shape is owned by NostrRepository;
+// this slot only stores the encoded string. The timestamp floors the kind:10000 staleness
+// check so a lagging relay can't resurrect mutes removed in a previous session.
 private fun muteListKey(pubkey: String) = "mute_list_${pubkeyDigest(pubkey)}"
 
 private fun kind10000TimestampKey(pubkey: String) = "kind10000_latest_ts_${pubkeyDigest(pubkey)}"
 
-fun SecureStorage.saveMuteListFor(
+fun SecureStorage.saveMuteListSnapshotFor(
     pubkey: String,
-    muted: List<String>,
+    snapshotJson: String,
 ) {
     if (pubkey.isBlank()) return
-    try {
-        saveStringPref(
-            muteListKey(pubkey),
-            Json.encodeToString(ListSerializer(String.serializer()), muted),
-        )
-    } catch (_: Exception) {
-    }
+    saveStringPref(muteListKey(pubkey), snapshotJson)
 }
 
-fun SecureStorage.loadMuteListFor(pubkey: String): List<String> {
-    if (pubkey.isBlank()) return emptyList()
-    val raw = getStringPref(muteListKey(pubkey), "")
-    if (raw.isBlank()) return emptyList()
-    return try {
-        Json.decodeFromString(ListSerializer(String.serializer()), raw)
-    } catch (_: Exception) {
-        emptyList()
-    }
+fun SecureStorage.loadMuteListSnapshotFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getStringPref(muteListKey(pubkey), "").ifBlank { null }
 }
 
 fun SecureStorage.saveKind10000TimestampFor(

@@ -658,7 +658,11 @@ interface NostrRepositoryApi {
      */
     suspend fun followUsers(pubkeys: Set<String>): Result<Unit>
 
-    /** Add [pubkey] to the active account's kind:10000 mute list and publish it. */
+    /**
+     * Add [pubkey] to the active account's kind:10000 mute list and publish it. New mutes
+     * go to the private (NIP-44 self-encrypted) section; falls back to a public `p` tag
+     * only while an existing private section can't be decrypted.
+     */
     suspend fun muteUser(pubkey: String): Result<Unit>
 
     /** Remove [pubkey] from the active account's kind:10000 mute list and publish it. */

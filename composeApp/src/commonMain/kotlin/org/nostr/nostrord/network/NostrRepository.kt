@@ -27,9 +27,11 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.ActiveAccountManager
@@ -72,7 +74,7 @@ import org.nostr.nostrord.storage.loadDmSyncCursor
 import org.nostr.nostrord.storage.loadDmWrapRumor
 import org.nostr.nostrord.storage.loadFollowingCacheFor
 import org.nostr.nostrord.storage.loadKind10000TimestampFor
-import org.nostr.nostrord.storage.loadMuteListFor
+import org.nostr.nostrord.storage.loadMuteListSnapshotFor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveDmLastRead
@@ -84,7 +86,7 @@ import org.nostr.nostrord.storage.saveDmWrapRumor
 import org.nostr.nostrord.storage.saveFollowingCacheFor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveKind10000TimestampFor
-import org.nostr.nostrord.storage.saveMuteListFor
+import org.nostr.nostrord.storage.saveMuteListSnapshotFor
 import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.storage.setDmCacheMigratedFor
 import org.nostr.nostrord.utils.AppError
@@ -600,18 +602,62 @@ class NostrRepository(
     }
 
     // ===== NIP-51 mute list (kind:10000) =====
-    // Mirrors the kind:3 handling above: optimistic local set + debounced publish that
-    // preserves foreign tags/content, per-account persistence, staleness-guarded ingest.
+    // Mirrors the kind:3 handling above: optimistic local sets + debounced publish,
+    // per-account persistence, staleness-guarded ingest. New mutes go to the PRIVATE
+    // section (NIP-44 self-encrypted `content`); public `p` tags written by other clients
+    // are honored for filtering and kept public. Invariant: a `content` we could not
+    // decrypt is republished verbatim, never rebuilt, so another client's private data
+    // cannot be destroyed from here.
 
     private val _mutedPubkeys = MutableStateFlow<Set<String>>(emptySet())
     override val mutedPubkeys: StateFlow<Set<String>> = _mutedPubkeys.asStateFlow()
+    private var publicMuted: Set<String> = emptySet()
+    private var privateMuted: Set<String> = emptySet()
     private var muteListCreatedAt = 0L
     private var muteListContent = ""
-    private var muteListTags: List<List<String>> = emptyList()
+    private var muteListPublicTags: List<List<String>> = emptyList()
+
+    // Decrypted private-section tags, valid only for the ciphertext they came from:
+    // when muteListContent no longer matches, the section is treated as unreadable.
+    private var muteListPrivateTags: List<List<String>> = emptyList()
+    private var muteListPrivateDecryptedFrom = ""
     private var muteListRequested = false
     private var pendingMuteListPublish: Job? = null
     private var hasUnpublishedMuteChanges = false
     private val muteListMutex = Mutex()
+
+    /** Full last-known list, persisted so a publish after restart never rebuilds from a partial base. */
+    @Serializable
+    private data class MuteListSnapshot(
+        val createdAt: Long,
+        val publicTags: List<List<String>>,
+        val content: String,
+        val privateTags: List<List<String>>,
+        val privateDecryptedFrom: String,
+    )
+
+    /** True when the private section is safe to rebuild (absent, or we decrypted this exact ciphertext). */
+    private fun muteListPrivateWritable() = muteListContent.isBlank() || muteListContent == muteListPrivateDecryptedFrom
+
+    private fun applyMutedSetsAndPersist(pubkey: String) {
+        _mutedPubkeys.value = publicMuted + privateMuted
+        try {
+            SecureStorage.saveMuteListSnapshotFor(
+                pubkey,
+                Json.encodeToString(
+                    MuteListSnapshot(
+                        createdAt = muteListCreatedAt,
+                        publicTags = muteListPublicTags,
+                        content = muteListContent,
+                        privateTags = muteListPrivateTags,
+                        privateDecryptedFrom = muteListPrivateDecryptedFrom,
+                    ),
+                ),
+            )
+        } catch (_: Exception) {
+        }
+        SecureStorage.saveKind10000TimestampFor(pubkey, muteListCreatedAt)
+    }
 
     private fun handleKind10000Event(event: JsonObject) {
         // Only the active account's own list drives [mutedPubkeys].
@@ -626,23 +672,75 @@ class NostrRepository(
             event["tags"]?.jsonArray.orEmpty().map { tag ->
                 tag.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
             }
+        val content = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
         muteListCreatedAt = createdAt
-        muteListContent = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
-        muteListTags = tags
+        muteListPublicTags = tags
+        val contentChanged = content != muteListContent
+        muteListContent = content
+        if (content.isBlank()) {
+            muteListPrivateTags = emptyList()
+            muteListPrivateDecryptedFrom = ""
+        }
         muteListRequested = true
-        // Keep the optimistic set while local taps are unpublished, so a relay echo
+        // Keep the optimistic sets while local taps are unpublished, so a relay echo
         // arriving mid-mute doesn't clobber a just-tapped mute.
-        if (!hasUnpublishedMuteChanges) {
-            _mutedPubkeys.value = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(tags)
-            SecureStorage.saveMuteListFor(pubKey, _mutedPubkeys.value.toList())
-            SecureStorage.saveKind10000TimestampFor(pubKey, createdAt)
+        if (hasUnpublishedMuteChanges) return
+        publicMuted = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(tags)
+        if (content.isBlank()) {
+            privateMuted = emptySet()
+            applyMutedSetsAndPersist(pubKey)
+            return
+        }
+        applyMutedSetsAndPersist(pubKey)
+        if (!contentChanged && content == muteListPrivateDecryptedFrom) return
+        // Decrypt the private section off the ingest path (a bunker signer is a remote
+        // round-trip). One decrypt per new list, not per event.
+        scope.launch {
+            val signer = ActiveAccountManager.session.value?.signer ?: return@launch
+            val plaintext =
+                try {
+                    signer.nip44Decrypt(pubKey, content)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // NIP-04-era or foreign encryption: leave the section opaque; the
+                    // writable() guard keeps it verbatim on publish.
+                    return@launch
+                }
+            val privateTags = org.nostr.nostrord.nostr.Nip51.decodeTags(plaintext) ?: return@launch
+            // Superseded while decrypting (newer event, local tap, account switch): drop it.
+            if (muteListContent != content || hasUnpublishedMuteChanges) return@launch
+            if (sessionManager.getPublicKey() != pubKey) return@launch
+            muteListPrivateTags = privateTags
+            muteListPrivateDecryptedFrom = content
+            privateMuted = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(privateTags)
+            applyMutedSetsAndPersist(pubKey)
         }
     }
 
-    /** Seed [mutedPubkeys] from the per-account cache so filtering works before the network answers. */
+    /** Seed the mute state from the per-account snapshot so filtering works before the network answers. */
     private fun hydrateMuteListFromCache(pubkey: String) {
-        _mutedPubkeys.value = SecureStorage.loadMuteListFor(pubkey).toSet()
         muteListCreatedAt = SecureStorage.loadKind10000TimestampFor(pubkey)
+        val snapshot =
+            SecureStorage.loadMuteListSnapshotFor(pubkey)?.let {
+                try {
+                    Json.decodeFromString<MuteListSnapshot>(it)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        if (snapshot == null) {
+            _mutedPubkeys.value = emptySet()
+            return
+        }
+        muteListCreatedAt = maxOf(muteListCreatedAt, snapshot.createdAt)
+        muteListPublicTags = snapshot.publicTags
+        muteListContent = snapshot.content
+        muteListPrivateTags = snapshot.privateTags
+        muteListPrivateDecryptedFrom = snapshot.privateDecryptedFrom
+        publicMuted = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(snapshot.publicTags)
+        privateMuted = org.nostr.nostrord.nostr.Nip51.mutedPubkeysFrom(snapshot.privateTags)
+        _mutedPubkeys.value = publicMuted + privateMuted
     }
 
     override fun forceInitialized() {
@@ -1946,8 +2044,12 @@ class NostrRepository(
         hasUnpublishedMuteChanges = false
         muteListCreatedAt = 0L
         muteListContent = ""
-        muteListTags = emptyList()
+        muteListPublicTags = emptyList()
+        muteListPrivateTags = emptyList()
+        muteListPrivateDecryptedFrom = ""
         muteListRequested = false
+        publicMuted = emptySet()
+        privateMuted = emptySet()
         _mutedPubkeys.value = emptySet()
         dmPersistenceJobs.forEach { it.cancel() }
         dmPersistenceJobs.clear()
@@ -3583,25 +3685,37 @@ class NostrRepository(
     override suspend fun muteUser(pubkey: String): Result<Unit> {
         // Muting yourself would hide your own messages everywhere; ignore it.
         if (pubkey.isBlank() || pubkey == sessionManager.getPublicKey()) return Result.Success(Unit)
-        applyMuteChange { it + pubkey }
+        if (pubkey in _mutedPubkeys.value) return Result.Success(Unit)
+        // Private by default (who you mute is nobody's business). Falls back to a public
+        // `p` tag while the existing private section is unreadable: merging into a
+        // ciphertext we can't decrypt would destroy another client's entries.
+        if (muteListPrivateWritable()) {
+            applyMuteChange(newPrivate = privateMuted + pubkey)
+        } else {
+            applyMuteChange(newPublic = publicMuted + pubkey)
+        }
         return Result.Success(Unit)
     }
 
     override suspend fun unmuteUser(pubkey: String): Result<Unit> {
-        applyMuteChange { it - pubkey }
+        if (pubkey !in _mutedPubkeys.value) return Result.Success(Unit)
+        applyMuteChange(newPublic = publicMuted - pubkey, newPrivate = privateMuted - pubkey)
         return Result.Success(Unit)
     }
 
     /**
      * Flips [mutedPubkeys] immediately (filtering reacts without a relay round-trip),
-     * persists the set, and schedules a single debounced kind:10000 publish so rapid
+     * persists the snapshot, and schedules a single debounced kind:10000 publish so rapid
      * taps (bulk unmute in Settings) coalesce into one event.
      */
-    private fun applyMuteChange(transform: (Set<String>) -> Set<String>) {
-        val next = transform(_mutedPubkeys.value)
-        if (next == _mutedPubkeys.value) return
-        _mutedPubkeys.value = next
-        sessionManager.getPublicKey()?.let { SecureStorage.saveMuteListFor(it, next.toList()) }
+    private fun applyMuteChange(
+        newPublic: Set<String> = publicMuted,
+        newPrivate: Set<String> = privateMuted,
+    ) {
+        if (newPublic == publicMuted && newPrivate == privateMuted) return
+        publicMuted = newPublic
+        privateMuted = newPrivate
+        sessionManager.getPublicKey()?.let { applyMutedSetsAndPersist(it) }
         hasUnpublishedMuteChanges = true
         pendingMuteListPublish?.cancel()
         pendingMuteListPublish =
@@ -3612,10 +3726,12 @@ class NostrRepository(
     }
 
     /**
-     * Builds, signs and publishes a fresh kind:10000 from [mutedPubkeys], preserving
-     * non-"p" tags and the (possibly NIP-44 encrypted) content of the last known list so
-     * entries added by other clients aren't clobbered. On the first run it best-effort
-     * fetches the existing list (it rides the kind:3 REQ) before overwriting.
+     * Builds, signs and publishes a fresh kind:10000: public `p` tags from [publicMuted],
+     * plus the private section (non-`p` private tags + [privateMuted]) re-encrypted with
+     * NIP-44 to self. Non-`p` public tags are carried over and an unreadable `content` is
+     * republished verbatim, so entries added by other clients aren't clobbered. On the
+     * first run it best-effort fetches the existing list (it rides the kind:3 REQ) before
+     * overwriting.
      */
     private suspend fun publishMuteList(): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
@@ -3626,14 +3742,32 @@ class NostrRepository(
                 withTimeoutOrNull(3_000L) { mutedPubkeys.first { muteListCreatedAt > 0L } }
             }
 
-            val newTags = org.nostr.nostrord.nostr.Nip51.rebuildMuteTags(muteListTags, _mutedPubkeys.value)
+            val newPublicTags = org.nostr.nostrord.nostr.Nip51.rebuildMuteTags(muteListPublicTags, publicMuted)
+            val privateWritable = muteListPrivateWritable()
+            val newPrivateTags =
+                if (privateWritable) {
+                    org.nostr.nostrord.nostr.Nip51.rebuildMuteTags(muteListPrivateTags, privateMuted)
+                } else {
+                    muteListPrivateTags
+                }
             try {
+                val newContent =
+                    when {
+                        // Opaque private section: pass it through untouched.
+                        !privateWritable -> muteListContent
+                        newPrivateTags.isEmpty() -> ""
+                        else -> {
+                            val signer = ActiveAccountManager.session.value?.signer
+                                ?: return@withLock Result.Error(AppError.Auth.NotAuthenticated)
+                            signer.nip44Encrypt(pubKey, org.nostr.nostrord.nostr.Nip51.encodeTags(newPrivateTags))
+                        }
+                    }
                 val event = org.nostr.nostrord.nostr.Event(
                     pubkey = pubKey,
                     createdAt = org.nostr.nostrord.utils.epochSeconds(),
                     kind = org.nostr.nostrord.nostr.Nip51.KIND_MUTE_LIST,
-                    tags = newTags,
-                    content = muteListContent,
+                    tags = newPublicTags,
+                    content = newContent,
                 )
                 val signedEvent = sessionManager.signEvent(event)
                 val eventId = signedEvent.id
@@ -3664,10 +3798,15 @@ class NostrRepository(
                 }
 
                 muteListCreatedAt = signedEvent.createdAt
-                muteListTags = newTags
+                muteListPublicTags = newPublicTags
+                muteListContent = signedEvent.content
+                if (privateWritable) {
+                    muteListPrivateTags = newPrivateTags
+                    muteListPrivateDecryptedFrom = if (newPrivateTags.isEmpty()) "" else signedEvent.content
+                }
                 muteListRequested = true
                 hasUnpublishedMuteChanges = false
-                SecureStorage.saveKind10000TimestampFor(pubKey, signedEvent.createdAt)
+                applyMutedSetsAndPersist(pubKey)
                 Result.Success(Unit)
             } catch (e: Exception) {
                 Result.Error(AppError.Unknown(e.message ?: "Failed to update mute list", e))

@@ -46,4 +46,19 @@ class Nip51Test {
         )
         assertEquals(listOf(listOf("word", "spam")), Nip51.rebuildMuteTags(previous, emptySet()))
     }
+
+    @Test
+    fun `private section tags round-trip through encode and decode`() {
+        val tags = listOf(
+            listOf("p", "aaa"),
+            listOf("word", "spam"),
+        )
+        assertEquals(tags, Nip51.decodeTags(Nip51.encodeTags(tags)))
+    }
+
+    @Test
+    fun `decodeTags rejects non tag-array plaintext`() {
+        assertEquals(null, Nip51.decodeTags("not json"))
+        assertEquals(null, Nip51.decodeTags("""{"p":"aaa"}"""))
+    }
 }
