@@ -5,16 +5,17 @@ import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.ui.Identifier
+import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.backup.BackupViewModel
 import org.nostr.nostrord.ui.screens.backup.MIN_BACKUP_PASSWORD
 import org.nostr.nostrord.ui.screens.backup.backupSecurityTips
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.screens.settings.DmRelaySettingsViewModel
 import org.nostr.nostrord.ui.screens.settings.MutedUsersViewModel
 import org.nostr.nostrord.ui.screens.settings.SecurityViewModel
@@ -30,6 +31,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -769,7 +771,7 @@ private val MutedUsersPanel =
                 className = ClassName("settings-info-text")
                 +(
                     "Muted users don't appear in chats, direct messages, or notifications. " +
-                        "Mutes sync to your other Nostr clients."
+                        "Mutes are stored encrypted (nobody can see who you muted) and sync to your other Nostr clients."
                     )
             }
         }
@@ -796,6 +798,8 @@ private val MutedUsersPanel =
                 div {
                     key = pubkey
                     className = ClassName("member-row")
+                    // Row opens the profile page; the route change closes the settings overlay.
+                    onClick = { pushRoute(UserRoute(pubkey)) }
                     WebAvatar {
                         url = meta?.picture
                         seed = pubkey
@@ -808,7 +812,10 @@ private val MutedUsersPanel =
                     }
                     button {
                         className = ClassName("btn-ghost")
-                        onClick = { vm.unmute(pubkey) }
+                        onClick = {
+                            it.stopPropagation()
+                            vm.unmute(pubkey)
+                        }
                         +"Unmute"
                     }
                 }
