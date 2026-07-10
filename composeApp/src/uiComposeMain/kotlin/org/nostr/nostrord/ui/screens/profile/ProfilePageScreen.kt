@@ -215,11 +215,12 @@ fun ProfilePageScreen(
                                 IdentifierField(pubkey = pubkey, nip05 = metadata?.nip05)
 
                                 if (!vm.isSelf) {
-                                    // Zaps require a signer + a lightning address; mute list
-                                    // and NIP-56 reports aren't wired yet (disabled).
+                                    // Zaps require a signer + a lightning address;
+                                    // NIP-56 reports aren't wired yet (disabled).
                                     val activeSession by ActiveAccountManager.session.collectAsState()
                                     val canZap = activeSession != null &&
                                         Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
+                                    val isMuted by vm.isMuted.collectAsState()
                                     Spacer(modifier = Modifier.height(Spacing.md))
                                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                                         AppButton(
@@ -231,9 +232,8 @@ fun ProfilePageScreen(
                                             icon = Icons.Outlined.Bolt,
                                         )
                                         AppButton(
-                                            text = "Mute",
-                                            onClick = {},
-                                            enabled = false,
+                                            text = if (isMuted) "Unmute" else "Mute",
+                                            onClick = { vm.toggleMute() },
                                             variant = AppButtonVariant.Ghost,
                                             size = AppButtonSize.Small,
                                             icon = Icons.Outlined.NotificationsOff,

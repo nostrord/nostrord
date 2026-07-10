@@ -57,6 +57,7 @@ val ProfilePage =
         val metadata = useStateFlow(vm.metadata)
         val groups = useStateFlow(vm.userGroups)
         val isFollowing = useStateFlow(vm.isFollowing)
+        val isMuted = useStateFlow(vm.isMuted)
         val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
         val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
@@ -187,13 +188,12 @@ val ProfilePage =
                                         icon(Ic.Bolt)
                                         +"Zap"
                                     }
-                                    // Mute list and NIP-56 reports aren't wired yet.
+                                    // NIP-56 reports aren't wired yet.
                                     button {
                                         className = ClassName("btn-ghost profile-btn sm")
-                                        disabled = true
-                                        title = "Coming soon"
+                                        onClick = { vm.toggleMute() }
                                         icon(Ic.NotificationsOff)
-                                        +"Mute"
+                                        +(if (isMuted) "Unmute" else "Mute")
                                     }
                                     button {
                                         className = ClassName("btn-ghost profile-btn sm")

@@ -133,6 +133,20 @@ class ProfilePageViewModel(
         }
     }
 
+    /** Whether the active account mutes this user (NIP-51 kind:10000). */
+    val isMuted: StateFlow<Boolean> =
+        repo.mutedPubkeys
+            .map { pubkey in it }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Mute or unmute this user, toggling based on the current [isMuted]. */
+    fun toggleMute() {
+        if (isSelf) return
+        viewModelScope.launch {
+            if (isMuted.value) repo.unmuteUser(pubkey) else repo.muteUser(pubkey)
+        }
+    }
+
     init {
         // The kind:0 may not be cached (deep link straight to a profile), and the
         // public group list (kind:10009) is only fetched on demand. The own contact

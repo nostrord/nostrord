@@ -178,6 +178,7 @@ val DmPage =
 
         // Header kebab menu + its DM-relays modal.
         val isFollowing = useStateFlow(vm.isFollowing)
+        val isMutedPeer = useStateFlow(vm.isMuted)
         val peerRelays = useStateFlow(dmVm.dmRelaysByPubkey)[pubkey].orEmpty()
         val (headerMenuOpen, setHeaderMenuOpen) = useState { false }
         val (relaysOpen, setRelaysOpen) = useState { false }
@@ -283,6 +284,10 @@ val DmPage =
                             ctxItem(if (isFollowing) Ic.PersonRemove else Ic.PersonAdd, if (isFollowing) "Unfollow" else "Follow") {
                                 setHeaderMenuOpen(false)
                                 vm.toggleFollow()
+                            }
+                            ctxItem(Ic.NotificationsOff, if (isMutedPeer) "Unmute user" else "Mute user") {
+                                setHeaderMenuOpen(false)
+                                vm.toggleMute()
                             }
                             ctxItem(Ic.ContentCopy, "Copy npub") {
                                 setHeaderMenuOpen(false)
