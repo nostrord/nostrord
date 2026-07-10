@@ -332,6 +332,13 @@ val ChatMessageList =
                 // 80px threshold matches the prototype: the jump pill appears once the
                 // user is more than ~80px up from the bottom.
                 val isAtBottom = (sh - st - ch) < 80.0
+                // Being at the bottom ends any scroll-up intent, however we got here — including
+                // the browser CLAMPING scrollTop when content above shrinks (muting an author),
+                // which reads as a scrollTop decrease and set the flag above. There is no at-bottom
+                // TRANSITION in that case, so this must run unconditionally: with the flag stuck
+                // true, the next growth (unmute re-inserting that author's history) would skip the
+                // pin and strand the view mid-feed.
+                if (isAtBottom) userScrolledUp.current = false
                 // During the open settle window, ignore a transient "not at bottom" reading caused
                 // by content still growing/reflowing — flipping the latch there would disarm the pin
                 // and strand the open above the true bottom. But a genuine scroll-up (scrollTop
@@ -339,7 +346,6 @@ val ChatMessageList =
                 // `true` and the next growth snaps the reader back to the bottom.
                 if (!(settling() && !isAtBottom && !scrolledUpNow) && atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
-                    if (isAtBottom) userScrolledUp.current = false
                     props.onAtBottomChange(isAtBottom)
                     // Anchoring ON while reading history (holds position across prepends and
                     // late image layout), OFF at the bottom where it would fight the pin.
