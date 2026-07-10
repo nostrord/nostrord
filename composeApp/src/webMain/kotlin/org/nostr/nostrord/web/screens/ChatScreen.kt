@@ -506,11 +506,33 @@ private val ChatComposer =
         // Markdown toolbar (prototype Composer): wraps the selection via execCommand
         // so edits join the textarea's NATIVE undo stack (Ctrl+Z works).
         val (toolbarOpen, setToolbarOpen) = useState { false }
-        // Hints popup (keyboard shortcuts on desktop, mention triggers on touch). It is an
-        // explicit toggle, not derived from the draft: "?" opens it without landing in the
-        // field, Esc (or typing) closes it, so "?" stays a normal message character.
+        // Hints popup (keyboard shortcuts on desktop, mention triggers on touch).
+        // Opened by Ctrl+/ or the footer pill; Esc, typing, or clicking outside
+        // closes it. Never triggered by a typed character, so every glyph
+        // ("?" included) stays a normal message character.
         val (showHints, setShowHints) = useState { false }
-        val isTouch = window.matchMedia("(pointer: coarse)").matches
+        // Touch-first device: coarse pointer OR no hover. Phones always match at least
+        // one; a touchscreen laptop (fine pointer + hover) stays on the keyboard-first
+        // behavior (Enter sends, Ctrl+/ shortcut hint).
+        val isTouch = window.matchMedia("(pointer: coarse)").matches ||
+            window.matchMedia("(hover: none)").matches
+        // Click/tap anywhere outside the hints box (or its footer toggle, which would
+        // otherwise close-then-reopen) dismisses it. pointerdown covers touch too.
+        useEffect(showHints) {
+            if (showHints) {
+                val handler: (dynamic) -> Unit = { e ->
+                    if (e.target?.closest(".composer-hints, .composer-hint-footer") == null) {
+                        setShowHints(false)
+                    }
+                }
+                document.asDynamic().addEventListener("pointerdown", handler)
+                try {
+                    awaitCancellation()
+                } finally {
+                    document.asDynamic().removeEventListener("pointerdown", handler)
+                }
+            }
+        }
 
         fun insertAtCursor(replacement: String, caretBack: Int = 0) {
             val ta = composerInputRef.current
@@ -643,8 +665,8 @@ private val ChatComposer =
                 // are conditional siblings rendered before the frame, and without keys
                 // React reconciles by index and REMOUNTS the frame - the focused
                 // textarea included (same failure mode as the chat-header note).
-                // Type "?" to surface hints (keyboard shortcuts on desktop, mention
-                // triggers on touch, where Enter is a newline).
+                // Hints box (keyboard shortcuts on desktop, mention triggers on touch,
+                // where Enter is a newline), opened by Ctrl+/ or the footer pill.
                 if (showHints) {
                     div {
                         key = "composer-hints"
@@ -847,18 +869,11 @@ private val ChatComposer =
                                 rows = 1
                                 onChange = { event ->
                                     val v = event.currentTarget.value
-                                    if (isTouch && draft.isEmpty() && v == "?") {
-                                        // Touch keyboards don't emit a reliable keydown for "?", so open
-                                        // the hints from the value instead and keep the glyph out of the
-                                        // field (matches the desktop intercept below).
-                                        setShowHints(true)
-                                    } else {
-                                        if (showHints) setShowHints(false)
-                                        setDraft(v)
-                                        val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                                        setMention(detectMention(v, cursor))
-                                        setMentionSelected(0)
-                                    }
+                                    if (showHints) setShowHints(false)
+                                    setDraft(v)
+                                    val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                    setMention(detectMention(v, cursor))
+                                    setMentionSelected(0)
                                 }
                                 onKeyDown = { event ->
                                     val hasMentions = mention != null && mentionMatches.isNotEmpty()
@@ -891,10 +906,12 @@ private val ChatComposer =
                                             event.preventDefault()
                                             props.onCancelReply()
                                         }
-                                        !isTouch && event.key == "?" && draft.isEmpty() && !hasMentions -> {
-                                            // Open the shortcuts box; the glyph never lands in the field.
+                                        event.ctrlKey && (event.key == "/" || event.key == "?") -> {
+                                            // Ctrl+/ toggles the shortcuts box ("?" accepted too, the
+                                            // same physical key shifted). Never a plain typed
+                                            // character, so any glyph can be typed and sent.
                                             event.preventDefault()
-                                            setShowHints(true)
+                                            setShowHints(!showHints)
                                         }
                                         event.key == "Enter" && !event.shiftKey -> {
                                             // Inside a list: continue / exit it, never send. On touch,
@@ -981,17 +998,21 @@ private val ChatComposer =
                 div {
                     key = "composer-footer"
                     className = ClassName("composer-hint-footer")
-                    // Clickable affordance: toggles the same box, the only reliable opener on
-                    // touch (where "?" never reaches a keydown).
+                    // Clickable affordance: toggles the same box.
                     onClick = { setShowHints(!showHints) }
-                    if (showHints && !isTouch) {
-                        +"Press "
-                        kbd { +"Esc" }
-                        +" to close"
-                    } else {
-                        +"Type "
-                        kbd { +"?" }
-                        +(if (isTouch) " to see mention triggers" else " to see shortcuts")
+                    when {
+                        showHints && !isTouch -> {
+                            +"Press "
+                            kbd { +"Esc" }
+                            +" to close"
+                        }
+                        showHints -> +"Tap outside to close"
+                        isTouch -> +"Tap to see mention triggers"
+                        else -> {
+                            +"Press "
+                            kbd { +"Ctrl + /" }
+                            +" to see shortcuts"
+                        }
                     }
                 }
             }
