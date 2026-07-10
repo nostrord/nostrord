@@ -2312,6 +2312,30 @@ class NostrRepository(
                     reconnectDroppedNip29PoolRelays()
                 }
             }
+            refreshUserListsOnForeground()
+        }
+    }
+
+    // Throttle for the foreground kind:3/kind:10000 re-fetch (seconds).
+    private var lastUserListsRefreshAt = 0L
+    private val userListsRefreshMinIntervalS = 60L
+
+    /**
+     * Re-fetch the account's kind:3 + kind:10000 when the app returns to the foreground,
+     * so follows/mutes changed on another device while this one was backgrounded apply
+     * without a restart. The live REQ covers changes while the socket is up; this covers
+     * the suspended window. createdAt guards keep an older copy from regressing anything,
+     * and the unpublished-changes guards protect local taps, so re-requesting is safe.
+     */
+    private suspend fun refreshUserListsOnForeground() {
+        if (sessionManager.getPublicKey() == null) return
+        val now = org.nostr.nostrord.utils.epochSeconds()
+        if (now - lastUserListsRefreshAt < userListsRefreshMinIntervalS) return
+        lastUserListsRefreshAt = now
+        contactListMutex.withLock {
+            contactListRequested = false
+            muteListRequested = false
+            requestContactListLocked()
         }
     }
 
