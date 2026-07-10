@@ -91,4 +91,23 @@ class ProfilePageViewModelTest {
         assertEquals(false, vm.isFollowing.value)
         assertEquals(false, "pk1" in fake.following.value)
     }
+
+    @Test
+    fun `toggleMute mutes then unmutes the user`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.fakePublicKey = "me"
+        val vm = ProfilePageViewModel(fake, "pk1")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.isMuted.value)
+
+        vm.toggleMute()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.isMuted.value)
+        assertTrue("pk1" in fake.mutedPubkeys.value)
+
+        vm.toggleMute()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.isMuted.value)
+        assertEquals(false, "pk1" in fake.mutedPubkeys.value)
+    }
 }

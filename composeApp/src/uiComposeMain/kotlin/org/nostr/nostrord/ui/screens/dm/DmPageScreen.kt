@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.PersonRemove
@@ -201,6 +202,7 @@ fun DmPageScreen(
 
         val copyToClipboard = rememberClipboardWriter()
         val isFollowing by vm.isFollowing.collectAsState()
+        val isMuted by vm.isMuted.collectAsState()
         var headerMenuOpen by remember { mutableStateOf(false) }
         var relaysDialogOpen by remember { mutableStateOf(false) }
         val peerRelays by remember(pubkey) { dmVm.peerDmRelays(pubkey) }.collectAsState()
@@ -274,6 +276,14 @@ fun DmPageScreen(
                         onClick = {
                             headerMenuOpen = false
                             vm.toggleFollow()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (isMuted) "Unmute user" else "Mute user") },
+                        leadingIcon = { Icon(Icons.Outlined.NotificationsOff, contentDescription = null) },
+                        onClick = {
+                            headerMenuOpen = false
+                            vm.toggleMute()
                         },
                     )
                     DropdownMenuItem(
