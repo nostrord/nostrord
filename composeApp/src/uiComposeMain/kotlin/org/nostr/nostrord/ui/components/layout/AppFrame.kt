@@ -652,24 +652,35 @@ fun AppFrame() {
             // Settings opens full-screen over the rail and sidebar (its own layout carries
             // the close button); the toolbar above stays visible so back/forward still leave it.
             if (route is SettingsRoute) {
-                // Full-screen overlay: background bleeds to the edges, content inset off the bars.
-                Box(
-                    modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(NostrordColors.Background)
-                        .windowInsetsPadding(WindowInsets.safeDrawing),
+                // Settings content can navigate (Muted users rows open the profile page);
+                // the route change away from SettingsRoute closes the overlay. Also close
+                // the mobile drawer: settings is usually opened from it, and the drawer
+                // would otherwise still be sitting open over the destination page.
+                CompositionLocalProvider(
+                    LocalFrameNavigator provides {
+                        closeDrawer()
+                        history.navigate(it)
+                    },
                 ) {
-                    SettingsScreen(
-                        onClose = { history.back() },
-                        // Legacy in-page navigation targets the old Screen graph the new frame
-                        // doesn't route; just close, like the old overlay did.
-                        onNavigate = { history.back() },
-                        onLogout = {
-                            history.back()
-                            AppModule.accountStore.activeId.value?.let { AppModule.accountManager.removeAccountAsync(it) }
-                        },
-                    )
+                    // Full-screen overlay: background bleeds to the edges, content inset off the bars.
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(NostrordColors.Background)
+                            .windowInsetsPadding(WindowInsets.safeDrawing),
+                    ) {
+                        SettingsScreen(
+                            onClose = { history.back() },
+                            // Legacy in-page navigation targets the old Screen graph the new frame
+                            // doesn't route; just close, like the old overlay did.
+                            onNavigate = { history.back() },
+                            onLogout = {
+                                history.back()
+                                AppModule.accountStore.activeId.value?.let { AppModule.accountManager.removeAccountAsync(it) }
+                            },
+                        )
+                    }
                 }
             }
 
