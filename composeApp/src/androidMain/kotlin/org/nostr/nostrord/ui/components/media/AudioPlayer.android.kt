@@ -128,8 +128,9 @@ actual fun AudioPlayerContent(
 
     AudioPlayerChrome(
         isPlaying = isPlaying,
-        currentMs = currentMs,
-        durationMs = durationMs,
+        progress = if (durationMs > 0) currentMs.toFloat() / durationMs.toFloat() else 0f,
+        positionText = formatDuration(currentMs),
+        durationText = if (durationMs > 0) formatDuration(durationMs) else null,
         fileName = audioFileName(url),
         onToggle = { if (isPlaying) player.pause() else player.play(url) },
         modifier = modifier,

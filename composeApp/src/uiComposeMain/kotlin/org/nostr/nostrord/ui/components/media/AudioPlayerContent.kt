@@ -30,17 +30,23 @@ expect fun AudioPlayerContent(
     modifier: Modifier = Modifier,
 )
 
-/** Shared visual: play/pause button, filename, progress bar and the position/duration row. */
+/**
+ * Shared visual: play/pause button, filename, progress bar and the position/duration row.
+ * Takes a normalized [progress] (0..1) and pre-formatted [positionText]/[durationText] so each
+ * platform can source them from its own engine (the desktop player's own text avoids the raw,
+ * sometimes-bogus, duration a streamed file reports). [durationText] null hides the duration.
+ */
 @Composable
 internal fun AudioPlayerChrome(
     isPlaying: Boolean,
-    currentMs: Long,
-    durationMs: Long,
+    progress: Float,
+    positionText: String,
+    durationText: String?,
     fileName: String,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val progress = if (durationMs > 0) currentMs.toFloat() / durationMs.toFloat() else 0f
+    val clampedProgress = progress.coerceIn(0f, 1f)
 
     Row(
         modifier =
@@ -82,7 +88,7 @@ internal fun AudioPlayerChrome(
             Spacer(Modifier.height(4.dp))
 
             LinearProgressIndicator(
-                progress = { progress },
+                progress = { clampedProgress },
                 modifier =
                 Modifier
                     .fillMaxWidth()
@@ -99,13 +105,13 @@ internal fun AudioPlayerChrome(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = formatDuration(currentMs),
+                    text = positionText,
                     style = NostrordTypography.Caption,
                     color = NostrordColors.TextMuted,
                 )
-                if (durationMs > 0) {
+                if (durationText != null) {
                     Text(
-                        text = formatDuration(durationMs),
+                        text = durationText,
                         style = NostrordTypography.Caption,
                         color = NostrordColors.TextMuted,
                     )
