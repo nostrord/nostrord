@@ -168,6 +168,13 @@ val DmPage =
         val (uploadCount, setUploadCount) = useState { 0 }
         val (uploadError, setUploadError) = useState<String?> { null }
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
+        // Auto-grow the composer as newlines are added (Shift+Enter), matching the group chat
+        // composer; reset to "auto" first so it also shrinks when text is deleted or sent.
+        useEffect(text) {
+            val el = composerInputRef.current ?: return@useEffect
+            el.style.height = "auto"
+            el.style.height = "${el.scrollHeight}px"
+        }
 
         // Header kebab menu + its DM-relays modal.
         val isFollowing = useStateFlow(vm.isFollowing)
