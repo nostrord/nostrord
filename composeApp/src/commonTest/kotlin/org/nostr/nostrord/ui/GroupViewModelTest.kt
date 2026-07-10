@@ -56,6 +56,32 @@ class GroupViewModelTest {
         assertFalse(vm.isLoadingMore.value["test-group"] ?: false)
     }
 
+    @Test
+    fun `reactions from muted users are hidden and empty entries dropped`() = runTest {
+        val fake = FakeNostrRepository()
+        fake._reactions.value = mapOf(
+            "m1" to mapOf(
+                "👍" to org.nostr.nostrord.network.managers.GroupManager.ReactionInfo(null, listOf("friend", "spammer")),
+                "🔥" to org.nostr.nostrord.network.managers.GroupManager.ReactionInfo(null, listOf("spammer")),
+            ),
+            "m2" to mapOf(
+                "👍" to org.nostr.nostrord.network.managers.GroupManager.ReactionInfo(null, listOf("spammer")),
+            ),
+        )
+        fake._mutedPubkeys.value = setOf("spammer")
+        val vm = vm(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            mapOf(
+                "m1" to mapOf(
+                    "👍" to org.nostr.nostrord.network.managers.GroupManager.ReactionInfo(null, listOf("friend")),
+                ),
+            ),
+            vm.reactions.value,
+        )
+    }
+
     // -------------------------------------------------------------------------
     // leaveGroup — onSuccess callback
     // -------------------------------------------------------------------------
