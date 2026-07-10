@@ -40,7 +40,7 @@ fun ShareGroupModal(
     onDismiss: () -> Unit,
 ) {
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
-    val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+    val relayPubkey = relayMetadata[relayUrl]?.groupNaddrAuthor ?: relayMetadata[relayUrl.trimEnd('/')]?.groupNaddrAuthor
 
     Dialog(
         onDismissRequest = onDismiss,

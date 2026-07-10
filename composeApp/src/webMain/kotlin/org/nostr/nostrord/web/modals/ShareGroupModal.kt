@@ -28,8 +28,8 @@ val ShareGroupModal =
         val group = props.group
         val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
         val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
-        // Author = the relay's own pubkey (NIP-11), like native; falls back to zero bytes inside encodeNaddr.
-        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+        // Author = NIP-11 `self` (relay signing key), else `pubkey`; falls back to zero bytes inside encodeNaddr.
+        val relayPubkey = relayMetadata[relayUrl]?.groupNaddrAuthor ?: relayMetadata[relayUrl.trimEnd('/')]?.groupNaddrAuthor
 
         useEscClose { props.onClose() }
 

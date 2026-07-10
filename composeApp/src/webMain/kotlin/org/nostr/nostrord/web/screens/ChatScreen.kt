@@ -2256,7 +2256,7 @@ val ChatScreen =
                     this.allGroups = allGroups
                     this.userMetadata = userMetadata
                     this.relayUrl = relayUrl
-                    this.relayPubkeyOf = { r -> relayMetadata[r]?.pubkey ?: relayMetadata[r.normalizeRelayUrl()]?.pubkey }
+                    this.relayPubkeyOf = { r -> relayMetadata[r]?.groupNaddrAuthor ?: relayMetadata[r.normalizeRelayUrl()]?.groupNaddrAuthor }
                     this.replyingToId = replyingToId
                     this.replyParentName =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }

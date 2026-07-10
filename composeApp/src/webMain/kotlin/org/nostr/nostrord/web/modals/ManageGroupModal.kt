@@ -760,7 +760,7 @@ private val ManageInvitesSection =
                     Triple(code, m.id, m.createdAt)
                 }
                 .sortedByDescending { it.third }
-        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+        val relayPubkey = relayMetadata[relayUrl]?.groupNaddrAuthor ?: relayMetadata[relayUrl.trimEnd('/')]?.groupNaddrAuthor
 
         button {
             className = ClassName("btn-primary block")

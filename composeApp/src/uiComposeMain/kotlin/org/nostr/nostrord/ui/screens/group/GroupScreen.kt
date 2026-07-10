@@ -842,7 +842,7 @@ fun GroupScreen(
                         val imetaTags = pendingUploads.map { it.toImetaTag() }
                         var content = text
                         groupMentions.forEach { (name, group) ->
-                            val relayPubkey = relayMetadata[group.relay]?.pubkey
+                            val relayPubkey = relayMetadata[group.relay]?.groupNaddrAuthor
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
@@ -982,7 +982,7 @@ fun GroupScreen(
                         val imetaTags = pendingUploads.map { it.toImetaTag() }
                         var content = text
                         groupMentions.forEach { (name, group) ->
-                            val relayPubkey = relayMetadata[group.relay]?.pubkey
+                            val relayPubkey = relayMetadata[group.relay]?.groupNaddrAuthor
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
