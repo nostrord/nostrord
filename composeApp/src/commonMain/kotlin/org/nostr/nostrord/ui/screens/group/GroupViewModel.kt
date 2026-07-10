@@ -19,6 +19,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -113,7 +114,25 @@ class GroupViewModel(
     val groups = repo.groups
     val groupsByRelay = repo.groupsByRelay
     val userMetadata = repo.userMetadata
-    val reactions = repo.reactions
+
+    /**
+     * Reactions with NIP-51 muted reactors removed, same contract as [messages]: the raw
+     * repo cache stays untouched, so an unmute restores their reactions instantly.
+     */
+    val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> =
+        combine(repo.reactions, repo.mutedPubkeys) { byMessage, muted ->
+            if (muted.isEmpty()) {
+                byMessage
+            } else {
+                byMessage.mapNotNull { (messageId, byEmoji) ->
+                    val filtered = byEmoji.mapNotNull { (emoji, info) ->
+                        val reactors = info.reactors.filter { it !in muted }
+                        if (reactors.isEmpty()) null else emoji to info.copy(reactors = reactors)
+                    }.toMap()
+                    if (filtered.isEmpty()) null else messageId to filtered
+                }.toMap()
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, repo.reactions.value)
     val groupMembers = repo.groupMembers
     val groupAdmins = repo.groupAdmins
     val groupRoles = repo.groupRoles
