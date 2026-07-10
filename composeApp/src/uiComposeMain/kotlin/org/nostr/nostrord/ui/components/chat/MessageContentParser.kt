@@ -128,6 +128,11 @@ object MessageContentParser {
             val language: String?,
         ) : ParsedPart()
 
+        /** Blockquote (one or more `> ` lines). [content] is the inner text, markers stripped. */
+        data class Blockquote(
+            val content: String,
+        ) : ParsedPart()
+
         // Hashtags (inline)
 
         /** Hashtag (#tag) */
@@ -187,8 +192,10 @@ object MessageContentParser {
         val cacheKey = if (emojiMap.isEmpty()) content else "$content\u0000${emojiMap.hashCode()}"
         parseCache.get(cacheKey)?.let { return it }
 
-        // Pass 1: Extract code blocks and replace with placeholders
-        val (contentWithPlaceholders, codeBlockMatches) = extractCodeBlocks(content)
+        // Pass 1: Extract code blocks, then blockquotes, replacing each with placeholders so
+        // downstream passes never parse inside them (markers/positions preserved for buildParts).
+        val (contentAfterCode, codeBlockMatches) = extractCodeBlocks(content)
+        val (contentWithPlaceholders, blockquoteMatches) = extractBlockquotes(contentAfterCode)
 
         // Pass 2: Parse remaining content with priority system
 
@@ -231,11 +238,11 @@ object MessageContentParser {
             }
         val emojiMatches = findCustomEmojis(contentWithPlaceholders, emojiMap, allCoveredRanges)
 
-        // Step 8: Combine all matches (including code blocks) and sort by position
+        // Step 8: Combine all matches (including code blocks + blockquotes) and sort by position
         val allMatches =
             (
-                codeBlockMatches + urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches +
-                    emojiMatches
+                codeBlockMatches + blockquoteMatches + urlMatches + relayMatches + cashuMatches + nostrMatches +
+                    formattingMatches + hashtagMatches + emojiMatches
                 ).sortedBy { it.range.first }
 
         // Step 9: Build parts list with text between matches, cache, and return
@@ -693,13 +700,46 @@ object MessageContentParser {
         return resultBuilder.toString() to codeBlockMatches
     }
 
+    private const val BLOCKQUOTE_PLACEHOLDER = '\uE001'
+
+    // One or more consecutive lines beginning with `>` (optional leading space + one space
+    // after the marker), captured as a single block. Runs on the code-block-masked content.
+    private val blockquoteRegex = Regex("(?m)^[ \\t]*>[ \\t]?.*(?:\\r?\\n[ \\t]*>[ \\t]?.*)*")
+    private val blockquoteLinePrefix = Regex("^[ \\t]*>[ \\t]?")
+
+    /**
+     * Extract blockquote blocks and replace with same-length placeholders (mirrors
+     * [extractCodeBlocks]). The stored [ParsedPart.Blockquote] holds the inner text with the
+     * `>` markers stripped; the renderer parses that inner text again for inline formatting.
+     */
+    private fun extractBlockquotes(content: String): Pair<String, List<ParsedMatch>> {
+        val matches = blockquoteRegex.findAll(content).toList()
+        if (matches.isEmpty()) return content to emptyList()
+
+        val out = mutableListOf<ParsedMatch>()
+        val builder = StringBuilder()
+        var lastIndex = 0
+        for (match in matches) {
+            builder.append(content.substring(lastIndex, match.range.first))
+            repeat(match.value.length) { builder.append(BLOCKQUOTE_PLACEHOLDER) }
+            val inner = match.value.lines().joinToString("\n") { it.replaceFirst(blockquoteLinePrefix, "") }
+            out.add(ParsedMatch(match.range, ParsedPart.Blockquote(inner)))
+            lastIndex = match.range.last + 1
+        }
+        if (lastIndex < content.length) builder.append(content.substring(lastIndex))
+        return builder.toString() to out
+    }
+
     // ============================================================================
     // TEXT FORMATTING PARSING
     // ============================================================================
 
     /**
-     * Bold text: *text* (non-greedy, allows any content including newlines)
+     * Bold text: **text** (markdown) and *text* (Nostr style). Both render bold — additive, so
+     * existing *bold* keeps working while markdown **bold** is also recognized. The double form is
+     * matched first (see [findFormatting]) so it isn't split into two empty single-asterisk marks.
      */
+    private val boldDoubleRegex = Regex("\\*\\*([\\s\\S]+?)\\*\\*")
     private val boldRegex = Regex("\\*([\\s\\S]*?)\\*")
 
     /**
@@ -743,6 +783,14 @@ object MessageContentParser {
         strikethroughRegex.findAll(content).forEach { match ->
             if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
                 matches.add(ParsedMatch(match.range, ParsedPart.Strikethrough(match.groupValues[1])))
+            }
+        }
+
+        // Find markdown bold **text** before single-asterisk *text*, so the double markers
+        // aren't read as two empty bolds; both map to Bold (additive).
+        boldDoubleRegex.findAll(content).forEach { match ->
+            if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
+                matches.add(ParsedMatch(match.range, ParsedPart.Bold(match.groupValues[1])))
             }
         }
 
