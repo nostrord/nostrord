@@ -130,9 +130,13 @@ fun MessageInput(
     var groupMentionQuery by remember { mutableStateOf("") }
     var groupMentionSelectedIndex by remember { mutableStateOf(0) }
     var showEmojiPicker by remember { mutableStateOf(false) }
-    // Keyboard-shortcuts hint, opened by typing "?" in an empty field or clicking the
-    // footer pill (web parity: ChatScreen showHints).
+    // Keyboard-shortcuts hint, opened by Ctrl+/ or clicking the footer pill
+    // (web parity: ChatScreen showHints).
     var showHints by remember { mutableStateOf(false) }
+    // Consuming the Ctrl+/ KeyDown does not stop desktop's typed-char pipeline: the
+    // "/" (or "?") still reaches the field and would land AND instantly close the
+    // hints. One-shot flag so handleTextFieldValueChange drops that glyph.
+    var swallowChordGlyph by remember { mutableStateOf(false) }
     val anyOverlayOpen = showMentionPopup || showGroupMentionPopup || showEmojiPicker
     val currentOnOverlayVisibilityChange by rememberUpdatedState(onOverlayVisibilityChange)
     LaunchedEffect(anyOverlayOpen) {
@@ -296,13 +300,21 @@ fun MessageInput(
             }
             return
         }
-        // "?" in an empty field opens the shortcuts hint instead of typing the glyph
-        // (web parity). Works across platforms since it keys off the resulting value,
-        // not a physical key code.
-        if (textFieldValue.text.isEmpty() && newValue.text == "?") {
-            showHints = true
-            return
+        // Drop the glyph the Ctrl+/ chord injected (see swallowChordGlyph).
+        if (swallowChordGlyph) {
+            swallowChordGlyph = false
+            val pos = newValue.selection.start - 1
+            if (pos >= 0 &&
+                pos < newValue.text.length &&
+                (newValue.text[pos] == '/' || newValue.text[pos] == '?') &&
+                newValue.text.removeRange(pos, pos + 1) == textFieldValue.text
+            ) {
+                return
+            }
         }
+        // Typing closes the hints card; it opens via Ctrl+/ or the footer pill only,
+        // never a typed character, so every glyph ("?" included) stays a normal
+        // message character (web parity).
         if (showHints) showHints = false
         textFieldValue = newValue
         updateMentionState(newValue)
@@ -316,6 +328,7 @@ fun MessageInput(
     fun submit() {
         val text = textFieldValue.text
         if (text.isBlank() || isSending || isUploadingPaste) return
+        showHints = false
         showEmojiPicker = false
         showMentionPopup = false
         showGroupMentionPopup = false
@@ -483,7 +496,7 @@ fun MessageInput(
         val textFieldInteractionSource = remember { MutableInteractionSource() }
         val isAndroid = remember { getPlatform().name.startsWith("Android") }
         // Landscape on a phone has little vertical room, so the discoverability footer is
-        // dropped there (the "?" trigger still works); cross-platform via the window size.
+        // dropped there; cross-platform via the window size.
         val windowSize = LocalWindowInfo.current.containerSize
         val isLandscape = windowSize.width > windowSize.height
 
@@ -652,6 +665,29 @@ fun MessageInput(
             ) {
                 // Shortcuts hint card, floating just above the pill (web .composer-hints).
                 if (showHints) {
+                    // Transparent full-window scrim so a click/tap anywhere outside the card
+                    // dismisses it (same pattern as the mention scrims). Non-focusable so the
+                    // soft keyboard stays up; back press also closes. Only while the field is
+                    // empty: with text present the scrim would swallow the tap on Send
+                    // (typing, Esc and submit() close the card in that state).
+                    if (textFieldValue.text.isEmpty()) {
+                        Popup(
+                            alignment = Alignment.Center,
+                            onDismissRequest = { showHints = false },
+                            properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Transparent)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { showHints = false },
+                                    ),
+                            )
+                        }
+                    }
                     ComposerHints(isTouch = isAndroid)
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }
@@ -728,6 +764,22 @@ fun MessageInput(
                                     }
                                 }
                                 .onPreviewKeyEvent { event ->
+                                    // AWT keyCodes for punctuation are layout-dependent (the ABNT2
+                                    // "/" key can even report VK_UNDEFINED), so besides Key.Slash
+                                    // also match the produced character; "?" is the shifted variant.
+                                    val isHintsChord = event.isCtrlPressed &&
+                                        (
+                                            event.key == Key.Slash ||
+                                                event.key == Key.NumPadDivide ||
+                                                event.utf16CodePoint == '/'.code ||
+                                                event.utf16CodePoint == '?'.code
+                                            )
+                                    // The swallow flag lives only until the next KeyDown: the
+                                    // chord's typed glyph (when the platform delivers one) arrives
+                                    // in between, so a later legit "/" is never eaten.
+                                    if (event.type == KeyEventType.KeyDown && !isHintsChord) {
+                                        swallowChordGlyph = false
+                                    }
                                     val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
                                     val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
                                     when {
@@ -770,6 +822,12 @@ fun MessageInput(
                                             event.key == Key.Escape &&
                                             replyingToMessage != null -> {
                                             onCancelReply()
+                                            true
+                                        }
+                                        // Ctrl+/ toggles the shortcuts hint.
+                                        event.type == KeyEventType.KeyDown && isHintsChord -> {
+                                            swallowChordGlyph = true
+                                            showHints = !showHints
                                             true
                                         }
                                         event.type == KeyEventType.KeyDown &&
@@ -1158,9 +1216,9 @@ private fun KbdChip(label: String) {
 }
 
 /**
- * Shortcuts / mention-triggers card shown above the composer when "?" is typed in an
- * empty field (web .composer-hints). Touch shows only the mention triggers (Enter is a
- * newline there); desktop adds the Enter / Shift+Enter send shortcuts.
+ * Shortcuts / mention-triggers card shown above the composer, opened by Ctrl+/ or
+ * the footer pill (web .composer-hints). Touch shows only the mention triggers
+ * (Enter is a newline there); desktop adds the Enter / Shift+Enter send shortcuts.
  */
 @Composable
 private fun ComposerHints(isTouch: Boolean) {
@@ -1200,7 +1258,7 @@ private fun ComposerHints(isTouch: Boolean) {
     }
 }
 
-/** "Type ? to see shortcuts" cue below the composer, clickable to toggle the hints. */
+/** Discoverability cue below the composer, clickable to toggle the hints. */
 @Composable
 private fun ComposerHintFooter(showHints: Boolean, isTouch: Boolean, onToggle: () -> Unit) {
     Row(
@@ -1212,18 +1270,23 @@ private fun ComposerHintFooter(showHints: Boolean, isTouch: Boolean, onToggle: (
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = Spacing.xs, vertical = 2.dp),
     ) {
-        if (showHints && !isTouch) {
-            Text("Press ", color = NostrordColors.TextMuted, fontSize = 11.sp)
-            KbdChip("Esc")
-            Text(" to close", color = NostrordColors.TextMuted, fontSize = 11.sp)
-        } else {
-            Text("Type ", color = NostrordColors.TextMuted, fontSize = 11.sp)
-            KbdChip("?")
-            Text(
-                if (isTouch) " to see mention triggers" else " to see shortcuts",
-                color = NostrordColors.TextMuted,
-                fontSize = 11.sp,
-            )
+        when {
+            showHints && !isTouch -> {
+                Text("Press ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+                KbdChip("Esc")
+                Text(" to close", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            }
+            showHints -> {
+                Text("Tap outside to close", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            }
+            isTouch -> {
+                Text("Tap to see mention triggers", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            }
+            else -> {
+                Text("Press ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+                KbdChip("Ctrl + /")
+                Text(" to see shortcuts", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            }
         }
     }
 }
