@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,11 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,13 +53,17 @@ fun DmEventSourceDialog(
                         .clip(NostrordShapes.shapeSmall)
                         .background(NostrordColors.BackgroundFloating)
                         .verticalScroll(rememberScrollState())
+                        .horizontalScroll(rememberScrollState())
                         .padding(Spacing.sm),
                 ) {
+                    // softWrap = false so long lines scroll horizontally instead of wrapping
+                    // (web parity: the .dm-source-json box scrolls).
                     Text(
                         json,
                         color = NostrordColors.TextContent,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
+                        softWrap = false,
                     )
                 }
                 if (relays.isNotEmpty()) {
@@ -78,15 +86,23 @@ fun DmEventSourceDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            // Primary filled action, matching the web modal's purple "Copy JSON" button.
+            Button(
                 onClick = {
                     onCopyJson()
                     onDismiss()
                 },
+                colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.Primary,
+                    contentColor = Color.White,
+                ),
             ) { Text("Copy JSON") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = NostrordColors.TextSecondary)
+            }
         },
     )
 }
