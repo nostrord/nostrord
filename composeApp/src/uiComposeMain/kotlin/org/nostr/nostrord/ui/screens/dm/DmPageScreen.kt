@@ -56,6 +56,8 @@ import org.nostr.nostrord.ui.components.chat.DmEventSourceDialog
 import org.nostr.nostrord.ui.components.chat.DmMessageContextMenu
 import org.nostr.nostrord.ui.components.chat.DmRelaysDialog
 import org.nostr.nostrord.ui.components.chat.MessageComposer
+import org.nostr.nostrord.ui.components.chat.MessageContent
+import org.nostr.nostrord.ui.components.chat.SendStateIcon
 import org.nostr.nostrord.ui.components.chat.rightClickContextMenuModifier
 import org.nostr.nostrord.ui.components.layout.DmConversationList
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
@@ -146,6 +148,7 @@ fun DmPageScreen(
         val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
         val messagesByPeer by dmVm.messagesByPeer.collectAsState()
         val messages = messagesByPeer[pubkey].orEmpty()
+        val dmStatus by dmVm.messageStatus.collectAsState()
         // Mark the conversation read while it is open (and as new messages stream in).
         LaunchedEffect(pubkey, messages.size) {
             if (messages.isNotEmpty()) dmVm.markRead(pubkey)
@@ -156,8 +159,23 @@ fun DmPageScreen(
 
         // Open a conversation pinned to the latest message (scroll to the bottom), like a chat.
         val messagesScroll = rememberScrollState()
+        // True while the user rests at the bottom; drives whether async media growth keeps the view
+        // pinned. Recomputed only when a scroll gesture settles, so programmatic follow-scrolls (and
+        // the moment media grows maxValue) don't flip it off.
+        val pinnedToBottom = remember { mutableStateOf(true) }
         LaunchedEffect(pubkey, messages.size) {
             messagesScroll.scrollTo(messagesScroll.maxValue)
+            pinnedToBottom.value = true
+        }
+        LaunchedEffect(messagesScroll.isScrollInProgress) {
+            if (!messagesScroll.isScrollInProgress) {
+                pinnedToBottom.value = messagesScroll.value >= messagesScroll.maxValue - 40
+            }
+        }
+        // Inline media (images/video) loads after render and raises maxValue; follow it to the
+        // bottom when the user was pinned, so the newest message stays in view.
+        LaunchedEffect(messagesScroll.maxValue) {
+            if (pinnedToBottom.value) messagesScroll.scrollTo(messagesScroll.maxValue)
         }
 
         val send = {
@@ -365,24 +383,31 @@ fun DmPageScreen(
                                     shape = NostrordShapes.shapeMedium,
                                     color = if (m.mine) NostrordColors.Primary else NostrordColors.BackgroundFloating,
                                 ) {
-                                    // Clock rides beside the text's last line, bottom-aligned
-                                    // (web parity: the float-right .dm-bubble-time).
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                                        verticalAlignment = Alignment.Bottom,
-                                    ) {
-                                        Text(
-                                            m.content,
-                                            color = if (m.mine) Color.White else NostrordColors.TextPrimary,
-                                            fontSize = 14.sp,
-                                            modifier = Modifier.weight(1f, fill = false),
+                                    Column(modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)) {
+                                        // Rich body: inline images/video/audio/links/mentions/markdown,
+                                        // reusing the group chat renderer. White text on the "mine" bubble.
+                                        MessageContent(
+                                            content = m.content,
+                                            onMentionClick = { onOpenProfile(UserRoute(it)) },
+                                            textColor = if (m.mine) Color.White else NostrordColors.TextPrimary,
                                         )
-                                        Text(
-                                            formatTime(m.createdAt),
-                                            color = if (m.mine) Color.White.copy(alpha = 0.7f) else NostrordColors.TextMuted,
-                                            fontSize = 10.sp,
-                                            modifier = Modifier.padding(start = Spacing.xs),
-                                        )
+                                        // Time + send-state (clock while Sending, check once Delivered),
+                                        // reusing the group chat's SendStateIcon on own messages.
+                                        Row(
+                                            modifier = Modifier.align(Alignment.End).padding(top = Spacing.xxs),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                formatTime(m.createdAt),
+                                                color = if (m.mine) Color.White.copy(alpha = 0.7f) else NostrordColors.TextMuted,
+                                                fontSize = 10.sp,
+                                            )
+                                            if (m.mine) {
+                                                dmStatus[m.id]?.let { st ->
+                                                    SendStateIcon(status = st, tint = Color.White.copy(alpha = 0.7f))
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

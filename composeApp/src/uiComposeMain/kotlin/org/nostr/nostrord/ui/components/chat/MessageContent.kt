@@ -98,6 +98,7 @@ private typealias MonospacePart = MessageContentParser.ParsedPart.Monospace
 private typealias StrikethroughPart = MessageContentParser.ParsedPart.Strikethrough
 private typealias SpoilerPart = MessageContentParser.ParsedPart.Spoiler
 private typealias CodeBlockPart = MessageContentParser.ParsedPart.CodeBlock
+private typealias BlockquotePart = MessageContentParser.ParsedPart.Blockquote
 private typealias HashtagPart = MessageContentParser.ParsedPart.Hashtag
 private typealias VideoPart = MessageContentParser.ParsedPart.Video
 private typealias AudioPart = MessageContentParser.ParsedPart.Audio
@@ -171,6 +172,7 @@ private fun AnnotatedString.Builder.appendWithEmojiFont(
 private fun isBlockPart(part: ContentPart): Boolean = when (part) {
     is ImagePart -> true
     is CodeBlockPart -> true
+    is BlockquotePart -> true
     is VideoPart -> true
     is AudioPart -> true
     is RelayPart -> true
@@ -224,6 +226,9 @@ fun MessageContent(
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
+    // Base text color. Defaults to the neutral message color; DM bubbles override it (white on
+    // the primary "mine" bubble). Inline accents (links, mentions) keep their own colors.
+    textColor: Color = NostrordColors.TextContent,
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -319,6 +324,33 @@ fun MessageContent(
                                 code = firstPart.code,
                                 language = firstPart.language,
                             )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                        is BlockquotePart -> {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                Box(
+                                    modifier =
+                                    Modifier
+                                        .width(3.dp)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(NostrordColors.TextMuted),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                // Recurse so inline formatting / links / mentions inside the quote
+                                // still render; the stripped inner text has no `>` so it can't loop.
+                                MessageContent(
+                                    content = firstPart.content,
+                                    tags = tags,
+                                    onMentionClick = onMentionClick,
+                                    onHashtagClick = onHashtagClick,
+                                    currentGroupId = currentGroupId,
+                                    currentRelayUrl = currentRelayUrl,
+                                    onNavigateToGroup = onNavigateToGroup,
+                                    textColor = textColor,
+                                )
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                         is VideoPart -> {
@@ -445,6 +477,7 @@ fun MessageContent(
                         userMetadata = userMetadata,
                         onMentionClick = onMentionClick,
                         onHashtagClick = onHashtagClick,
+                        textColor = textColor,
                     )
                 }
             }
@@ -480,6 +513,7 @@ private fun InlineContentGroup(
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
     onHashtagClick: (String) -> Unit = {},
+    textColor: Color = NostrordColors.TextContent,
 ) {
     // Check if this group contains any custom emojis
     val hasCustomEmojis =
@@ -496,6 +530,7 @@ private fun InlineContentGroup(
                 modifier = modifier,
                 onMentionClick = onMentionClick,
                 onHashtagClick = onHashtagClick,
+                textColor = textColor,
             )
         }
     } else {
@@ -506,6 +541,7 @@ private fun InlineContentGroup(
             modifier = modifier,
             onMentionClick = onMentionClick,
             onHashtagClick = onHashtagClick,
+            textColor = textColor,
         )
     }
 }
@@ -521,6 +557,7 @@ private fun InlineContentWithEmojis(
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
     onHashtagClick: (String) -> Unit = {},
+    textColor: Color = NostrordColors.TextContent,
 ) {
     val context = LocalPlatformContext.current
     val emojiUrls =
@@ -710,7 +747,7 @@ private fun InlineContentWithEmojis(
 
     Text(
         text = annotatedString,
-        color = NostrordColors.TextContent,
+        color = textColor,
         style = NostrordTypography.MessageBody,
         inlineContent = inlineContentMap,
         modifier = modifier,
@@ -759,6 +796,7 @@ private fun InlineContentTextOnly(
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
     onHashtagClick: (String) -> Unit = {},
+    textColor: Color = NostrordColors.TextContent,
 ) {
     val emojiFontFamily = rememberEmojiFontFamily()
     var revealedSpoilers by remember(parts) { mutableStateOf(emptySet<Int>()) }
@@ -893,7 +931,7 @@ private fun InlineContentTextOnly(
 
     Text(
         text = annotatedString,
-        color = NostrordColors.TextContent,
+        color = textColor,
         style = NostrordTypography.MessageBody,
         modifier = modifier,
     )

@@ -30,6 +30,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun SendStateIcon(
     status: GroupManager.MessageStatus,
     modifier: Modifier = Modifier,
+    tint: androidx.compose.ui.graphics.Color = NostrordColors.TextMuted,
 ) {
     val (image, description) = when (status) {
         is GroupManager.MessageStatus.Sending -> Icons.Default.Schedule to "Sending"
@@ -39,7 +40,7 @@ fun SendStateIcon(
     Icon(
         imageVector = image,
         contentDescription = description,
-        tint = NostrordColors.TextMuted,
+        tint = tint,
         // The caller bottom-aligns this in the content row; the 2dp lift keeps the
         // glyph on the text baseline instead of down in the font's descent.
         modifier = modifier.padding(start = Spacing.xxs, bottom = 2.dp).size(13.dp),

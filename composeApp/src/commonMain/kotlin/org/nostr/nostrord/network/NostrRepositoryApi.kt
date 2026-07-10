@@ -147,6 +147,9 @@ interface NostrRepositoryApi {
     /** Published kind:10050 DM relay lists by author pubkey, as they are fetched. */
     val dmRelaysByPubkey: StateFlow<Map<String, List<String>>>
 
+    /** Send status of our own DM messages, keyed by rumor id (Sending until a relay OKs). */
+    val dmMessageStatus: StateFlow<Map<String, GroupManager.MessageStatus>>
+
     /** Fetch a peer's kind:10050 so [dmRelaysByPubkey] gains its entry (fire-and-forget). */
     fun requestPeerDmRelays(pubkey: String)
 

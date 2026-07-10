@@ -81,12 +81,14 @@ import react.dom.html.ReactHTML.br
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.em
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.kbd
 import react.dom.html.ReactHTML.pre
 import react.dom.html.ReactHTML.s
 import react.dom.html.ReactHTML.span
+import react.dom.html.ReactHTML.strong
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
 import react.useMemo
@@ -3410,7 +3412,11 @@ private fun ChildrenBuilder.renderTextWithEmojis(text: String, emojiMap: Map<Str
  * Render message text: fenced code blocks (```), then inline `code`, then links / images /
  * videos / NIP-27 mentions / event & group refs in the remaining text — mirroring native.
  */
-private fun ChildrenBuilder.renderMessageContent(
+// JS RegExp rejects inline (?m); use the MULTILINE option so `^` matches each line start.
+private val BLOCKQUOTE_REGEX = Regex("^[ \\t]*>[ \\t]?.*(?:\\r?\\n[ \\t]*>[ \\t]?.*)*", RegexOption.MULTILINE)
+private val BLOCKQUOTE_LINE_PREFIX = Regex("^[ \\t]*>[ \\t]?", RegexOption.MULTILINE)
+
+internal fun ChildrenBuilder.renderMessageContent(
     content: String,
     tags: List<List<String>>,
     userMetadata: Map<String, UserMetadata>,
@@ -3422,6 +3428,36 @@ private fun ChildrenBuilder.renderMessageContent(
     val emojiMap = extractEmojiMap(tags)
     val posters = extractVideoPosters(tags)
     val dims = Nip68.extractImetaDimensions(tags)
+    // Split blockquote blocks (`> ` line runs) out first; each renders in a quote box with its
+    // inner text (markers stripped) run back through the normal body. Mirrors native Blockquote.
+    var qLast = 0
+    for (q in BLOCKQUOTE_REGEX.findAll(content)) {
+        if (q.range.first > qLast) {
+            renderBody(content.substring(qLast, q.range.first), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        }
+        div {
+            className = ClassName("msg-quote")
+            renderBody(q.value.replace(BLOCKQUOTE_LINE_PREFIX, ""), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        }
+        qLast = q.range.last + 1
+    }
+    if (qLast < content.length) {
+        renderBody(content.substring(qLast), emojiMap, posters, dims, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+    }
+}
+
+/** The message body pipeline (code fences → inline code → entities → formatting), quote-free. */
+private fun ChildrenBuilder.renderBody(
+    content: String,
+    emojiMap: Map<String, String>,
+    posters: Map<String, String>,
+    dims: Map<String, Pair<Int, Int>>,
+    userMetadata: Map<String, UserMetadata>,
+    messagesById: Map<String, NostrGroupClient.NostrMessage>,
+    onUser: (String) -> Unit,
+    onEventRef: (String) -> Unit,
+    onGroupRef: (String, String?) -> Unit,
+) {
     var last = 0
     for (block in CODE_BLOCK_REGEX.findAll(content)) {
         if (block.range.first > last) {
@@ -3622,26 +3658,31 @@ private fun ChildrenBuilder.renderEntities(
     if (last < content.length) renderFormattedText(content.substring(last), emojiMap)
 }
 
-private val STRIKE_OR_SPOILER_REGEX = Regex("~~[\\s\\S]+?~~|\\|\\|[\\s\\S]+?\\|\\|")
+// Inline formatting tokens, longest markers first so **bold** wins over *bold* and ~~/|| aren't
+// split. Mirrors native MessageContentParser: * and ** are bold (additive), _ italic, ~~ strike,
+// || spoiler.
+private val INLINE_FORMAT_REGEX =
+    Regex("~~[\\s\\S]+?~~|\\|\\|[\\s\\S]+?\\|\\||\\*\\*[\\s\\S]+?\\*\\*|\\*[^*\\n]+?\\*|_[^_\\n]+?_")
 
 /**
- * Render inline ~~strikethrough~~ and ||spoiler|| in a non-URL text run, delegating the
- * remaining text to [renderTextWithEmojis]. Mirrors native MessageContent's Strikethrough
- * / Spoiler parts.
+ * Render inline *bold* / **bold**, _italic_, ~~strikethrough~~ and ||spoiler|| in a non-URL text
+ * run, delegating the remaining text to [renderTextWithEmojis]. Mirrors native MessageContent.
  */
 private fun ChildrenBuilder.renderFormattedText(text: String, emojiMap: Map<String, String>) {
     var last = 0
-    for (m in STRIKE_OR_SPOILER_REGEX.findAll(text)) {
+    for (m in INLINE_FORMAT_REGEX.findAll(text)) {
         if (m.range.first > last) renderTextWithEmojis(text.substring(last, m.range.first), emojiMap)
         val token = m.value
-        val inner = token.substring(2, token.length - 2)
-        if (token.startsWith("~~")) {
-            s {
-                className = ClassName("msg-strike")
-                renderTextWithEmojis(inner, emojiMap)
-            }
-        } else {
-            Spoiler { content = inner }
+        when {
+            token.startsWith("~~") ->
+                s {
+                    className = ClassName("msg-strike")
+                    renderTextWithEmojis(token.substring(2, token.length - 2), emojiMap)
+                }
+            token.startsWith("||") -> Spoiler { content = token.substring(2, token.length - 2) }
+            token.startsWith("**") -> strong { renderTextWithEmojis(token.substring(2, token.length - 2), emojiMap) }
+            token.startsWith("*") -> strong { renderTextWithEmojis(token.substring(1, token.length - 1), emojiMap) }
+            else -> em { renderTextWithEmojis(token.substring(1, token.length - 1), emojiMap) }
         }
         last = m.range.last + 1
     }

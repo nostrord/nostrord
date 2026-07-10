@@ -2705,11 +2705,11 @@ body {
     justify-content: flex-end;
 }
 
-/* WhatsApp-style clock inside the bubble: floats after the text so it rides the
-   last line when it fits and drops below it when it doesn't. */
+/* Clock on its own line below the message, right-aligned (matches native). */
 .dm-bubble-time {
-    float: right;
-    margin: 8px -4px -2px 10px;
+    display: block;
+    text-align: right;
+    margin-top: 4px;
     font-size: 10px;
     line-height: 1;
     color: var(--color-text-muted);
@@ -2717,6 +2717,11 @@ body {
 }
 
 .dm-msg.mine .dm-bubble-time {
+    color: rgb(255 255 255 / 0.7);
+}
+
+/* Send-state icon (clock/check) rides the time inside the mine bubble; match its tint. */
+.dm-msg.mine .msg-state-icon {
     color: rgb(255 255 255 / 0.7);
 }
 
@@ -6102,6 +6107,14 @@ body {
 .msg-strike {
     color: var(--color-text-muted);
     text-decoration: line-through;
+}
+
+/* > blockquote: muted text behind a left accent bar (matches native Blockquote). */
+.msg-quote {
+    margin: 4px 0;
+    padding: 2px 0 2px 10px;
+    border-left: 3px solid var(--color-text-muted);
+    color: var(--color-text-muted);
 }
 
 /* ||spoiler||: blurred until clicked (matches the prototype Spoiler). */

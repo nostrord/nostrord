@@ -942,6 +942,33 @@ fun SecureStorage.saveDmSeenRelays(
     }
 }
 
+// Undelivered outgoing DM gift wraps, persisted per account so a send survives an app restart and
+// is retried on next launch until a relay OKs it (the "cached but never published" gap).
+private fun dmSendQueueKey(pubkey: String): String = "dm_send_queue_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmSendQueue(pubkey: String): List<org.nostr.nostrord.network.managers.PendingDmWrap> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(dmSendQueueKey(pubkey), "") ?: ""
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        Json.decodeFromString(ListSerializer(org.nostr.nostrord.network.managers.PendingDmWrap.serializer()), raw)
+    }.getOrDefault(emptyList())
+}
+
+fun SecureStorage.saveDmSendQueue(
+    pubkey: String,
+    queue: List<org.nostr.nostrord.network.managers.PendingDmWrap>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(
+            dmSendQueueKey(pubkey),
+            Json.encodeToString(ListSerializer(org.nostr.nostrord.network.managers.PendingDmWrap.serializer()), queue),
+        )
+    } catch (_: Exception) {
+    }
+}
+
 // Gift-wrap id -> rumor id links, so a re-streamed but already-decrypted wrap can attach its
 // delivering relay to the right message without paying the decrypt again (View source "Seen on").
 private fun dmWrapRumorKey(pubkey: String): String = "dm_wrap_rumor_${pubkeyDigest(pubkey)}"
