@@ -574,6 +574,14 @@ class MessageContentParserTest {
     }
 
     @Test
+    fun `markdown double-asterisk bold is parsed`() {
+        val parts = MessageContentParser.parse("Hello **world** there")
+        assertEquals(3, parts.size)
+        assertIs<MessageContentParser.ParsedPart.Bold>(parts[1])
+        assertEquals("world", (parts[1] as MessageContentParser.ParsedPart.Bold).content)
+    }
+
+    @Test
     fun `italic text is parsed`() {
         val input = "Hello _world_ there"
         val parts = MessageContentParser.parse(input)
@@ -583,6 +591,22 @@ class MessageContentParserTest {
         assertIs<MessageContentParser.ParsedPart.Italic>(parts[1])
         assertEquals("world", (parts[1] as MessageContentParser.ParsedPart.Italic).content)
         assertIs<MessageContentParser.ParsedPart.Text>(parts[2])
+    }
+
+    @Test
+    fun `blockquote line is parsed with markers stripped`() {
+        val parts = MessageContentParser.parse("> quoted line")
+        val bq = parts.filterIsInstance<MessageContentParser.ParsedPart.Blockquote>()
+        assertEquals(1, bq.size)
+        assertEquals("quoted line", bq[0].content)
+    }
+
+    @Test
+    fun `multiline blockquote joins its lines`() {
+        val parts = MessageContentParser.parse("> line one\n> line two")
+        val bq = parts.filterIsInstance<MessageContentParser.ParsedPart.Blockquote>()
+        assertEquals(1, bq.size)
+        assertEquals("line one\nline two", bq[0].content)
     }
 
     @Test

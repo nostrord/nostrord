@@ -185,6 +185,7 @@ private fun partToPlainText(part: MessageContentParser.ParsedPart): String = whe
     is MessageContentParser.ParsedPart.Strikethrough -> part.content
     is MessageContentParser.ParsedPart.Spoiler -> part.content
     is MessageContentParser.ParsedPart.CodeBlock -> part.code
+    is MessageContentParser.ParsedPart.Blockquote -> part.content
     is MessageContentParser.ParsedPart.Hashtag -> "#${part.tag}"
     is MessageContentParser.ParsedPart.Cashu -> part.token
     is MessageContentParser.ParsedPart.CashuRequest -> part.request
