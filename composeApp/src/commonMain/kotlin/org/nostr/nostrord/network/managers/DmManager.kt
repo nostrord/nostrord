@@ -31,6 +31,20 @@ data class DmMessage(
     val relays: List<String> = emptyList(),
 )
 
+/**
+ * A signed gift wrap awaiting relay acceptance, persisted per account so a send survives an app
+ * restart (delivery is retried on next launch until a relay OKs it). One send enqueues two: the
+ * recipient wrap and the self-copy, each with its own target relay set.
+ */
+@Serializable
+data class PendingDmWrap(
+    val rumorId: String,
+    val wrapId: String,
+    val wrapJson: String,
+    val relays: List<String>,
+    val createdAt: Long,
+)
+
 /** A conversation summary derived from its messages. */
 data class DmConversation(
     val peerPubkey: String,
@@ -92,6 +106,21 @@ class DmManager(
     private val _dmRelaysByPubkey = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val dmRelaysByPubkey: StateFlow<Map<String, List<String>>> = _dmRelaysByPubkey.asStateFlow()
 
+    // Send status of our own optimistic messages, keyed by rumor id (in-memory, like GroupManager).
+    // Sending until a relay OKs the wrap or the self-copy echoes back; then Delivered. Reuses the
+    // group MessageStatus so the same send-state icon renders on DM bubbles.
+    private val _messageStatus = MutableStateFlow<Map<String, GroupManager.MessageStatus>>(emptyMap())
+    val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = _messageStatus.asStateFlow()
+
+    fun setSending(rumorId: String) {
+        _messageStatus.update { it + (rumorId to GroupManager.MessageStatus.Sending) }
+    }
+
+    /** Flip to Delivered only if the id is tracked (an own optimistic message we are awaiting). */
+    fun markDelivered(rumorId: String) {
+        _messageStatus.update { if (rumorId in it) it + (rumorId to GroupManager.MessageStatus.Delivered) else it }
+    }
+
     // Dedup: a gift wrap can arrive from several relays; the same rumor can arrive via the
     // recipient wrap and the self wrap.
     private val seenRumorIds = HashSet<String>()
@@ -123,8 +152,10 @@ class DmManager(
             } ?: return true
 
         if (!seenRumorIds.add(rumorId)) {
-            // Same rumor from another relay or the self-wrap echo of an optimistic send:
-            // nothing new to show, but its relay still counts for "seen on".
+            // Same rumor from another relay or the self-wrap echo of an optimistic send: nothing
+            // new to show, but the wrap round-tripped a relay, so an own message is now Delivered,
+            // and its relay still counts for "seen on".
+            markDelivered(rumorId)
             linkWrapToRumor(giftWrap.id, rumorId, peer)
             return true
         }
@@ -146,6 +177,7 @@ class DmManager(
     /** Optimistically add a just-sent message so the UI shows it before the self-wrap echoes back. */
     fun addOptimistic(rumor: Event, recipientPubkey: String, myPubkey: String) {
         val rumorId = rumor.id ?: return
+        setSending(rumorId)
         if (!seenRumorIds.add(rumorId)) return
         addMessage(
             recipientPubkey,
@@ -285,6 +317,7 @@ class DmManager(
         rumorByWrap.clear()
         peerByRumor.clear()
         relaysByRumor.clear()
+        _messageStatus.value = emptyMap()
         _messagesByPeer.value = emptyMap()
         _dmRelaysByPubkey.value = emptyMap()
         _lastReadByPeer.value = emptyMap()

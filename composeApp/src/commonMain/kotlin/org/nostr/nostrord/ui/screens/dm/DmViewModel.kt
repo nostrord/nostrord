@@ -35,6 +35,9 @@ class DmViewModel(
     /** Published kind:10050 DM relays by author, for the header "DM relays" view. */
     val dmRelaysByPubkey = repo.dmRelaysByPubkey
 
+    /** Send status of our own messages (Sending → Delivered), keyed by rumor id. */
+    val messageStatus = repo.dmMessageStatus
+
     val followsConversations: StateFlow<List<DmConversation>> =
         partition(keepFollowed = true)
 

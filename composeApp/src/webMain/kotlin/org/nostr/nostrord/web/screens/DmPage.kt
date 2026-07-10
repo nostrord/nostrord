@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.awaitCancellation
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
@@ -24,6 +25,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.sendStateIcon
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.modals.DmEventSourceModal
@@ -107,14 +109,38 @@ val DmPage =
         val metadata = useStateFlow(vm.metadata)
         val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
         val messages = useStateFlow(dmVm.messagesByPeer)[pubkey].orEmpty()
+        // Metadata map for resolving @-mention names inside rich message bodies.
+        val userMetadata = useStateFlow(dmVm.userMetadata)
+        val dmStatus = useStateFlow(dmVm.messageStatus)
         // Mark the conversation read while it is open (and as new messages stream in).
         useEffect(pubkey, messages.size) {
             if (messages.isNotEmpty()) dmVm.markRead(pubkey)
         }
         // Open a conversation pinned to the latest message (scroll to the bottom), like a chat.
         val messagesRef = useRef<HTMLDivElement>(null)
+        // True while the user is at (or near) the bottom; drives whether async media growth keeps
+        // the view pinned. Updated on scroll; seeded true so a fresh conversation stays pinned.
+        val pinnedToBottom = useRef(true)
         useEffect(pubkey, messages.size) {
             messagesRef.current?.let { el -> el.scrollTop = el.scrollHeight.toDouble() }
+            pinnedToBottom.current = true
+        }
+        // Inline media (images/video/audio) loads after render and grows the list; if the user was
+        // at the bottom, follow the growth so the newest message stays in view. A capturing listener
+        // catches child load/loadedmetadata (they don't bubble). Setting scrollTop is jank-free.
+        useEffect(pubkey) {
+            val el = messagesRef.current ?: return@useEffect
+            val onMediaLoad: (dynamic) -> Unit = {
+                if (pinnedToBottom.current == true) el.scrollTop = el.scrollHeight.toDouble()
+            }
+            el.asDynamic().addEventListener("load", onMediaLoad, true)
+            el.asDynamic().addEventListener("loadedmetadata", onMediaLoad, true)
+            try {
+                awaitCancellation()
+            } finally {
+                el.asDynamic().removeEventListener("load", onMediaLoad, true)
+                el.asDynamic().removeEventListener("loadedmetadata", onMediaLoad, true)
+            }
         }
         val (text, setText) = useState { "" }
         val (sending, setSending) = useState { false }
@@ -268,6 +294,12 @@ val DmPage =
             div {
                 className = ClassName("dm-messages")
                 ref = messagesRef
+                onScroll = {
+                    val el = messagesRef.current
+                    if (el != null) {
+                        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80.0
+                    }
+                }
                 div {
                     className = ClassName("dm-intro")
                     WebAvatar {
@@ -359,16 +391,28 @@ val DmPage =
                                         setMenuFor(m.id)
                                     }
                                 }
-                                // WhatsApp/Telegram-style: the clock floats bottom-right inside
-                                // every bubble (rides the last text line when it fits, wraps below
-                                // otherwise); hover shows the full date.
+                                // Clock on its own line below the message, right-aligned (matches
+                                // native); hover shows the full date.
                                 div {
                                     className = ClassName("dm-bubble")
                                     title = formatDateTime(m.createdAt)
-                                    +m.content
+                                    // Rich body: inline images/video/audio/links/mentions/markdown,
+                                    // reusing the group chat renderer (same package).
+                                    renderMessageContent(
+                                        m.content,
+                                        emptyList(),
+                                        userMetadata,
+                                        emptyMap(),
+                                        { props.onOpenProfile(UserRoute(it)) },
+                                        {},
+                                        { _, _ -> },
+                                    )
                                     span {
                                         className = ClassName("dm-bubble-time")
                                         +formatTime(m.createdAt)
+                                        // Send state on own messages: clock while Sending, check
+                                        // once a relay OKs the wrap (reuses the group chat icon).
+                                        if (m.mine) sendStateIcon(dmStatus[m.id])
                                     }
                                 }
                             }

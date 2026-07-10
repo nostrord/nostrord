@@ -168,6 +168,27 @@ class DmManagerTest {
     }
 
     @Test
+    fun `own message is Sending then Delivered on the self-echo`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val alice = signer()
+        val rumor = Nip17.buildRumor(alice.pubkey, "bb".repeat(32), "hi")
+        dm.addOptimistic(rumor, "bb".repeat(32), alice.pubkey)
+        assertEquals(GroupManager.MessageStatus.Sending, dm.messageStatus.value[rumor.id])
+
+        // The self-copy echoes back through the inbox (deduped) -> Delivered.
+        val selfWrap = Nip17.wrap(rumor, alice.pubkey, alice)
+        dm.ingestGiftWrap(selfWrap, alice.pubkey, alice)
+        assertEquals(GroupManager.MessageStatus.Delivered, dm.messageStatus.value[rumor.id])
+    }
+
+    @Test
+    fun `markDelivered is a no-op for an untracked id`() = runTest {
+        val dm = DmManager(backgroundScope)
+        dm.markDelivered("never-sent")
+        assertTrue(dm.messageStatus.value["never-sent"] == null)
+    }
+
+    @Test
     fun `onSeenRelaysChanged fires when a new relay is recorded`() = runTest {
         val dm = DmManager(backgroundScope)
         val alice = signer()
