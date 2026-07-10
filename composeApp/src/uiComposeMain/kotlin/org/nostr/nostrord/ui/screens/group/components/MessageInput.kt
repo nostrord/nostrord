@@ -304,7 +304,8 @@ fun MessageInput(
         if (swallowChordGlyph) {
             swallowChordGlyph = false
             val pos = newValue.selection.start - 1
-            if (pos >= 0 && pos < newValue.text.length &&
+            if (pos >= 0 &&
+                pos < newValue.text.length &&
                 (newValue.text[pos] == '/' || newValue.text[pos] == '?') &&
                 newValue.text.removeRange(pos, pos + 1) == textFieldValue.text
             ) {
