@@ -29,26 +29,32 @@ actual fun AudioPlayerContent(
         onDispose { state.pause() }
     }
 
-    val durationMs = state.metadata.duration ?: 0L
-    val currentMs = (state.currentTime * 1000).toLong()
+    // Use the library's own normalized position + formatted text (like the video player), not the
+    // raw metadata.duration: a streamed file (e.g. a CDN .wav) can report a bogus duration on the
+    // GStreamer/Linux backend (millions of minutes), which the raw value would then display. Hide
+    // the duration when it is missing or absurd (> 12h) so the chrome shows just the elapsed time.
+    val rawDurationMs = state.metadata.duration ?: 0L
+    val durationValid = rawDurationMs in 1..(12L * 60 * 60 * 1000)
+    val progress = state.sliderPos / SLIDER_MAX
 
     AudioPlayerChrome(
         isPlaying = state.isPlaying,
-        currentMs = currentMs,
-        durationMs = durationMs,
+        progress = progress,
+        positionText = state.positionText.ifBlank { "0:00" },
+        durationText = if (durationValid) state.durationText.ifBlank { null } else null,
         fileName = audioFileName(url),
         onToggle = {
             if (state.isPlaying) {
                 state.pause()
             } else {
-                // At end-of-media currentTime sits at the end; rewind so play replays instead
-                // of doing nothing (slider runs 0..1000).
-                val d = state.metadata.duration ?: 0L
-                val c = (state.currentTime * 1000).toLong()
-                if (d > 0 && c >= d - 250) state.seekTo(0f)
+                // At end-of-media the slider sits at the end; rewind so play replays instead of
+                // doing nothing (slider runs 0..SLIDER_MAX).
+                if (state.sliderPos >= SLIDER_MAX - 1f) state.seekTo(0f)
                 state.play()
             }
         },
         modifier = modifier,
     )
 }
+
+private const val SLIDER_MAX = 1000f

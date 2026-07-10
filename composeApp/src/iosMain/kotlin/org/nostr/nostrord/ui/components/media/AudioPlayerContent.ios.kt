@@ -14,8 +14,9 @@ actual fun AudioPlayerContent(
 ) {
     AudioPlayerChrome(
         isPlaying = false,
-        currentMs = 0L,
-        durationMs = 0L,
+        progress = 0f,
+        positionText = "0:00",
+        durationText = null,
         fileName = audioFileName(url),
         onToggle = {},
         modifier = modifier,
