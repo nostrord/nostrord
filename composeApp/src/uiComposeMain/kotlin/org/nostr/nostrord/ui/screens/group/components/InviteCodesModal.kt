@@ -62,7 +62,7 @@ fun InviteCodesModal(
     val copyToClipboard = rememberClipboardWriter()
     // Author = the relay's own pubkey (NIP-11) for the naddr share format.
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
-    val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+    val relayPubkey = relayMetadata[relayUrl]?.groupNaddrAuthor ?: relayMetadata[relayUrl.trimEnd('/')]?.groupNaddrAuthor
 
     Dialog(
         onDismissRequest = onDismiss,

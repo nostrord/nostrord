@@ -49,7 +49,7 @@ val InviteCodesModal =
 
         // Author = the relay's own pubkey (NIP-11) for the naddr format.
         val relayMetadata = useStateFlow(repo.relayMetadata)
-        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+        val relayPubkey = relayMetadata[relayUrl]?.groupNaddrAuthor ?: relayMetadata[relayUrl.trimEnd('/')]?.groupNaddrAuthor
 
         useEscClose { props.onClose() }
 

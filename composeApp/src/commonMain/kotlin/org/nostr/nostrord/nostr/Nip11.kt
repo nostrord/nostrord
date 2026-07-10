@@ -30,6 +30,8 @@ data class Nip11RelayInfo(
     val description: String? = null,
     val icon: String? = null,
     val pubkey: String? = null,
+    /** NIP-29 `self`: the key the relay signs group metadata (kind:39xxx) with. */
+    val self: String? = null,
     val contact: String? = null,
     val supportedNips: List<Int> = emptyList(),
     val software: String? = null,
@@ -43,6 +45,12 @@ data class Nip11RelayInfo(
      */
     val supportsSubgroups: Boolean? = null,
 ) {
+    /**
+     * Author pubkey for group naddr encoding: `self`, falling back to `pubkey` for
+     * relays (e.g. 0xchat) that don't publish `self`.
+     */
+    val groupNaddrAuthor: String? get() = self ?: pubkey
+
     companion object
 }
 
@@ -106,6 +114,7 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
                 description = obj["description"]?.jsonPrimitive?.contentOrNull,
                 icon = icon,
                 pubkey = obj["pubkey"]?.jsonPrimitive?.contentOrNull,
+                self = obj["self"]?.jsonPrimitive?.contentOrNull,
                 contact = obj["contact"]?.jsonPrimitive?.contentOrNull,
                 supportedNips =
                 obj["supported_nips"]
