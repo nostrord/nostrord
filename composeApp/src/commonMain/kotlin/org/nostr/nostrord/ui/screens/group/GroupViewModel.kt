@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
@@ -20,6 +21,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.screens.withMinDuration
@@ -32,6 +34,44 @@ data class MentionableGroup(
     val relayUrl: String,
     val meta: GroupMetadata,
 )
+
+/** A follow offered in the add-member friend picker. */
+data class FriendCandidate(
+    val pubkey: String,
+    val name: String?,
+    val picture: String?,
+)
+
+/**
+ * Follows joined with their cached profiles for the add-member picker: named entries
+ * first (alphabetical), unnamed after. Shared by the Compose and web modals.
+ */
+fun buildFriendCandidates(
+    following: Set<String>,
+    metadata: Map<String, UserMetadata>,
+): List<FriendCandidate> =
+    following
+        .map { pk ->
+            val meta = metadata[pk]
+            FriendCandidate(
+                pubkey = pk,
+                name = meta?.displayName?.takeIf { it.isNotBlank() }
+                    ?: meta?.name?.takeIf { it.isNotBlank() },
+                picture = meta?.picture,
+            )
+        }.sortedWith(compareBy({ it.name == null }, { it.name?.lowercase() ?: it.pubkey }))
+
+/** Case-insensitive name / hex-prefix filter; a blank query returns everything. */
+fun filterFriendCandidates(
+    candidates: List<FriendCandidate>,
+    query: String,
+): List<FriendCandidate> {
+    val q = query.trim().lowercase()
+    if (q.isEmpty()) return candidates
+    return candidates.filter {
+        it.name?.lowercase()?.contains(q) == true || it.pubkey.lowercase().startsWith(q)
+    }
+}
 
 /**
  * The current account's relationship to a group, derived once in commonMain so the Compose
@@ -525,16 +565,26 @@ class GroupViewModel(
                 .replaceFirstChar { it.uppercaseChar() }
     }
 
+    /**
+     * Follows for the add-member friend picker, profiles resolved from the metadata cache.
+     * The first subscription kicks a refresh for any follows whose kind:0 isn't cached.
+     */
+    val friends: StateFlow<List<FriendCandidate>> =
+        combine(repo.following, repo.userMetadata) { follows, meta -> buildFriendCandidates(follows, meta) }
+            .onStart { repo.requestUserMetadata(repo.following.value) }
+            .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     fun addUser(
         targetPubkey: String,
         roles: List<String> = emptyList(),
         successMessage: String = "User added to the group",
+        notifyViaDm: Boolean = false,
         onSuccess: () -> Unit = {},
     ) {
         viewModelScope.launch {
             _moderationError.value = null
             trackModeration {
-                when (val result = repo.addUser(groupId, targetPubkey, roles)) {
+                when (val result = repo.addUser(groupId, targetPubkey, roles, notifyViaDm)) {
                     is Result.Error -> surfaceModerationError(result.error)
                     // A kind:9000 (add / role change) is not reliably rendered in the
                     // timeline, so confirm the action to the admin who triggered it.

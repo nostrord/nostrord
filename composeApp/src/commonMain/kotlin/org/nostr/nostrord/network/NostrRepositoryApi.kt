@@ -557,10 +557,17 @@ interface NostrRepositoryApi {
         content: String,
     ): Result<Unit>
 
+    /**
+     * Add a user to the group (kind:9000, admin only). With [notifyViaDm] a NIP-17 DM
+     * carrying the group naddr is sent to the added user after the relay accepts, the
+     * only signal that reaches someone who doesn't connect to this NIP-29 relay. Keep
+     * it false for role changes and join-request approvals.
+     */
     suspend fun addUser(
         groupId: String,
         targetPubkey: String,
         roles: List<String> = emptyList(),
+        notifyViaDm: Boolean = false,
     ): Result<Unit>
 
     suspend fun removeUser(

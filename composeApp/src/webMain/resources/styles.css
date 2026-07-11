@@ -1603,6 +1603,16 @@ body {
     background: var(--color-hover);
 }
 
+/* Add-member friend picker: scrollable follows list inside the modal. */
+.modal-friend-list {
+    margin-top: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .group-side-banner-scrim {
     position: absolute;
     inset: auto 0 0 0;

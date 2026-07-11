@@ -120,6 +120,7 @@ fun GroupScreenMobile(
     isCurrentUserAdmin: Boolean = false,
     onRemoveMember: (MemberInfo) -> Unit = {},
     onAddMember: (String) -> Unit = {},
+    friends: List<FriendCandidate> = emptyList(),
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     isPendingApproval: Boolean = false,
@@ -349,6 +350,7 @@ fun GroupScreenMobile(
                     currentUserPubkey = currentUserPubkey,
                     onRemoveMember = onRemoveMember,
                     onAddMember = onAddMember,
+                    friends = friends,
                     onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 )
             }

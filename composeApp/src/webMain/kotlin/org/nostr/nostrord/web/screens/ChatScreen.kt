@@ -3609,10 +3609,11 @@ private fun ChildrenBuilder.renderEntities(
                 onNavigate = onGroupRef
             }
         } else {
-            // A mention standing alone (the whole message) keeps the rich form (group card,
+            // A mention standing alone (on its own line) keeps the rich form (group card,
             // @name); inline with other text it becomes a compact avatar+name chip, matching
-            // the prototype.
-            val standalone = content.trim() == token
+            // the prototype. Per-line, not whole-message, so an invite DM ("You've been
+            // added to X" + the naddr on the next line) still renders the group card.
+            val standalone = content.split('\n').any { it.trim() == token }
             when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
                 is Nip19.Entity.Npub ->
                     if (standalone) {
