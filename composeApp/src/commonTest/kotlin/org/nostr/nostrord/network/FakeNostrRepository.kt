@@ -537,6 +537,7 @@ class FakeNostrRepository : NostrRepositoryApi {
         groupId: String,
         targetPubkey: String,
         roles: List<String>,
+        notifyViaDm: Boolean,
     ): Result<Unit> {
         addUserCalls.add(Triple(groupId, targetPubkey, roles))
         addUserGate?.await()

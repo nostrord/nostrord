@@ -2,9 +2,13 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.screens.group.buildFriendCandidates
+import org.nostr.nostrord.ui.screens.group.filterFriendCandidates
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
@@ -22,17 +26,37 @@ external interface AddMemberModalProps : Props {
 }
 
 /**
- * Add-member modal — real port of the Compose AddMemberModal: an npub / hex pubkey field
- * that calls `addUser(groupId, pubkey)`. Closes on success. Validation lives in commonMain
- * (Nip19.parsePubkeyInput) so this and the native modal stay in sync.
+ * Add-member modal — real port of the Compose AddMemberModal: a searchable friend picker
+ * over the follows list plus an npub / hex pubkey field, both calling
+ * `addUser(groupId, pubkey, notifyViaDm = true)`. Closes on success. Validation and the
+ * friend-candidate derivation live in commonMain so this and the native modal stay in sync.
  */
 val AddMemberModal =
     FC<AddMemberModalProps> { props ->
         val (value, setValue) = useState { "" }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        val following = useStateFlow(AppModule.nostrRepository.following)
+        val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
         // Submit only unlocks for a key that actually parses (npub/nprofile/hex).
         val isValidKey = Nip19.parsePubkeyInput(value) is Nip19.PubkeyParse.Ok
+        // Friend picker: follows filtered by the same input (until it turns into a
+        // parseable key, at which point the button flow takes over).
+        val shownFriends =
+            if (isValidKey) emptyList() else filterFriendCandidates(buildFriendCandidates(following, userMetadata), value)
+
+        fun addPubkey(pubkey: String) {
+            setError(null)
+            setBusy(true)
+            launchApp {
+                val result = AppModule.nostrRepository.addUser(props.groupId, pubkey, notifyViaDm = true)
+                setBusy(false)
+                when (result) {
+                    is Result.Success -> props.onClose()
+                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to add member." })
+                }
+            }
+        }
 
         fun submit() {
             val pubkey =
@@ -55,16 +79,7 @@ val AddMemberModal =
                         return
                     }
                 }
-            setError(null)
-            setBusy(true)
-            launchApp {
-                val result = AppModule.nostrRepository.addUser(props.groupId, pubkey)
-                setBusy(false)
-                when (result) {
-                    is Result.Success -> props.onClose()
-                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to add member." })
-                }
-            }
+            addPubkey(pubkey)
         }
 
         useEscClose { props.onClose() }
@@ -101,11 +116,11 @@ val AddMemberModal =
 
                 div {
                     className = ClassName("modal-subtitle tight")
-                    +"Enter the user's npub or hex public key to add them to this group."
+                    +"Pick a friend below, or enter the user's npub or hex public key."
                 }
                 input {
                     className = ClassName("modal-input")
-                    placeholder = "npub1... or hex pubkey"
+                    placeholder = "Search friends, or npub1... / hex pubkey"
                     this.value = value
                     onChange = { event ->
                         setValue(event.currentTarget.value)
@@ -117,6 +132,30 @@ val AddMemberModal =
                     div {
                         className = ClassName("modal-error")
                         +error
+                    }
+                }
+
+                if (shownFriends.isNotEmpty()) {
+                    div {
+                        className = ClassName("modal-friend-list")
+                        shownFriends.forEach { friend ->
+                            button {
+                                key = friend.pubkey
+                                className = ClassName("member-row-btn")
+                                disabled = busy
+                                onClick = { addPubkey(friend.pubkey) }
+                                WebAvatar {
+                                    url = friend.picture
+                                    seed = friend.pubkey
+                                    name = friend.name ?: friend.pubkey
+                                    cls = "mod-avatar"
+                                }
+                                span {
+                                    className = ClassName("mod-name")
+                                    +(friend.name ?: (friend.pubkey.take(8) + "…"))
+                                }
+                            }
+                        }
                     }
                 }
 

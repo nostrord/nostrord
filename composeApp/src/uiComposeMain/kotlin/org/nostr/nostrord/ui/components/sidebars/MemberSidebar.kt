@@ -52,6 +52,7 @@ import org.nostr.nostrord.ui.components.forms.AppSearchField
 import org.nostr.nostrord.ui.components.forms.InputSize
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
+import org.nostr.nostrord.ui.screens.group.FriendCandidate
 import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -73,6 +74,7 @@ fun MemberSidebar(
     currentUserPubkey: String? = null,
     onRemoveMember: (MemberInfo) -> Unit = {},
     onAddMember: (String) -> Unit = {},
+    friends: List<FriendCandidate> = emptyList(),
     onManage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -178,6 +180,7 @@ fun MemberSidebar(
             AddMemberModal(
                 onAddMember = onAddMember,
                 onDismiss = { showAddMemberModal = false },
+                friends = friends,
             )
         }
 

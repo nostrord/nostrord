@@ -91,6 +91,7 @@ fun GroupScreen(
     }
 
     val isSending by vm.isSending.collectAsState()
+    val friends by vm.friends.collectAsState()
     val sendError by vm.sendError.collectAsState()
     val deleteMessageError by vm.deleteMessageError.collectAsState()
     val reactionError by vm.reactionError.collectAsState()
@@ -981,7 +982,8 @@ fun GroupScreen(
                     },
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
-                    onAddMember = { pubkey -> vm.addUser(pubkey) },
+                    onAddMember = { pubkey -> vm.addUser(pubkey, notifyViaDm = true) },
+                    friends = friends,
                     pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
@@ -1131,7 +1133,8 @@ fun GroupScreen(
                     onShowMemberSheet = { showMemberSheet = it },
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
-                    onAddMember = { pubkey -> vm.addUser(pubkey) },
+                    onAddMember = { pubkey -> vm.addUser(pubkey, notifyViaDm = true) },
+                    friends = friends,
                     pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,

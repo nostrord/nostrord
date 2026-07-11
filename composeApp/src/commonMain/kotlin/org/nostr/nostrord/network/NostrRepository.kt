@@ -57,6 +57,7 @@ import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip17
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.cache.DM_CACHE_KIND
@@ -3346,10 +3347,15 @@ class NostrRepository(
         )
     }
 
-    override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> {
+    override suspend fun addUser(
+        groupId: String,
+        targetPubkey: String,
+        roles: List<String>,
+        notifyViaDm: Boolean,
+    ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        return groupManager.addUser(
+        val result = groupManager.addUser(
             groupId = groupId,
             targetPubkey = targetPubkey,
             roles = roles,
@@ -3357,6 +3363,33 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
         )
+        if (notifyViaDm && result is Result.Success && targetPubkey != pubKey) {
+            // Fire-and-forget: the DM is a courtesy reach-out; its failure must not fail the add.
+            scope.launch { sendGroupAddedDm(groupId, targetPubkey) }
+        }
+        return result
+    }
+
+    /**
+     * NIP-17 DM telling [targetPubkey] they were added to [groupId], carrying the group
+     * naddr. It travels over the recipient's own DM relays, so it reaches users who don't
+     * connect to the group's NIP-29 relay (the put-user #p watch can't). The naddr sits on
+     * its own line so clients that card-preview group links render the invite card.
+     */
+    private suspend fun sendGroupAddedDm(groupId: String, targetPubkey: String) {
+        try {
+            val relayUrl = groupManager.getRelayForGroup(groupId)
+                ?: connectionManager.currentRelayUrl.value
+            val relayPubkey = relayMetadata.value[relayUrl]?.groupNaddrAuthor
+                ?: relayMetadata.value[relayUrl.trimEnd('/')]?.groupNaddrAuthor
+            val naddr = Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
+            val groupName = groupManager.groupsByRelay.value.values
+                .firstNotNullOfOrNull { list -> list.firstOrNull { it.id == groupId }?.name?.takeIf { it.isNotBlank() } }
+            val title = groupName?.let { "the group \"$it\"" } ?: "a group"
+            sendDm(targetPubkey, "You've been added to $title.\nnostr:$naddr")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {}
     }
 
     override suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit> {

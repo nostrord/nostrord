@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -22,23 +24,31 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.forms.AppField
+import org.nostr.nostrord.ui.screens.group.FriendCandidate
+import org.nostr.nostrord.ui.screens.group.filterFriendCandidates
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Modal for adding a user to the group via npub or hex pubkey.
+ * Modal for adding a user to the group: pick a follow from the searchable list, or
+ * paste an npub / hex pubkey. The input doubles as the friend-search field.
  */
 @Composable
 fun AddMemberModal(
     onAddMember: (String) -> Unit,
     onDismiss: () -> Unit,
+    friends: List<FriendCandidate> = emptyList(),
 ) {
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -140,7 +150,7 @@ fun AddMemberModal(
 
                     // Description
                     Text(
-                        text = "Enter the user's npub or hex public key to add them to this group.",
+                        text = "Pick a friend below, or enter the user's npub or hex public key.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = NostrordColors.TextSecondary,
                     )
@@ -154,7 +164,7 @@ fun AddMemberModal(
                             input = it
                             error = null
                         },
-                        placeholder = "npub1... or hex pubkey",
+                        placeholder = "Search friends, or npub1... / hex pubkey",
                         modifier =
                         Modifier
                             .fillMaxWidth()
@@ -180,6 +190,52 @@ fun AddMemberModal(
                             color = NostrordColors.Error,
                             style = MaterialTheme.typography.labelSmall,
                         )
+                    }
+
+                    // Friend picker: follows filtered by the same input (until it turns
+                    // into a parseable key, at which point the button flow takes over).
+                    val shownFriends = if (isValidKey) emptyList() else filterFriendCandidates(friends, input)
+                    if (shownFriends.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "FRIENDS",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyColumn(modifier = Modifier.heightIn(max = 260.dp)) {
+                            items(shownFriends, key = { it.pubkey }) { friend ->
+                                Row(
+                                    modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onAddMember(friend.pubkey)
+                                            onDismiss()
+                                        }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    OptimizedSmallAvatar(
+                                        imageUrl = friend.picture,
+                                        identifier = friend.pubkey,
+                                        displayName = friend.name ?: friend.pubkey,
+                                        size = 32.dp,
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = friend.name ?: (friend.pubkey.take(8) + "…"),
+                                        color = NostrordColors.TextPrimary,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
