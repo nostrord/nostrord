@@ -3,9 +3,12 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -3642,7 +3645,7 @@ class GroupManager(
      * Handle incoming group members (kind 39002)
      * Returns list of member pubkeys that need metadata fetching
      */
-    fun handleGroupMembers(members: GroupMembers, createdAt: Long = 0L): List<String> {
+    fun handleGroupMembers(members: GroupMembers, createdAt: Long = 0L, relayUrl: String? = null): List<String> {
         if (isRecentlyLeft(members.groupId)) {
             _loadingMembers.value = _loadingMembers.value - members.groupId
             return emptyList()
@@ -3705,7 +3708,59 @@ class GroupManager(
             }
         }
 
+        // An admin added us via kind:9000 (no kind:9021 of ours): the relay's 39002 is the
+        // ground truth of membership, but nothing ever wrote the group into
+        // _joinedGroupsByRelay, so it is absent from the group list and mux and Leave is
+        // unreachable. Adopt it as a join.
+        if (selfNowMember && self != null) {
+            adoptExternalMembership(members.groupId, self, relayUrl)
+        }
+
         return members.members
+    }
+
+    /**
+     * Emits the groupId whenever a membership granted externally (an admin's kind:9000)
+     * is adopted into the joined set. NostrRepository republishes kind:10009 on it so the
+     * group survives restarts and reaches the account's other devices.
+     */
+    private val _externalMembershipAdopted = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val externalMembershipAdopted: SharedFlow<String> = _externalMembershipAdopted.asSharedFlow()
+
+    /**
+     * Adopt a membership created by an admin's kind:9000 (put-user) instead of our own
+     * join request. The durable left marker wins: a relay that keeps listing us after our
+     * kind:9022 must not resurrect the group (B2), and a rejoin has to be the user's call.
+     */
+    private fun adoptExternalMembership(groupId: String, pubkey: String, relayUrl: String?) {
+        if (groupId in _leftGroups.value) return
+        if (isRecentlyLeft(groupId) || groupId in deletedGroupIds) return
+        if (_joinedGroupsByRelay.value.values.any { groupId in it }) return
+        val relay = (relayUrl ?: getRelayForGroup(groupId) ?: currentRelayUrl ?: return).normalizeRelayUrl()
+        scope.launch {
+            // Re-check inside the launch: two 39002s (or a 39002 + a live 9000) can both pass
+            // the synchronous guard and only the first may adopt.
+            if (_joinedGroupsByRelay.value.values.any { groupId in it }) return@launch
+            // Merge with the persisted slot like joinGroup: the in-memory map can be partial
+            // early in a session and a memory-only write would clobber the slot.
+            val stored = try {
+                SecureStorage.getJoinedGroupsForRelay(pubkey, relay)
+            } catch (_: Exception) {
+                emptySet()
+            }
+            val updated = (_joinedGroupsByRelay.value[relay] ?: emptySet()) + stored + groupId
+            try {
+                SecureStorage.saveJoinedGroupsForRelay(pubkey, relay, updated)
+            } catch (_: Exception) {}
+            _joinedGroupsByRelay.update { it + (relay to updated) }
+            // Grace against the orphan auto-forget while this group's kind:39000 is in flight.
+            markRecentlyJoined(groupId)
+            clearGroupRestricted(groupId)
+            _externalMembershipAdopted.tryEmit(groupId)
+            try {
+                refreshMuxSubscriptionsForRelay(relay)
+            } catch (_: Exception) {}
+        }
     }
 
     // Pre-approval CLOSED("restricted") drove the loader to Exhausted. Reset it (so
@@ -3847,7 +3902,11 @@ class GroupManager(
      * Only applies changes from events newer than the last authoritative kind:39002 member
      * list to avoid re-adding users that were removed (historical replays after AUTH).
      */
-    private fun applyMemberChangeIfAdmin(message: NostrGroupClient.NostrMessage, groupId: String) {
+    private fun applyMemberChangeIfAdmin(
+        message: NostrGroupClient.NostrMessage,
+        groupId: String,
+        relayUrl: String? = null,
+    ) {
         val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
             ?: return
         // Skip historical events older than the authoritative member list.
@@ -3856,6 +3915,11 @@ class GroupManager(
 
         when (message.kind) {
             9000 -> { // add-user
+                // A live put-user targeting US is an external add; adopt it without
+                // waiting for the next kind:39002 refresh.
+                if (targetPubkey == currentPubkey) {
+                    adoptExternalMembership(groupId, targetPubkey, relayUrl)
+                }
                 _groupMembers.update { current ->
                     val members = current[groupId] ?: return@update current
                     if (targetPubkey in members) {
@@ -3983,7 +4047,7 @@ class GroupManager(
 
         // Inline member list updates from admin events — provides immediate UI feedback
         // without waiting for a new kind:39002 event from the relay.
-        applyMemberChangeIfAdmin(message, groupId)
+        applyMemberChangeIfAdmin(message, groupId, relayUrl)
 
         // Enqueue to the ordering buffer; the buffer flushes after 300 ms of inactivity
         // for this group, applying the entire batch in one sorted StateFlow update.
