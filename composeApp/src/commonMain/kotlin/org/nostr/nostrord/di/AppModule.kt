@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AccountManager
@@ -251,7 +252,66 @@ object AppModule {
             onNewMessagesFlushed = { groupId, newMessages ->
                 unreadManager.onMessagesFlushed(groupId, newMessages)
             },
+        ).also { gm ->
+            // Feed + popup for "an admin added you to a group" (kind:9000, live or catch-up).
+            appScope.launch {
+                gm.externalMembershipAdopted.collect { add -> onExternalGroupAdd(add) }
+            }
+        }
+    }
+
+    /**
+     * Notify an externally granted membership. Only the kind:9000 path carries an actor;
+     * 39002-inferred adoptions (the user opened the group link and is looking at it) stay
+     * silent. Catch-up adds (offline at put time) enter the feed but skip sound/popup via
+     * [isRealtime], like every other notification type.
+     */
+    private suspend fun onExternalGroupAdd(add: GroupManager.ExternalGroupAdd) {
+        val actor = add.actorPubkey ?: return
+        if (actor == sessionManager.getPublicKey()) return
+        // Give the adoption's mux refresh a moment to land the kind:39000 so the entry
+        // snapshots a real group name instead of a truncated id.
+        kotlinx.coroutines.withTimeoutOrNull(3_000) {
+            groupManager.groupsByRelay.first { byRelay ->
+                byRelay.values.any { list -> list.any { it.id == add.groupId } }
+            }
+        }
+        val groupName = groupDisplayName(add.groupId)
+        notificationHistoryStore.add(
+            NotificationEntry(
+                id = add.eventId ?: "gadd_${add.groupId}",
+                type = NotificationType.GROUP_ADD,
+                groupId = add.groupId,
+                relayUrl = add.relayUrl,
+                actorPubkey = actor,
+                createdAt = add.createdAtSeconds,
+                preview = "",
+                groupName = groupName,
+                relayName = relayDisplayName(add.relayUrl),
+            ),
         )
+        if (displayLabelFor(actor, prefixAt = false) == null) {
+            appScope.launch { nostrRepository.requestUserMetadata(setOf(actor)) }
+        }
+        val realtime = isRealtime(add.createdAtSeconds)
+        if (realtime && notificationSettings.soundEnabled.value) {
+            playNotificationSound()
+        }
+        if (realtime &&
+            notificationSettings.systemNotificationsEnabled.value &&
+            notificationService.isSupported() &&
+            notificationService.permission.value == NotificationPermission.Granted
+        ) {
+            val actorName = displayLabelFor(actor, prefixAt = false) ?: (actor.take(8) + "…")
+            notificationService.notify(
+                NotificationRequest(
+                    relayUrl = add.relayUrl,
+                    groupId = add.groupId,
+                    title = groupName,
+                    body = "$actorName added you to this group",
+                ),
+            )
+        }
     }
 
     val metadataManager: MetadataManager by lazy {

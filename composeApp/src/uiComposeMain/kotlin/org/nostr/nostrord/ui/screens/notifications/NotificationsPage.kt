@@ -225,4 +225,5 @@ private fun actionLabel(entry: NotificationEntry): String = when (entry.type) {
     NotificationType.REPLY -> "replied"
     NotificationType.MESSAGE -> "posted"
     NotificationType.REACTION -> "reacted ${entry.emoji ?: ""}".trim()
+    NotificationType.GROUP_ADD -> "added you"
 }

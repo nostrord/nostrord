@@ -797,6 +797,28 @@ fun SecureStorage.addLeftGroupForRelay(
     }
 }
 
+// ── Put-user watch cursor ────────────────────────────────────────────────────
+// Unix-seconds `since` for the per-relay kind:9000 (put-user, #p self) watch. Advances
+// as adds are processed so historical put-user replays stop arriving on reconnect;
+// without it a very old add could re-adopt a group after the left marker's TTL expires.
+private fun putUserCursorKey(
+    pubkey: String,
+    relayUrl: String,
+): String = "put_user_cursor_${pubkeyDigest(pubkey)}_${relayUrl.hashCode()}"
+
+fun SecureStorage.savePutUserCursorForRelay(
+    pubkey: String,
+    relayUrl: String,
+    seconds: Long,
+) {
+    saveStringPref(putUserCursorKey(pubkey, relayUrl), seconds.toString())
+}
+
+fun SecureStorage.getPutUserCursorForRelay(
+    pubkey: String,
+    relayUrl: String,
+): Long = getStringPref(putUserCursorKey(pubkey, relayUrl), "").toLongOrNull() ?: 0L
+
 fun SecureStorage.removeLeftGroupForRelay(
     pubkey: String,
     relayUrl: String,

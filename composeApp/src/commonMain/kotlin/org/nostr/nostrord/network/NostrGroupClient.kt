@@ -1185,6 +1185,11 @@ class NostrGroupClient(
     fun muxDeleteSubId(): String = "mux_del_${relayUrl.hashCode().toUInt()}"
 
 /**
+     * Deterministic sub ID for the relay-level put-user watch (kind:9000, #p = self).
+     */
+    fun muxPutUserSubId(): String = "mux_padd_${relayUrl.hashCode().toUInt()}"
+
+/**
      * Send (or refresh) the three relay-level multiplexed subscriptions.
      *
      * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
@@ -1199,17 +1204,48 @@ class NostrGroupClient(
      * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
      * @param chatGroupIds     Group IDs for chat + reactions mux (opened groups).
      * @param chatSinceSeconds Unix-seconds `since` for chat/reactions (cursor for opened groups).
+     * @param putUserPubkey    Self pubkey for the kind:9000 put-user watch (null when logged out).
+     * @param putUserSinceSeconds Unix-seconds `since` for the put-user watch (persisted cursor).
      */
     suspend fun sendMuxSubscriptions(
         metadataGroupIds: List<String>,
         chatGroupIds: List<String>,
         chatSinceSeconds: Long,
+        putUserPubkey: String? = null,
+        putUserSinceSeconds: Long = 0L,
     ) {
-        if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
+        if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty() && putUserPubkey == null) return
         val chatSubId = muxChatSubId()
         val reactSubId = muxReactionsSubId()
         val metaSubId = muxMetaSubId()
         val delSubId = muxDeleteSubId()
+        val putUserSubId = muxPutUserSubId()
+
+        // Put-user watch: how we learn an admin added us to a group on this relay (kind:9000
+        // with #p = us), live or as catch-up after an offline window — including groups we
+        // never opened, which no other subscription covers. Kept independent of the group
+        // batches so it stays armed on a relay where we have zero groups yet.
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(putUserSubId)
+            }.toString(),
+        )
+        if (putUserPubkey != null) {
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(putUserSubId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") { add(9000) }
+                            putJsonArray("#p") { add(putUserPubkey) }
+                            put("since", putUserSinceSeconds)
+                        },
+                    )
+                }.toString(),
+            )
+        }
 
         // Close the previous mux slots first (idempotent — no-op if not open).
         send(

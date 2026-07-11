@@ -43,6 +43,7 @@ import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
 import org.nostr.nostrord.storage.getLeftGroupsForRelay
+import org.nostr.nostrord.storage.getPutUserCursorForRelay
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
@@ -55,6 +56,7 @@ import org.nostr.nostrord.storage.saveDroppedGroupIds
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupMembershipFor
+import org.nostr.nostrord.storage.savePutUserCursorForRelay
 import org.nostr.nostrord.storage.setMessageBlobMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -1033,7 +1035,10 @@ class GroupManager(
         // silencing metadata/delete updates for the groups we DO belong to.
         val restricted = _restrictedGroups.value.keys
         val allGroupIds = getGroupIdsForMux(relayUrl).filter { it !in restricted }
-        if (allGroupIds.isEmpty()) return
+        // The put-user watch must be armed even with zero groups on this relay —
+        // that is exactly the state in which an external add can only arrive via #p.
+        val selfPubkey = currentPubkey
+        if (allGroupIds.isEmpty() && selfPubkey == null) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
@@ -1054,10 +1059,13 @@ class GroupManager(
         // `since` as a refresh trigger, so the CLOSE+REQ cycle fires here.
         val chatSince = if (catchUp == null) baseChatSince else minOf(baseChatSince, catchUp)
 
+        val putUserSince = selfPubkey?.let { putUserWatchSince(it, relayUrl) } ?: 0L
         val desired = MuxSubscriptionTracker.MuxState(
             metadataGroupIds = allGroupIds.toSet(),
             chatGroupIds = chatGroupIds.toSet(),
             chatSinceSeconds = chatSince,
+            putUserPubkey = selfPubkey,
+            putUserSinceSeconds = putUserSince,
         )
 
         if (!muxTracker.needsRefresh(relayUrl, desired)) {
@@ -1066,9 +1074,44 @@ class GroupManager(
         }
 
         try {
-            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince)
+            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince, selfPubkey, putUserSince)
             muxTracker.update(relayUrl, desired, epochMillis())
             connStats?.onSubscriptionSent(relayUrl)
+        } catch (_: Exception) {}
+    }
+
+    // First-arm lookback for the put-user watch: catch adds from up to a week offline
+    // without replaying the relay's whole put-user history.
+    private val PUT_USER_INITIAL_LOOKBACK_S = 7L * 24 * 3600
+
+    /**
+     * `since` for [relayUrl]'s put-user watch: the persisted cursor, initialized to
+     * now minus [PUT_USER_INITIAL_LOOKBACK_S] on first use. Inclusive replay of the
+     * last processed event is fine — adoption is idempotent and skips joined groups.
+     */
+    private fun putUserWatchSince(pubkey: String, relayUrl: String): Long {
+        val key = relayUrl.normalizeRelayUrl()
+        val stored = try {
+            SecureStorage.getPutUserCursorForRelay(pubkey, key)
+        } catch (_: Exception) {
+            0L
+        }
+        if (stored > 0L) return stored
+        val initial = epochSeconds() - PUT_USER_INITIAL_LOOKBACK_S
+        try {
+            SecureStorage.savePutUserCursorForRelay(pubkey, key, initial)
+        } catch (_: Exception) {}
+        return initial
+    }
+
+    /** Advance the put-user cursor so processed adds are not replayed on the next REQ. */
+    private fun advancePutUserCursor(pubkey: String, relayUrl: String, createdAtSeconds: Long) {
+        if (createdAtSeconds <= 0L) return
+        val key = relayUrl.normalizeRelayUrl()
+        try {
+            if (createdAtSeconds > SecureStorage.getPutUserCursorForRelay(pubkey, key)) {
+                SecureStorage.savePutUserCursorForRelay(pubkey, key, createdAtSeconds)
+            }
         } catch (_: Exception) {}
     }
 
@@ -3713,26 +3756,45 @@ class GroupManager(
         // _joinedGroupsByRelay, so it is absent from the group list and mux and Leave is
         // unreachable. Adopt it as a join.
         if (selfNowMember && self != null) {
-            adoptExternalMembership(members.groupId, self, relayUrl)
+            adoptExternalMembership(members.groupId, self, relayUrl, createdAtSeconds = createdAt)
         }
 
         return members.members
     }
 
     /**
-     * Emits the groupId whenever a membership granted externally (an admin's kind:9000)
-     * is adopted into the joined set. NostrRepository republishes kind:10009 on it so the
-     * group survives restarts and reaches the account's other devices.
+     * A membership granted externally (an admin's kind:9000), adopted into the joined set.
+     * [actorPubkey]/[eventId] are null when the adoption was inferred from a kind:39002
+     * listing instead of the put-user event itself.
      */
-    private val _externalMembershipAdopted = MutableSharedFlow<String>(extraBufferCapacity = 16)
-    val externalMembershipAdopted: SharedFlow<String> = _externalMembershipAdopted.asSharedFlow()
+    data class ExternalGroupAdd(
+        val groupId: String,
+        val relayUrl: String,
+        val actorPubkey: String?,
+        val eventId: String?,
+        val createdAtSeconds: Long,
+    )
+
+    /**
+     * Emits on every adopted external membership. NostrRepository republishes kind:10009 on
+     * it so the group survives restarts; AppModule turns it into a user notification.
+     */
+    private val _externalMembershipAdopted = MutableSharedFlow<ExternalGroupAdd>(extraBufferCapacity = 16)
+    val externalMembershipAdopted: SharedFlow<ExternalGroupAdd> = _externalMembershipAdopted.asSharedFlow()
 
     /**
      * Adopt a membership created by an admin's kind:9000 (put-user) instead of our own
      * join request. The durable left marker wins: a relay that keeps listing us after our
      * kind:9022 must not resurrect the group (B2), and a rejoin has to be the user's call.
      */
-    private fun adoptExternalMembership(groupId: String, pubkey: String, relayUrl: String?) {
+    private fun adoptExternalMembership(
+        groupId: String,
+        pubkey: String,
+        relayUrl: String?,
+        actorPubkey: String? = null,
+        eventId: String? = null,
+        createdAtSeconds: Long = 0L,
+    ) {
         if (groupId in _leftGroups.value) return
         if (isRecentlyLeft(groupId) || groupId in deletedGroupIds) return
         if (_joinedGroupsByRelay.value.values.any { groupId in it }) return
@@ -3756,7 +3818,15 @@ class GroupManager(
             // Grace against the orphan auto-forget while this group's kind:39000 is in flight.
             markRecentlyJoined(groupId)
             clearGroupRestricted(groupId)
-            _externalMembershipAdopted.tryEmit(groupId)
+            _externalMembershipAdopted.tryEmit(
+                ExternalGroupAdd(
+                    groupId = groupId,
+                    relayUrl = relay,
+                    actorPubkey = actorPubkey,
+                    eventId = eventId,
+                    createdAtSeconds = createdAtSeconds.takeIf { it > 0L } ?: epochSeconds(),
+                ),
+            )
             try {
                 refreshMuxSubscriptionsForRelay(relay)
             } catch (_: Exception) {}
@@ -3909,16 +3979,28 @@ class GroupManager(
     ) {
         val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
             ?: return
+        // Advance the put-user watch cursor for EVERY kind:9000 targeting us, even when the
+        // staleness guard below skips it — replays must stop arriving on the next REQ.
+        if (message.kind == 9000 && targetPubkey == currentPubkey && relayUrl != null) {
+            advancePutUserCursor(targetPubkey, relayUrl, message.createdAt)
+        }
         // Skip historical events older than the authoritative member list.
         val memberListTimestamp = memberEventTimestamps[groupId] ?: 0L
         if (message.createdAt <= memberListTimestamp) return
 
         when (message.kind) {
             9000 -> { // add-user
-                // A live put-user targeting US is an external add; adopt it without
+                // A put-user targeting US is an external add; adopt it without
                 // waiting for the next kind:39002 refresh.
                 if (targetPubkey == currentPubkey) {
-                    adoptExternalMembership(groupId, targetPubkey, relayUrl)
+                    adoptExternalMembership(
+                        groupId,
+                        targetPubkey,
+                        relayUrl,
+                        actorPubkey = message.pubkey,
+                        eventId = message.id,
+                        createdAtSeconds = message.createdAt,
+                    )
                 }
                 _groupMembers.update { current ->
                     val members = current[groupId] ?: return@update current
