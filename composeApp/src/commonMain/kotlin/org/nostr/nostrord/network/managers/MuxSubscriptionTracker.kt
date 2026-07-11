@@ -23,6 +23,9 @@ class MuxSubscriptionTracker {
         val metadataGroupIds: Set<String>,
         val chatGroupIds: Set<String>,
         val chatSinceSeconds: Long,
+        // kind:9000 put-user watch (#p = self). null when logged out.
+        val putUserPubkey: String? = null,
+        val putUserSinceSeconds: Long = 0L,
     )
 
     private val activeMuxState = mutableMapOf<String, MuxState>()
@@ -42,6 +45,9 @@ class MuxSubscriptionTracker {
         if (active.metadataGroupIds != desired.metadataGroupIds) return true
         if (active.chatGroupIds != desired.chatGroupIds) return true
         if (desired.chatSinceSeconds < active.chatSinceSeconds) return true
+        if (active.putUserPubkey != desired.putUserPubkey) return true
+        // An ADVANCED put-user cursor alone is not a trigger: the live watch already streams.
+        if (desired.putUserSinceSeconds < active.putUserSinceSeconds) return true
         return false
     }
 

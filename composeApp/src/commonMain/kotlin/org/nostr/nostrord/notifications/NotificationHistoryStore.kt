@@ -10,7 +10,7 @@ import org.nostr.nostrord.storage.getPersistedNotifications
 import org.nostr.nostrord.storage.savePersistedNotifications
 
 @Serializable
-enum class NotificationType { REPLY, MENTION, REACTION, MESSAGE }
+enum class NotificationType { REPLY, MENTION, REACTION, MESSAGE, GROUP_ADD }
 
 @Serializable
 data class NotificationEntry(

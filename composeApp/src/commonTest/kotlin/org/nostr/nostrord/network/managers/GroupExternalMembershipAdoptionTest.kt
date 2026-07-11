@@ -6,13 +6,16 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.nostr.nostrord.network.GroupMembers
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.addLeftGroupForRelay
+import org.nostr.nostrord.storage.getPutUserCursorForRelay
 import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.utils.epochSeconds
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -73,6 +76,36 @@ class GroupExternalMembershipAdoptionTest {
         assertFalse(
             group in SecureStorage.getJoinedGroupsForRelay(pubkey, relay),
             "left group is not re-persisted as joined",
+        )
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `live kind-9000 targeting self adopts and advances the watch cursor`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        testScheduler.advanceUntilIdle()
+
+        val createdAt = 1_000_000L
+        val msg = NostrGroupClient.NostrMessage(
+            id = "evt-put-user-1",
+            pubkey = "admin-pubkey",
+            content = "",
+            createdAt = createdAt,
+            kind = 9000,
+            tags = listOf(listOf("p", pubkey), listOf("h", group)),
+        )
+        val raw = """["EVENT","mux_padd_x",{"tags":[["p","$pubkey"],["h","$group"]]}]"""
+        gm.handleMessage(msg, raw, subscriptionId = "mux_padd_x", relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(group in gm.getGroupIdsForMux(relay), "put-user targeting self adopts the group")
+        assertEquals(
+            createdAt,
+            SecureStorage.getPutUserCursorForRelay(pubkey, relay),
+            "cursor advances so the add is not replayed on the next REQ",
         )
 
         scope.cancel()
