@@ -888,6 +888,15 @@ class NostrRepository(
             }
         }
 
+        // Membership granted by an admin's kind:9000 (no join request of ours): GroupManager
+        // adopted it into the joined set; mirror it into our kind:10009 so it survives
+        // restarts and reaches the account's other devices.
+        scope.launch {
+            groupManager.externalMembershipAdopted.collect {
+                publishJoinedGroupsList()
+            }
+        }
+
         // Bunker (NIP-46) signer-ready recovery. On session restore / account-add
         // the account is marked logged-in optimistically while the remote signer
         // connects asynchronously (issue #85). connect() + NIP-42 AUTH for the
@@ -4722,7 +4731,7 @@ class NostrRepository(
                     39002 -> {
                         val groupMembers = client.parseGroupMembers(event) ?: return
                         val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
-                        val memberPubkeys = groupManager.handleGroupMembers(groupMembers, createdAt)
+                        val memberPubkeys = groupManager.handleGroupMembers(groupMembers, createdAt, client.getRelayUrl())
                         val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
                         if (pubkeysNeedingMetadata.isNotEmpty()) {
                             scope.launch {
