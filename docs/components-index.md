@@ -18,13 +18,15 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `AppSearchField` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/forms/AppForms.kt | Standardized search / filter input (web `searchInput` over `.input-group`): floating surface with |
 | `AppSegmentedTabs` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/forms/AppForms.kt | Segmented pill tabs (web `.tab-strip` + `.tab`): floating container, brand pill on |
 | `AppTextField` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/forms/AppForms.kt | Prototype-styled input (web `.input-group` + `.input`): floating surface, |
-| `AudioPlayerContent` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/media/AudioPlayerContent.kt | Inline audio player with play/pause, progress bar, and duration. |
 | `AvatarPlaceholder` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/avatars/AvatarPlaceholder.kt | — |
 | `BunkerStatusBanner` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/BunkerStatusBanner.kt | Floating warning shown when the active account signs through a NIP-46 bunker |
 | `ConfirmDialog` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/ConfirmDialog.kt | The single confirm dialog for the native UI (Compose counterpart of the web `confirmDialog` |
 | `ConnectionStatusBanner` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/ConnectionStatusBanner.kt | — |
 | `DateSeparator` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DateSeparator.kt | — |
 | `DmConversationList` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/layout/DmSidebar.kt | The DM conversation list plus its empty state, shared by [DmSidebar] (desktop column) and the |
+| `DmEventSourceDialog` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DmEventSourceDialog.kt | "View source" for a DM: the decrypted kind:14 rumor as pretty JSON plus the relays |
+| `DmMessageContextMenu` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DmMessageContextMenu.kt | Context menu for a DM bubble: the group chat's [MessageContextMenu] shell (same popup, |
+| `DmRelaysDialog` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DmRelaysDialog.kt | Where a peer's DMs route: their published kind:10050 relay list. Empty until the fetch lands, |
 | `DmSidebar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/layout/DmSidebar.kt | Second column on the DM section (prototype DMSidebar, obelisk-style): header with |
 | `EmojiCategoryBar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/emoji/EmojiCategoryBar.kt | — |
 | `EmojiPickerGrid` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/emoji/EmojiPickerGrid.kt | — |
@@ -44,6 +46,7 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `GroupCardSkeleton` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/loading/SkeletonLoader.kt | Skeleton loader for group cards on the home screen. |
 | `GroupCard` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/home/HomeCards.kt | Home page building blocks — Compose counterpart of the web's `.group-card` / |
 | `GroupGradientAvatar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/avatars/GradientAvatar.kt | Deterministic gradient fallback for group avatars (prototype gradientGroupAvatar): |
+| `GroupInviteCard` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/GroupInviteCard.kt | DM group-invite card (prototype InviteCard): "GROUP INVITE" eyebrow + group avatar/name, |
 | `GroupSidebar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/layout/GroupSidebar.kt | Second column when a group is open (prototype ChannelsSidebar group mode): the |
 | `GroupSidebar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/sidebars/GroupSidebar.kt | Channel sidebar for group screens. |
 | `GroupTypeBadges` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/GroupTypeBadges.kt | The NIP-29 access pills (kind:39000) with canonical tones, matching the web |
@@ -60,7 +63,7 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `MessageContextMenu` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageContextMenu.kt | Message context menu - appears on right-click (desktop) or long-press (mobile). |
 | `MessageItem` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageItem.kt | Enhanced message item with grouping support. |
 | `MessageSelectionContainer` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageSelectionContainer.kt | Wraps [content] in a [SelectionContainer] only when [messagesTextSelectionEnabled]. |
-| `MessageStatusIndicator` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageStatusIndicator.kt | Optimistic-send status row shown under the author's own message. Sending: a muted "Sending..." |
+| `MessageStatusIndicator` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageStatusIndicator.kt | Failure row shown under the author's own message: the reason plus Retry / Dismiss. |
 | `MessageUploadButton` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/upload/MessageUploadButton.kt | Attach/upload button for the message input row. |
 | `MinimalTitleBar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/navigation/NavigationToolbar.kt | — |
 | `ModalTitleBar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/ModalTitleBar.kt | Modal title bar (prototype Modal header): title + close button over a 1px |
@@ -76,6 +79,7 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `RelayGradientAvatar` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/avatars/GradientAvatar.kt | Deterministic gradient fallback for relay avatars (prototype gradientRelayAvatar): a |
 | `ReplyPreview` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/ReplyPreview.kt | Compact reply preview shown above a message that is replying to another message. |
 | `RichAboutText` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/RichAboutText.kt | Renders an "about" text with clickable links and resolved nostr mentions. |
+| `SendStateIcon` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/MessageStatusIndicator.kt | Inline send-state icon for the author's own message: a muted clock while Sending, a check |
 | `SkeletonCircle` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/loading/SkeletonLoader.kt | Generic skeleton circle for avatar placeholders. |
 | `SkeletonLine` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/loading/SkeletonLoader.kt | Generic skeleton line for text placeholders. |
 | `StepLabel` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/onboarding/OnboardingPieces.kt | Uppercase step label under the bars: "Step 1 of 2 · Welcome". |
@@ -97,21 +101,25 @@ delete the old one in the same change so the catalogue never lists a dead screen
 |---|---|---|
 | `AddAccountModal` | webMain/kotlin/org/nostr/nostrord/web/modals/AddAccountModal.kt | Add-account modal: the login page's tabbed credential picker ([LoginMethods]) inside a |
 | `AddGroupModal` | webMain/kotlin/org/nostr/nostrord/web/modals/AddGroupModal.kt | Add-group chooser (prototype GroupModals 'chooser', opened by the rail "+"): pick |
-| `AddMemberModal` | webMain/kotlin/org/nostr/nostrord/web/modals/AddMemberModal.kt | Add-member modal — real port of the Compose AddMemberModal: an npub / hex pubkey field |
+| `AddMemberModal` | webMain/kotlin/org/nostr/nostrord/web/modals/AddMemberModal.kt | Add-member modal — real port of the Compose AddMemberModal: a searchable friend picker |
 | `AddRelayModal` | webMain/kotlin/org/nostr/nostrord/web/modals/AddRelayModal.kt | Add-relay modal — layout-first React port of the Compose [AddRelayModal]: a Suggested |
 | `AppLoading` | webMain/kotlin/org/nostr/nostrord/web/components/AppLoading.kt | Full-screen bootstrap / loading screen (brand spinner over a label): the React analogue of the |
 | `BunkerStatusBanner` | webMain/kotlin/org/nostr/nostrord/web/components/BunkerStatusBanner.kt | Floating banner shown when the active account signs through a NIP-46 bunker the |
+| `ChatAudio` | webMain/kotlin/org/nostr/nostrord/web/components/ChatAudio.kt | A chat inline audio clip. Renders the native <audio controls> element, which gives |
 | `ChatImage` | webMain/kotlin/org/nostr/nostrord/web/components/ChatImage.kt | A chat inline image. Opens fullscreen on click. For images that have transparency it samples |
 | `ChatMessageList` | webMain/kotlin/org/nostr/nostrord/web/components/ChatMessageList.kt | Non-virtualized chat list: renders every row as real DOM (history is bounded). |
 | `ChatVideo` | webMain/kotlin/org/nostr/nostrord/web/components/ChatVideo.kt | A chat inline video. |
 | `CreateGroupModal` | webMain/kotlin/org/nostr/nostrord/web/modals/CreateGroupModal.kt | Create-group modal — layout-first React port of the Compose [CreateGroupModal]: name, |
 | `CreateThreadModal` | webMain/kotlin/org/nostr/nostrord/web/modals/CreateThreadModal.kt | Compose-a-new-thread modal (kind:11 root): an optional title plus the body, over the threads |
+| `DmEventSourceModal` | webMain/kotlin/org/nostr/nostrord/web/modals/DmEventSourceModal.kt | "View source" for a DM: the decrypted kind:14 rumor as pretty JSON plus the relays its |
+| `DmRelaysModal` | webMain/kotlin/org/nostr/nostrord/web/modals/DmRelaysModal.kt | Where a peer's DMs route: their published kind:10050 relay list. Empty until the fetch lands, |
 | `EmojiPicker` | webMain/kotlin/org/nostr/nostrord/web/components/EmojiPicker.kt | Emoji picker popover — mirrors the native EmojiPicker: search, category tabs, a recents row, |
 | `FollowAllButton` | webMain/kotlin/org/nostr/nostrord/web/components/FollowSuggestions.kt | "Follow all" action above a [FollowSuggestionCard] list. Publishes a single kind:3 |
 | `FollowSuggestionCard` | webMain/kotlin/org/nostr/nostrord/web/components/FollowSuggestions.kt | One "person to follow" row for the onboarding step and the Home "People" filter: |
 | `GeneratedKeyCard` | webMain/kotlin/org/nostr/nostrord/web/components/GeneratedKeyCard.kt | Generated private key panel shown after "Generate New Identity". Displays the |
 | `GroupAvatarUploadRow` | webMain/kotlin/org/nostr/nostrord/web/components/GroupAvatarUploadRow.kt | Group avatar preview + "Change photo" upload. Shared by Create Group and Manage > Info so the |
 | `GroupInfoModal` | webMain/kotlin/org/nostr/nostrord/web/modals/GroupInfoModal.kt | Group info modal — prototype GroupInfoModal: title bar, gradient cover with the |
+| `GroupInviteCard` | webMain/kotlin/org/nostr/nostrord/web/components/GroupInviteCard.kt | DM group-invite card (prototype InviteCard): "GROUP INVITE" eyebrow + group avatar/name, |
 | `IdentifierField` | webMain/kotlin/org/nostr/nostrord/web/components/IdentifierField.kt | [IdentifierRow] over the pubkey formats (npub / nprofile / nostrord link / |
 | `IdentifierRow` | webMain/kotlin/org/nostr/nostrord/web/components/IdentifierField.kt | Cycling identifier field (prototype IdentifierField, the .identifier-* OOCSS |
 | `ImageViewerHost` | webMain/kotlin/org/nostr/nostrord/web/components/ImageViewer.kt | Place once at the app root. Renders the fullscreen overlay whenever an image is open. |

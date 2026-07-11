@@ -52,10 +52,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.extractDmGroupInvite
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.DmEventSourceDialog
 import org.nostr.nostrord.ui.components.chat.DmMessageContextMenu
 import org.nostr.nostrord.ui.components.chat.DmRelaysDialog
+import org.nostr.nostrord.ui.components.chat.GroupInviteCard
 import org.nostr.nostrord.ui.components.chat.MessageComposer
 import org.nostr.nostrord.ui.components.chat.MessageContent
 import org.nostr.nostrord.ui.components.chat.SendStateIcon
@@ -82,6 +84,7 @@ fun DmPageScreen(
     pubkey: String?,
     onOpenProfile: (UserRoute) -> Unit,
     onOpenConversation: (DmRoute) -> Unit = {},
+    onOpenGroup: (relayUrl: String, groupId: String) -> Unit = { _, _ -> },
     // Non-null only on compact/mobile (sidebar is in the drawer). Drives the hamburger and, on the
     // empty landing, the conversation list shown in the page body (no visible DM sidebar there),
     // mirroring the web `.dm-page-convos` media query.
@@ -394,13 +397,29 @@ fun DmPageScreen(
                                     color = if (m.mine) NostrordColors.Primary else NostrordColors.BackgroundFloating,
                                 ) {
                                     Column(modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)) {
-                                        // Rich body: inline images/video/audio/links/mentions/markdown,
-                                        // reusing the group chat renderer. White text on the "mine" bubble.
-                                        MessageContent(
-                                            content = m.content,
-                                            onMentionClick = { onOpenProfile(UserRoute(it)) },
-                                            textColor = if (m.mine) Color.White else NostrordColors.TextPrimary,
-                                        )
+                                        // A group naddr on its own line renders as the prototype
+                                        // invite card (text above, card + View group button below).
+                                        val invite = remember(m.content) { extractDmGroupInvite(m.content) }
+                                        val body = invite?.remainingText ?: m.content
+                                        if (body.isNotBlank()) {
+                                            // Rich body: inline images/video/audio/links/mentions/markdown,
+                                            // reusing the group chat renderer. White text on the "mine" bubble.
+                                            MessageContent(
+                                                content = body,
+                                                onMentionClick = { onOpenProfile(UserRoute(it)) },
+                                                textColor = if (m.mine) Color.White else NostrordColors.TextPrimary,
+                                            )
+                                        }
+                                        if (invite != null) {
+                                            GroupInviteCard(
+                                                groupId = invite.groupId,
+                                                relayUrl = invite.relayUrl,
+                                                onOpen = {
+                                                    invite.relayUrl?.let { onOpenGroup(it, invite.groupId) }
+                                                },
+                                                modifier = Modifier.padding(vertical = Spacing.xxs),
+                                            )
+                                        }
                                         // Time + send-state (clock while Sending, check once Delivered),
                                         // reusing the group chat's SendStateIcon on own messages.
                                         Row(

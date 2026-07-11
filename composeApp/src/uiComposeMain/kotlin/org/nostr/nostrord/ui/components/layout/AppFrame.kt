@@ -749,6 +749,7 @@ private fun FrameContent(
                         pubkey = route.pubkey,
                         onOpenProfile = onNavigate,
                         onOpenConversation = onNavigate,
+                        onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
                         onOpenDrawer = onOpenDrawer,
                     )
                 }

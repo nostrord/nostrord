@@ -4,7 +4,9 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.awaitCancellation
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.extractDmGroupInvite
 import org.nostr.nostrord.ui.navigation.DmRoute
+import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmChatItem
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
@@ -20,6 +22,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.EmojiPicker
+import org.nostr.nostrord.web.components.GroupInviteCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
@@ -52,6 +55,7 @@ external interface DmPageProps : Props {
     var pubkey: String?
     var onOpenProfile: (UserRoute) -> Unit
     var onOpenConversation: (DmRoute) -> Unit
+    var onOpenGroup: (GroupRoute) -> Unit
     var onOpenDrawer: () -> Unit
 }
 
@@ -408,17 +412,32 @@ val DmPage =
                                 div {
                                     className = ClassName("dm-bubble")
                                     title = formatDateTime(m.createdAt)
-                                    // Rich body: inline images/video/audio/links/mentions/markdown,
-                                    // reusing the group chat renderer (same package).
-                                    renderMessageContent(
-                                        m.content,
-                                        emptyList(),
-                                        userMetadata,
-                                        emptyMap(),
-                                        { props.onOpenProfile(UserRoute(it)) },
-                                        {},
-                                        { _, _ -> },
-                                    )
+                                    // A group naddr on its own line renders as the prototype
+                                    // invite card (text above, card + View group button below).
+                                    val invite = extractDmGroupInvite(m.content)
+                                    val body = invite?.remainingText ?: m.content
+                                    if (body.isNotBlank()) {
+                                        // Rich body: inline images/video/audio/links/mentions/markdown,
+                                        // reusing the group chat renderer (same package).
+                                        renderMessageContent(
+                                            body,
+                                            emptyList(),
+                                            userMetadata,
+                                            emptyMap(),
+                                            { props.onOpenProfile(UserRoute(it)) },
+                                            {},
+                                            { gid, relay -> relay?.let { props.onOpenGroup(GroupRoute(it, gid)) } },
+                                        )
+                                    }
+                                    if (invite != null) {
+                                        GroupInviteCard {
+                                            groupId = invite.groupId
+                                            relayUrl = invite.relayUrl
+                                            onOpen = {
+                                                invite.relayUrl?.let { props.onOpenGroup(GroupRoute(it, invite.groupId)) }
+                                            }
+                                        }
+                                    }
                                     span {
                                         className = ClassName("dm-bubble-time")
                                         +formatTime(m.createdAt)
