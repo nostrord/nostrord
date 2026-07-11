@@ -652,6 +652,7 @@ val AppFrame =
                             pubkey = r.pubkey
                             onOpenProfile = { pushRoute(it) }
                             onOpenConversation = { pushRoute(it) }
+                            onOpenGroup = { pushRoute(it) }
                             onOpenDrawer = { setDrawerOpen(true) }
                         }
                     r is RelayRoute ->
