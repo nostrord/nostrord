@@ -105,6 +105,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.ui.components.BunkerStatusBanner
 import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
@@ -591,6 +592,15 @@ fun AppFrame() {
                     }
                 }
             }
+
+            // Floating signer-health warning, drawn over the content on every page
+            // when the bunker is Unreachable/Reconnecting.
+            BunkerStatusBanner(
+                modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
+            )
 
             // Add-group flow (rail "+"): the new-design chooser, then the existing
             // create / join modals, landing on the group's chat afterwards.
