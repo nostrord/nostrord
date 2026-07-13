@@ -732,6 +732,13 @@ class GroupManager(
         // feed heals without user action.
         const val MUX_STALE_REARM_MS = 600_000L
 
+        // Quiet window before OPENING a group re-arms its relay's mux, much tighter
+        // than MUX_STALE_REARM_MS because the user is actively looking at the screen.
+        // A quiet-but-alive relay answers the re-sent REQ with one EOSE (which resets
+        // the activity mark, so group-hopping costs at most one round trip per window);
+        // a frame-silent socket additionally gets a liveness probe.
+        const val MUX_OPEN_REARM_MS = 120_000L
+
         // Disk budget for the persistent history cache (messages + events), per account.
         // Evicted oldest-first once exceeded; the eviction is debounced behind writes.
         const val CACHE_BYTE_BUDGET = 75L * 1024 * 1024
@@ -906,6 +913,22 @@ class GroupManager(
                 }
             }
             client = connectionManager.getClientForRelay(url)
+
+            // A socket can sit "Connected" while deaf (zombie after a radio nap, or a
+            // relay that silently dropped its subs): the tracker then no-ops the mux
+            // refresh below and the entry REQs go into the void. The user is looking
+            // at this group right now, so don't leave recovery to the 10-minute
+            // staleness net: re-arm a mux-quiet relay immediately, and probe a
+            // frame-silent socket (a zombie is marked dead, driving reconnect +
+            // resubscribe + pending flush).
+            val nowMs = epochMillis()
+            if (muxTracker.isStale(url, nowMs, MUX_OPEN_REARM_MS)) {
+                muxTracker.clearRelay(url)
+                val probeClient = client
+                if (probeClient != null && (probeClient.inboundSilenceMs(nowMs) ?: 0L) > MUX_OPEN_REARM_MS) {
+                    scope.launch { probeClient.probeLiveness() }
+                }
+            }
 
             // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
             val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }

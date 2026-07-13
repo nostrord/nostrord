@@ -1066,9 +1066,11 @@ class NostrRepository(
         scope.launch {
             while (true) {
                 delay(5 * 60 * 1000L) // 5 minutes
-                if (connectionManager.connectionState.value is ConnectionManager.ConnectionState.Connected) {
-                    groupManager.refreshLiveSubscriptions()
-                }
+                // Not gated on the FOCUSED relay's state: that gate starved the pool
+                // relays' staleness re-arm whenever the focused relay sat in
+                // Reconnecting/Error. Each relay is individually guarded inside
+                // (no client / not connected → skip), so this is safe when offline.
+                groupManager.refreshLiveSubscriptions()
                 liveCursorStore?.persistAll()
             }
         }
@@ -2296,10 +2298,15 @@ class NostrRepository(
                 is ConnectionManager.ConnectionState.Error,
                 -> reconnect()
 
-                // Auto-reconnect or initial connect in progress — don't interrupt.
+                // Auto-reconnect or initial connect in progress — don't interrupt the
+                // FOCUSED relay, but the pool sockets still deserve the zombie check:
+                // they can be deaf from the same background period, and skipping them
+                // here left their recovery to the periodic staleness net.
                 is ConnectionManager.ConnectionState.Reconnecting,
                 is ConnectionManager.ConnectionState.Connecting,
                 -> {
+                    probeIdleSockets()
+                    groupManager.refreshLiveSubscriptions()
                     reconnectDroppedNip29PoolRelays()
                 }
 
