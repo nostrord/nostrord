@@ -232,12 +232,14 @@ fun buildChatItems(
                     val action = "is now ${roles.joinToString(", ")}"
                     val pending = pendingSystemEvent
 
-                    if (pending != null &&
+                    // Moderation rows are never merged across users: each promote names its
+                    // target. Only an exact duplicate (same user, same action in-window, e.g.
+                    // an offline-queued event flushed beside a fresh one) collapses.
+                    val isDuplicate = pending != null &&
                         pending.action == action &&
+                        pending.pubkey == targetPubkey &&
                         message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
-                    ) {
-                        pendingSystemEventUsers.add(targetPubkey)
-                    } else {
+                    if (!isDuplicate) {
                         flushPendingSystemEvent()
                         pendingSystemEvent = ChatItem.SystemEvent(
                             pubkey = targetPubkey,
@@ -265,12 +267,13 @@ fun buildChatItems(
                     val action = "was removed from the group"
                     val pending = pendingSystemEvent
 
-                    if (pending != null &&
+                    // Never merged across users (each removal names its target); only an
+                    // exact same-user duplicate in-window collapses.
+                    val isDuplicate = pending != null &&
                         pending.action == action &&
+                        pending.pubkey == targetPubkey &&
                         message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
-                    ) {
-                        pendingSystemEventUsers.add(targetPubkey)
-                    } else {
+                    if (!isDuplicate) {
                         flushPendingSystemEvent()
                         pendingSystemEvent = ChatItem.SystemEvent(
                             pubkey = targetPubkey,
@@ -294,8 +297,10 @@ fun buildChatItems(
                     pending.action == action &&
                     message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
                 ) {
-                    // Add to existing group
-                    pendingSystemEventUsers.add(message.pubkey)
+                    // Add to existing group (same user twice is one fact, not "2 members")
+                    if (message.pubkey != pending.pubkey && message.pubkey !in pendingSystemEventUsers) {
+                        pendingSystemEventUsers.add(message.pubkey)
+                    }
                 } else {
                     // Flush previous and start new group
                     flushPendingSystemEvent()
@@ -321,8 +326,10 @@ fun buildChatItems(
                     pending.action == action &&
                     message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
                 ) {
-                    // Add to existing group
-                    pendingSystemEventUsers.add(message.pubkey)
+                    // Add to existing group (same user twice is one fact, not "2 members")
+                    if (message.pubkey != pending.pubkey && message.pubkey !in pendingSystemEventUsers) {
+                        pendingSystemEventUsers.add(message.pubkey)
+                    }
                 } else {
                     // Flush previous and start new group
                     flushPendingSystemEvent()

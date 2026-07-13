@@ -75,14 +75,22 @@ fun buildWebChatItems(
         pendingUsers.clear()
     }
 
-    // Append a system event, merging with the pending one when it's the same action in-window.
+    // Append a system event. Joins/leaves with the same action in-window merge into one
+    // "N members" row; moderation rows (role change / removal) never merge across users,
+    // each names its target. An exact same-user duplicate in-window (e.g. an
+    // offline-queued event flushed beside a fresh one) collapses for every type.
     fun addSystemEvent(pubkey: String, action: String, createdAt: Long, id: String, type: SystemEventType) {
         val p = pending
-        if (p != null && p.action == action && createdAt - p.createdAt <= SYSTEM_EVENT_GROUP_WINDOW) {
-            pendingUsers.add(pubkey)
-        } else {
-            flush()
-            pending = WebChatItem.SystemEvent(pubkey, action, createdAt, id, type)
+        val sameActionInWindow = p != null && p.action == action && createdAt - p.createdAt <= SYSTEM_EVENT_GROUP_WINDOW
+        val isDuplicate = sameActionInWindow && (pubkey == p.pubkey || pubkey in pendingUsers)
+        val mergeable = type == SystemEventType.JOINED || type == SystemEventType.LEFT
+        when {
+            isDuplicate -> {}
+            sameActionInWindow && mergeable -> pendingUsers.add(pubkey)
+            else -> {
+                flush()
+                pending = WebChatItem.SystemEvent(pubkey, action, createdAt, id, type)
+            }
         }
         lastMessagePubkey = null
         lastMessageTime = null

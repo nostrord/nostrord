@@ -34,6 +34,7 @@ import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.screens.group.model.SystemEventType
+import org.nostr.nostrord.ui.screens.group.pluralizeSystemAction
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.shortNpub
@@ -153,7 +154,7 @@ fun SystemEventItem(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = action,
+                    text = pluralizeSystemAction(action),
                     color = NostrordColors.TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,

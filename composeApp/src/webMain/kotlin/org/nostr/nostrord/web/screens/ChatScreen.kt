@@ -26,6 +26,7 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.MentionableGroup
+import org.nostr.nostrord.ui.screens.group.pluralizeSystemAction
 import org.nostr.nostrord.ui.scroll.ChatScrollPolicy
 import org.nostr.nostrord.ui.scroll.JumpPillTarget
 import org.nostr.nostrord.utils.ChatSearch
@@ -3323,7 +3324,7 @@ private fun ChildrenBuilder.systemEventRow(
                 className = ClassName("sys-event-name")
                 +(if (event.totalUsers > 1) "${event.totalUsers} members" else displayName(event.pubkey, userMetadata[event.pubkey]))
             }
-            +" ${event.action}"
+            +" ${if (event.totalUsers > 1) pluralizeSystemAction(event.action) else event.action}"
         }
         span {
             className = ClassName("sys-event-time")
