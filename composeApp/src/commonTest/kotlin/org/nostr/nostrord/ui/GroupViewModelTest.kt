@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -10,11 +11,14 @@ import org.nostr.nostrord.network.FakeNostrRepository
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.deriveMembershipStatus
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,6 +58,107 @@ class GroupViewModelTest {
     fun `isLoadingMore starts false for group`() = runTest {
         val vm = vm()
         assertFalse(vm.isLoadingMore.value["test-group"] ?: false)
+    }
+
+    // -------------------------------------------------------------------------
+    // Moderation actions (#174): errors must surface, never fail silently
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `promoteToAdmin sends the admin role and reports success`() = runTest {
+        val fake = FakeNostrRepository()
+        val vm = vm(fake)
+
+        var succeeded = false
+        vm.promoteToAdmin("target") { succeeded = true }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(Triple("test-group", "target", listOf("admin")), fake.addUserCalls.single())
+        assertTrue(succeeded)
+        assertNull(vm.moderationError.value)
+    }
+
+    @Test
+    fun `promote failure surfaces the relay reason without the blocked prefix`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.addUserResult =
+            Result.Error(AppError.Group.SendFailed("test-group", Exception("blocked: not an admin")))
+        val vm = vm(fake)
+
+        var succeeded = false
+        vm.promoteToAdmin("target") { succeeded = true }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(succeeded)
+        assertEquals("Not an admin", vm.moderationError.value)
+    }
+
+    @Test
+    fun `remove timeout surfaces the friendly AppError message`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.removeUserResult = Result.Error(AppError.Group.SendTimeout("test-group"))
+        val vm = vm(fake)
+
+        vm.removeUser("target")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "Timed out waiting for relay confirmation (group: test-group)",
+            vm.moderationError.value,
+        )
+    }
+
+    @Test
+    fun `moderation is busy while awaiting the relay and idle after`() = runTest {
+        val fake = FakeNostrRepository()
+        val gate = CompletableDeferred<Unit>()
+        fake.addUserGate = gate
+        val vm = vm(fake)
+
+        vm.promoteToAdmin("target")
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(vm.moderationBusy.value)
+
+        gate.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.moderationBusy.value)
+    }
+
+    @Test
+    fun `a member list change clears a stale moderation error`() = runTest {
+        // Offline remove: the await times out (error shown), but the queued event is
+        // flushed on reconnect and the relay echo updates the member list. The stale
+        // error must not outlive the visible success.
+        val fake = FakeNostrRepository()
+        fake.removeUserResult = Result.Error(AppError.Group.SendTimeout("test-group"))
+        val vm = vm(fake)
+
+        vm.removeUser("target")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(
+            "Timed out waiting for relay confirmation (group: test-group)",
+            vm.moderationError.value,
+        )
+
+        fake._groupMembers.value = mapOf("test-group" to listOf("someone-else"))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.moderationError.value)
+    }
+
+    @Test
+    fun `a successful action clears the previous moderation error`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.removeUserResult = Result.Error(AppError.Group.SendTimeout("test-group"))
+        val vm = vm(fake)
+
+        vm.removeUser("target")
+        testDispatcher.scheduler.advanceUntilIdle()
+        fake.removeUserResult = Result.Success(Unit)
+        vm.removeUser("target")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.moderationError.value)
     }
 
     @Test

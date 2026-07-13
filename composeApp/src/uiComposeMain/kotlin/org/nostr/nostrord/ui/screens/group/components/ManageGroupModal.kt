@@ -463,6 +463,9 @@ private fun ManageMembersSection(
     var filter by remember { mutableStateOf("All") }
     // (member, action) whose promote/demote/remove is awaiting confirmation.
     var confirmAction by remember { mutableStateOf<Pair<MemberInfo, String>?>(null) }
+    // Gate Confirm while a kind:9000/9001 awaits its OK so a slow relay can't
+    // collect a second, duplicate action.
+    val moderationBusy by vm.moderationBusy.collectAsState()
 
     val adminSet = admins[groupId].orEmpty().toSet()
     val memberInfos =
@@ -551,6 +554,7 @@ private fun ManageMembersSection(
             title = title,
             message = desc,
             destructive = action == "remove",
+            confirmEnabled = !moderationBusy,
             onConfirm = {
                 when (action) {
                     "promote" -> vm.promoteToAdmin(member.pubkey)

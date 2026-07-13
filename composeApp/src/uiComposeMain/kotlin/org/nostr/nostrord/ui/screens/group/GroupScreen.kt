@@ -96,6 +96,7 @@ fun GroupScreen(
     val reactionError by vm.reactionError.collectAsState()
     val joinError by vm.joinError.collectAsState()
     val moderationError by vm.moderationError.collectAsState()
+    val moderationBusy by vm.moderationBusy.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     // Cross-relay membership view. `vm.joinedGroups` is filtered by
     // _currentRelayUrl, which is null/stale during fresh-login bootstrap (kind:10009
@@ -198,6 +199,7 @@ fun GroupScreen(
     // Desktop members column visibility, toggled from the header (prototype behavior).
     var membersVisible by remember { mutableStateOf(true) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
+    var memberToChangeRole by remember { mutableStateOf<MemberInfo?>(null) }
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
@@ -727,6 +729,14 @@ fun GroupScreen(
                     memberToRemove = member
                 }
             },
+            // Pipes into the role-change confirmation dialog below.
+            onToggleAdminRole =
+            targetMember?.let { member ->
+                {
+                    selectedUserPubkey = null
+                    memberToChangeRole = member
+                }
+            },
             // Inserts a resolved @mention into the composer draft (prototype behavior).
             onMention = { pk ->
                 val meta = userMetadata[pk]
@@ -752,12 +762,48 @@ fun GroupScreen(
             message = "Remove ${member.displayName} from this group?",
             confirmLabel = "Remove",
             destructive = true,
+            confirmEnabled = !moderationBusy,
             onConfirm = {
                 vm.removeUser(member.pubkey)
                 memberToRemove = null
             },
             onDismiss = { memberToRemove = null },
         )
+    }
+
+    // Role-change confirmation dialog (same copy as the manage modal's member list).
+    memberToChangeRole?.let { member ->
+        ConfirmDialog(
+            title = if (member.isAdmin) "Remove Admin Role" else "Promote to Admin",
+            message =
+            if (member.isAdmin) {
+                "${member.displayName} will lose admin privileges."
+            } else {
+                "${member.displayName} will be able to manage members and group settings."
+            },
+            confirmLabel = if (member.isAdmin) "Demote" else "Promote",
+            confirmEnabled = !moderationBusy,
+            onConfirm = {
+                if (member.isAdmin) vm.demoteFromAdmin(member.pubkey) else vm.promoteToAdmin(member.pubkey)
+                memberToChangeRole = null
+            },
+            onDismiss = { memberToChangeRole = null },
+        )
+    }
+
+    // Moderation errors from actions launched at this level (remove / role change). The
+    // manage and invite modals render the same VM error inline, so defer to them when open.
+    if (!showMemberManagementModal && !showJoinRequestsModal && !showInviteCodesModal) {
+        moderationError?.let { error ->
+            ConfirmDialog(
+                title = "Action Failed",
+                message = error,
+                confirmLabel = "OK",
+                cancelLabel = null,
+                onConfirm = { vm.clearModerationError() },
+                onDismiss = { vm.clearModerationError() },
+            )
+        }
     }
 
     // Join requests open the unified Manage group modal on its Requests tab (parity with the
@@ -806,6 +852,7 @@ fun GroupScreen(
             selectedUserPubkey != null ||
             showMemberSheet ||
             memberToRemove != null ||
+            memberToChangeRole != null ||
             showJoinRequestsModal ||
             showInviteCodesModal ||
             inputOverlayOpen

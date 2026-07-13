@@ -122,6 +122,7 @@ fun UserProfileModal(
     iAmAdmin: Boolean = false,
     targetIsAdmin: Boolean = false,
     onRemoveFromGroup: (() -> Unit)? = null,
+    onToggleAdminRole: (() -> Unit)? = null,
     onMention: ((String) -> Unit)? = null,
     onUserClick: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -372,24 +373,28 @@ fun UserProfileModal(
                                 }
                                 ProfileActionRow(label = "Report user", icon = Icons.Default.Shield, enabled = false) {}
 
-                                if (iAmAdmin && onRemoveFromGroup != null) {
+                                if (iAmAdmin && (onToggleAdminRole != null || onRemoveFromGroup != null)) {
                                     HorizontalDivider(
                                         color = NostrordColors.Divider,
                                         thickness = 1.dp,
                                         modifier = Modifier.padding(vertical = 4.dp),
                                     )
-                                    // Role changes (kind:9000 with roles) aren't wired yet.
-                                    ProfileActionRow(
-                                        label = if (targetIsAdmin) "Demote from admin" else "Promote to admin",
-                                        icon = Icons.Default.Shield,
-                                        enabled = false,
-                                    ) {}
-                                    ProfileActionRow(
-                                        label = "Remove from group",
-                                        icon = Icons.Default.Delete,
-                                        danger = true,
-                                    ) {
-                                        onRemoveFromGroup()
+                                    if (onToggleAdminRole != null) {
+                                        ProfileActionRow(
+                                            label = if (targetIsAdmin) "Demote from admin" else "Promote to admin",
+                                            icon = Icons.Default.Shield,
+                                        ) {
+                                            onToggleAdminRole()
+                                        }
+                                    }
+                                    if (onRemoveFromGroup != null) {
+                                        ProfileActionRow(
+                                            label = "Remove from group",
+                                            icon = Icons.Default.Delete,
+                                            danger = true,
+                                        ) {
+                                            onRemoveFromGroup()
+                                        }
                                     }
                                 }
                             }

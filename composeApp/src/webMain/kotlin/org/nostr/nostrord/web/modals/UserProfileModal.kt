@@ -7,9 +7,10 @@ import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
-import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierField
 import org.nostr.nostrord.web.components.WebAvatar
@@ -68,8 +69,6 @@ val UserProfileModal =
         // with a usable signer is active AND the profile has a lightning address.
         val canSign = useStateFlow(ActiveAccountManager.session) != null
         val canZap = canSign && Nip57.resolvePayEndpoint(meta?.lud16, meta?.lud06) != null
-        val (confirmRemove, setConfirmRemove) = useState { false }
-        val (removeError, setRemoveError) = useState<String?> { null }
         val following = useStateFlow(AppModule.nostrRepository.following)
         val isFollowing = pubkey in following
         val mutedPubkeys = useStateFlow(AppModule.nostrRepository.mutedPubkeys)
@@ -78,8 +77,6 @@ val UserProfileModal =
         val (followBusy, setFollowBusy) = useState { false }
 
         useEffect(pubkey) {
-            setConfirmRemove(false)
-            setRemoveError(null)
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
             launchApp { AppModule.nostrRepository.requestContactList() }
         }
@@ -227,54 +224,12 @@ val UserProfileModal =
 
                             val groupId = props.groupId
                             if (props.iAmAdmin && groupId != null) {
-                                div { className = ClassName("info-divider profile-actions-divider") }
-                                // Role changes (kind:9000 with roles) aren't wired yet.
-                                actionRow(
-                                    Ic.Shield,
-                                    if (props.targetIsAdmin) "Demote from admin" else "Promote to admin",
-                                    disabled = true,
-                                ) {}
-                                if (confirmRemove) {
-                                    div {
-                                        className = ClassName("info-leave-confirm")
-                                        div {
-                                            className = ClassName("info-leave-text")
-                                            +"Remove "
-                                            b { +name }
-                                            +" from the group? They lose access; you can invite them again later."
-                                        }
-                                        removeError?.let { err ->
-                                            div {
-                                                className = ClassName("modal-error")
-                                                +err
-                                            }
-                                        }
-                                        div {
-                                            className = ClassName("info-leave-actions")
-                                            button {
-                                                className = ClassName("btn-danger")
-                                                onClick = {
-                                                    launchApp {
-                                                        when (val r = AppModule.nostrRepository.removeUser(groupId, pubkey)) {
-                                                            is Result.Success -> props.onClose()
-                                                            is Result.Error ->
-                                                                setRemoveError(r.error.message.ifBlank { "Failed to remove member." })
-                                                        }
-                                                    }
-                                                }
-                                                +"Remove"
-                                            }
-                                            button {
-                                                className = ClassName("btn-ghost")
-                                                onClick = { setConfirmRemove(false) }
-                                                +"Cancel"
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    actionRow(Ic.Delete, "Remove from group", danger = true) {
-                                        setConfirmRemove(true)
-                                    }
+                                GroupModerationSection {
+                                    this.groupId = groupId
+                                    this.pubkey = pubkey
+                                    this.displayName = name
+                                    this.targetIsAdmin = props.targetIsAdmin
+                                    this.onClose = props.onClose
                                 }
                             }
                         }
@@ -287,6 +242,134 @@ val UserProfileModal =
                         }
                     }
                 }
+            }
+        }
+    }
+
+private external interface GroupModerationSectionProps : Props {
+    var groupId: String
+    var pubkey: String
+    var displayName: String
+    var targetIsAdmin: Boolean
+    var onClose: () -> Unit
+}
+
+/**
+ * Admin-only moderation rows (role change + removal), routed through the shared
+ * [GroupViewModel] like the manage modal: relay rejections surface readable (the
+ * "blocked:" prefix stripped), a stale timeout error is invalidated by the
+ * kind:9000/9001 echo, and success posts the confirmation snackbar (#174).
+ */
+private val GroupModerationSection =
+    FC<GroupModerationSectionProps> { props ->
+        val vm = useViewModel(props.groupId) { GroupViewModel(AppModule.nostrRepository, props.groupId) }
+        val moderationError = useStateFlow(vm.moderationError)
+        val busy = useStateFlow(vm.moderationBusy)
+        val (confirmRemove, setConfirmRemove) = useState { false }
+        val (confirmRole, setConfirmRole) = useState { false }
+
+        // The modal can swap to another profile in place (mention tap); drop any half-open
+        // confirmation aimed at the previous user.
+        useEffect(props.pubkey) {
+            setConfirmRemove(false)
+            setConfirmRole(false)
+            vm.clearModerationError()
+        }
+
+        div { className = ClassName("info-divider profile-actions-divider") }
+        if (confirmRole) {
+            div {
+                className = ClassName("info-leave-confirm")
+                div {
+                    className = ClassName("info-leave-text")
+                    b { +props.displayName }
+                    +(
+                        if (props.targetIsAdmin) {
+                            " will lose admin privileges."
+                        } else {
+                            " will be able to manage members and group settings."
+                        }
+                        )
+                }
+                moderationError?.let { err ->
+                    div {
+                        className = ClassName("modal-error")
+                        +err
+                    }
+                }
+                div {
+                    className = ClassName("info-leave-actions")
+                    button {
+                        className = ClassName("btn-primary")
+                        disabled = busy
+                        onClick = {
+                            if (props.targetIsAdmin) {
+                                vm.demoteFromAdmin(props.pubkey) { props.onClose() }
+                            } else {
+                                vm.promoteToAdmin(props.pubkey) { props.onClose() }
+                            }
+                        }
+                        +(
+                            when {
+                                busy && props.targetIsAdmin -> "Demoting…"
+                                busy -> "Promoting…"
+                                props.targetIsAdmin -> "Demote"
+                                else -> "Promote"
+                            }
+                            )
+                    }
+                    button {
+                        className = ClassName("btn-ghost")
+                        onClick = { setConfirmRole(false) }
+                        +"Cancel"
+                    }
+                }
+            }
+        } else {
+            actionRow(
+                Ic.Shield,
+                if (props.targetIsAdmin) "Demote from admin" else "Promote to admin",
+            ) {
+                vm.clearModerationError()
+                setConfirmRemove(false)
+                setConfirmRole(true)
+            }
+        }
+        if (confirmRemove) {
+            div {
+                className = ClassName("info-leave-confirm")
+                div {
+                    className = ClassName("info-leave-text")
+                    +"Remove "
+                    b { +props.displayName }
+                    +" from the group? They lose access; you can invite them again later."
+                }
+                moderationError?.let { err ->
+                    div {
+                        className = ClassName("modal-error")
+                        +err
+                    }
+                }
+                div {
+                    className = ClassName("info-leave-actions")
+                    button {
+                        className = ClassName("btn-danger")
+                        disabled = busy
+                        onClick = { vm.removeUser(props.pubkey) { props.onClose() } }
+                        +(if (busy) "Removing…" else "Remove")
+                    }
+                    button {
+                        className = ClassName("btn-ghost")
+                        onClick = { setConfirmRemove(false) }
+                        +"Cancel"
+                    }
+                }
+            }
+        } else {
+            actionRow(Ic.Delete, "Remove from group", danger = true) {
+                vm.clearModerationError()
+                setConfirmRole(false)
+                setConfirmRemove(true)
             }
         }
     }

@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -474,55 +476,99 @@ class GroupViewModel(
     private val _moderationError = MutableStateFlow<String?>(null)
     val moderationError: StateFlow<String?> = _moderationError
 
+    /** True while a kind:9000/9001 is awaiting the relay's OK; gates the moderation buttons. */
+    private val _moderationBusy = MutableStateFlow(false)
+    val moderationBusy: StateFlow<Boolean> = _moderationBusy
+
+    // Counted, not boolean: approve-join and profile-modal actions can overlap, and the
+    // first one finishing must not un-gate the UI while another is still in flight.
+    // viewModelScope is main-confined, so plain increments are safe.
+    private var moderationInFlight = 0
+
+    private suspend fun trackModeration(block: suspend () -> Unit) {
+        moderationInFlight++
+        _moderationBusy.value = true
+        try {
+            block()
+        } finally {
+            moderationInFlight--
+            if (moderationInFlight == 0) _moderationBusy.value = false
+        }
+    }
+
+    init {
+        // A moderation event queued while offline is flushed by the connection layer after
+        // its sendAndAwaitOk already timed out, so the action can succeed with a stale
+        // timeout error still on screen. The kind:9000/9001 echo updating the member or
+        // admin list is the visible success signal; a change invalidates the error.
+        viewModelScope.launch {
+            combine(repo.groupMembers, repo.groupAdmins) { members, admins ->
+                members[groupId] to admins[groupId]
+            }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { _moderationError.value = null }
+        }
+    }
+
     fun clearModerationError() {
         _moderationError.value = null
+    }
+
+    /** Relay OK reasons come prefixed ("blocked: not an admin"); surface them readable. */
+    private fun surfaceModerationError(error: AppError) {
+        val raw = error.cause?.message?.takeIf { it.isNotBlank() } ?: error.message
+        _moderationError.value =
+            raw
+                .removePrefix("blocked: ")
+                .removePrefix("error: ")
+                .replaceFirstChar { it.uppercaseChar() }
     }
 
     fun addUser(
         targetPubkey: String,
         roles: List<String> = emptyList(),
         successMessage: String = "User added to the group",
+        onSuccess: () -> Unit = {},
     ) {
         viewModelScope.launch {
-            when (val result = repo.addUser(groupId, targetPubkey, roles)) {
-                is Result.Error -> {
-                    val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value =
-                        raw
-                            .removePrefix("blocked: ")
-                            .removePrefix("error: ")
-                            .replaceFirstChar { it.uppercaseChar() }
+            _moderationError.value = null
+            trackModeration {
+                when (val result = repo.addUser(groupId, targetPubkey, roles)) {
+                    is Result.Error -> surfaceModerationError(result.error)
+                    // A kind:9000 (add / role change) is not reliably rendered in the
+                    // timeline, so confirm the action to the admin who triggered it.
+                    is Result.Success -> {
+                        AppModule.postSystemMessage(successMessage)
+                        onSuccess()
+                    }
                 }
-                // A kind:9000 (add / role change) is not reliably rendered in the
-                // timeline, so confirm the action to the admin who triggered it.
-                is Result.Success -> AppModule.postSystemMessage(successMessage)
             }
         }
     }
 
-    fun removeUser(targetPubkey: String) {
+    fun removeUser(targetPubkey: String, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            when (val result = repo.removeUser(groupId, targetPubkey)) {
-                is Result.Error -> {
-                    val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value =
-                        raw
-                            .removePrefix("blocked: ")
-                            .removePrefix("error: ")
-                            .replaceFirstChar { it.uppercaseChar() }
+            _moderationError.value = null
+            trackModeration {
+                when (val result = repo.removeUser(groupId, targetPubkey)) {
+                    is Result.Error -> surfaceModerationError(result.error)
+                    is Result.Success -> {
+                        AppModule.postSystemMessage("User removed from the group")
+                        onSuccess()
+                    }
                 }
-                is Result.Success -> AppModule.postSystemMessage("User removed from the group")
             }
         }
     }
 
-    fun promoteToAdmin(targetPubkey: String) {
-        addUser(targetPubkey, listOf("admin"), successMessage = "User promoted to admin")
+    fun promoteToAdmin(targetPubkey: String, onSuccess: () -> Unit = {}) {
+        addUser(targetPubkey, listOf("admin"), successMessage = "User promoted to admin", onSuccess = onSuccess)
     }
 
-    fun demoteFromAdmin(targetPubkey: String) {
+    fun demoteFromAdmin(targetPubkey: String, onSuccess: () -> Unit = {}) {
         // Re-add user without admin role to demote
-        addUser(targetPubkey, emptyList(), successMessage = "Admin role removed")
+        addUser(targetPubkey, emptyList(), successMessage = "Admin role removed", onSuccess = onSuccess)
     }
 
     fun approveJoinRequest(targetPubkey: String) {
@@ -532,14 +578,7 @@ class GroupViewModel(
     fun rejectJoinRequest(joinRequestEventId: String) {
         viewModelScope.launch {
             when (val result = repo.rejectJoinRequest(groupId, joinRequestEventId)) {
-                is Result.Error -> {
-                    val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value =
-                        raw
-                            .removePrefix("blocked: ")
-                            .removePrefix("error: ")
-                            .replaceFirstChar { it.uppercaseChar() }
-                }
+                is Result.Error -> surfaceModerationError(result.error)
                 is Result.Success -> Unit
             }
         }
