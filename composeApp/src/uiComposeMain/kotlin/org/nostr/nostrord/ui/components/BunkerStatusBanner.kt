@@ -83,6 +83,7 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
         when {
             reconnecting -> "Reconnecting to your signer…"
             reason == BunkerUnreachableReason.RelaysUnreachable -> "Can't reach the bunker relays"
+            reason == BunkerUnreachableReason.PermissionDenied -> "Your signer refused to sign"
             else -> "Can't reach your signer"
         }
     val body =
@@ -90,6 +91,9 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
             reconnecting -> "Trying to restore the connection to your bunker…"
             reason == BunkerUnreachableReason.RelaysUnreachable ->
                 "Your bunker's relays didn't respond. Check your internet or VPN, then reconnect."
+            reason == BunkerUnreachableReason.PermissionDenied ->
+                "The signer rejected this app's request. Re-grant permissions in your " +
+                    "signer app, then reconnect."
             else ->
                 "Your bunker didn't respond. It may be offline, or its connection was " +
                     "removed. Reconnect to try again."

@@ -54,8 +54,15 @@ private const val AUTO_RECONNECT_MAX_MS = 60_000L
 private const val AUTO_RECONNECT_MAX_ATTEMPTS = 5
 
 // Consecutive bunker sign failures (timeouts/transport, not explicit permission
-// rejections) before background signs raise the Unreachable banner.
-private const val BUNKER_SIGN_FAILURE_BANNER_THRESHOLD = 3
+// rejections) before background signs raise the Unreachable banner. The count alone
+// is not enough: N relays re-challenging AUTH can burn through it in one burst
+// during a single hiccup, so the streak must also SPAN the window below.
+private const val BUNKER_SIGN_FAILURE_BANNER_THRESHOLD = 5
+private const val BUNKER_SIGN_FAILURE_BANNER_WINDOW_MS = 90_000L
+
+// A failure this long after the previous one starts a NEW streak: stale counts from
+// an old burst must not let a single later failure trip the threshold.
+private const val BUNKER_SIGN_FAILURE_STREAK_RESET_MS = 5 * 60_000L
 
 /**
  * Manages authentication state and signing operations.
@@ -924,10 +931,10 @@ class AuthManager(
                         // the interactive gate guards against — so raise the banner even
                         // for background signs (NIP-42 AUTH). A reading-only session has
                         // no interactive signs: without this, AUTH quietly fails and the
-                        // feed goes deaf with no cue. Never log out: an offline signer
-                        // is indistinguishable and the banner offers Reconnect/Log out.
-                        markSignerUnreachable()
-                        throw Exception("Couldn't reach your signer. Please reconnect.")
+                        // feed goes deaf with no cue. Never log out: the banner offers
+                        // Reconnect/Log out, and its copy points at the signer app.
+                        markSignerUnreachable(BunkerUnreachableReason.PermissionDenied)
+                        throw Exception("Your signer refused to sign. Check its permissions.")
                     }
                     handlePermissionDenied()
                     throw Exception("Signing permission denied. Please login again.")
@@ -979,9 +986,9 @@ class AuthManager(
             if (e is kotlinx.coroutines.CancellationException) throw e
             if (isPermissionError(e)) {
                 // Deterministic revocation — banner even for background signs (see
-                // signEvent). Never log out: an offline signer looks identical.
-                markSignerUnreachable()
-                throw Exception("Couldn't reach your signer. Please reconnect.")
+                // signEvent), with copy that points at the signer app's permissions.
+                markSignerUnreachable(BunkerUnreachableReason.PermissionDenied)
+                throw Exception("Your signer refused to sign. Check its permissions.")
             }
             noteBunkerSignFailure(interactive)
             throw e
@@ -1006,20 +1013,35 @@ class AuthManager(
      * re-challenges hit transient hiccups all the time (the banner-flicker guard) —
      * but a signer that keeps not answering while nothing succeeds is revoked or
      * offline, and a reading-only session never signs interactively to find out:
-     * AUTH quietly fails and auth-gated relays withhold events with no cue. After
-     * [BUNKER_SIGN_FAILURE_BANNER_THRESHOLD] consecutive failures the banner is
-     * raised. An interactive failure raises it immediately — the user just watched
-     * the action fail, and the banner carries the recovery path (Reconnect).
+     * AUTH quietly fails and auth-gated relays withhold events with no cue. The
+     * banner is raised only when [BUNKER_SIGN_FAILURE_BANNER_THRESHOLD] consecutive
+     * failures ALSO span [BUNKER_SIGN_FAILURE_BANNER_WINDOW_MS] — a multi-relay AUTH
+     * burst reaches the count in seconds during one hiccup and must not trip it. An
+     * interactive failure raises it immediately: the user just watched the action
+     * fail, and the banner carries the recovery path (Reconnect).
      */
     private var consecutiveBunkerSignFailures = 0
+    private var bunkerSignFailStreakStartMs = 0L
+    private var bunkerSignLastFailureAtMs = 0L
 
     private fun noteBunkerSignSuccess() {
         consecutiveBunkerSignFailures = 0
+        bunkerSignFailStreakStartMs = 0L
     }
 
     private fun noteBunkerSignFailure(interactive: Boolean) {
+        // A signer that answered with an auth_url is alive and waiting on the USER
+        // (approval screen); failures racked up during that wait prove nothing.
+        if (_authUrl.value != null) return
+        val now = epochMillis()
+        if (consecutiveBunkerSignFailures == 0 || now - bunkerSignLastFailureAtMs > BUNKER_SIGN_FAILURE_STREAK_RESET_MS) {
+            consecutiveBunkerSignFailures = 0
+            bunkerSignFailStreakStartMs = now
+        }
+        bunkerSignLastFailureAtMs = now
         consecutiveBunkerSignFailures++
-        if (interactive || consecutiveBunkerSignFailures >= BUNKER_SIGN_FAILURE_BANNER_THRESHOLD) {
+        val streakSpansWindow = now - bunkerSignFailStreakStartMs >= BUNKER_SIGN_FAILURE_BANNER_WINDOW_MS
+        if (interactive || (consecutiveBunkerSignFailures >= BUNKER_SIGN_FAILURE_BANNER_THRESHOLD && streakSpansWindow)) {
             markSignerUnreachable()
         }
     }
