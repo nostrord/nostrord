@@ -17,11 +17,11 @@ import kotlin.random.Random
  * - Transparently transitions from fast retries to a 30 s slow-retry loop
  * - Stops retrying when the user removes a relay from their list
  *
- * All coroutines run on [scope]; cancelling scope (e.g. on logout) automatically
- * cancels all pending retries. New retries can be scheduled on the same scope
- * after it is restored via [CoroutineScope.cancelChildren].
+ * All coroutines run on [scope] (the ConnectionManager's connectionWorkScope);
+ * clearAll() on logout cancels its children, dropping all pending retries. New
+ * retries can be scheduled on the same scope afterwards.
  *
- * @param scope         Coroutine scope shared with the owning repository.
+ * @param scope         The connection-work scope owned by ConnectionManager.
  * @param isRelayActive Returns true if [relayUrl] should still be retried (e.g. still
  *                      in the user's saved relay list).
  * @param doReconnect   Performs one connection attempt; returns true on success.

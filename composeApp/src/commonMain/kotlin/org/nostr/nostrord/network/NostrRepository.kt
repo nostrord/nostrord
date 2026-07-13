@@ -363,8 +363,10 @@ class NostrRepository(
     // relays in connectedPoolRelays are scheduled for reconnection. Resubscribing is NOT
     // done here: getOrConnectRelay fires onRelayConnected for whichever caller lands the
     // socket (this scheduler included), and that hook re-arms the subs exactly once.
+    // On connectionWorkScope (not the shared app scope): clearAll() on logout cancels
+    // pending retries without touching unrelated app-wide collectors.
     private val relayReconnectScheduler = RelayReconnectScheduler(
-        scope = scope,
+        scope = connectionManager.connectionWorkScope,
         isRelayActive = { relayUrl -> relayUrl in connectedPoolRelays },
         doReconnect = { relayUrl ->
             connectionManager.getOrConnectRelay(relayUrl) { msg, c ->

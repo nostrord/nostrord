@@ -2,6 +2,7 @@ package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,17 @@ class ConnectionManager(
     private val connStats: ConnectionStats? = null,
     private val adaptiveConfig: AdaptiveConfig? = null,
 ) {
+    /**
+     * Owned child of [scope] for cancellable connection work: in-flight connects,
+     * lost-socket handling, send fan-outs, and the reconnect scheduler's retries.
+     * [clearAll] cancels ONLY this scope's children. It used to cancelChildren() on
+     * the SHARED app scope, which killed every collector in the app on logout (DM
+     * inbox lifecycle, mux refresh timers, eager stateIn derivations), so a re-login
+     * came up without its plumbing until a process restart.
+     */
+    val connectionWorkScope: CoroutineScope =
+        CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+
     private var currentMessageHandler: ((String, NostrGroupClient) -> Unit)? = null
 
     // Serialises connectFocused so two coroutines cannot both pass the "already connecting"
@@ -190,7 +202,7 @@ class ConnectionManager(
         val success = connectFocused(url, handler)
         if (success) {
             adaptiveConfig?.recordReconnect()
-            focusedClient()?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+            focusedClient()?.let { client -> connectionWorkScope.launch { onReconnected?.invoke(client) } }
         } else {
             // Hand off to the same backoff driver a passive drop would use (see
             // [handleClientLost]) instead of retrying in a loop of our own.
@@ -337,7 +349,7 @@ class ConnectionManager(
      */
     private fun wireConnectionLost(client: NostrGroupClient, url: String) {
         client.onConnectionLost = {
-            scope.launch { handleClientLost(client, url) }
+            connectionWorkScope.launch { handleClientLost(client, url) }
         }
     }
 
@@ -400,7 +412,7 @@ class ConnectionManager(
         if (_currentRelayUrl.value != client.getRelayUrl().normalizeRelayUrl()) return
         _connectionState.value = ConnectionState.Connected
         adaptiveConfig?.recordReconnect()
-        scope.launch { onReconnected?.invoke(client) }
+        connectionWorkScope.launch { onReconnected?.invoke(client) }
     }
 
     /**
@@ -632,7 +644,7 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit,
     ) {
         relayUrls.forEach { relayUrl ->
-            scope.launch {
+            connectionWorkScope.launch {
                 try {
                     val client = getOrConnectRelay(relayUrl, onMessage)
                     client?.send(message)
@@ -651,7 +663,7 @@ class ConnectionManager(
         timeoutMs: Long = 2000,
     ) {
         relayUrls.map { relayUrl ->
-            scope.launch {
+            connectionWorkScope.launch {
                 try {
                     getOrConnectRelay(relayUrl, onMessage)
                 } catch (_: Exception) {
@@ -699,7 +711,9 @@ class ConnectionManager(
         // discovery/DM/metadata job on a surviving scope can't reconnect a relay
         // right after we drain the pool. resumeConnections() re-opens on login.
         acceptingConnections = false
-        scope.coroutineContext.cancelChildren()
+        // Cancel only the connection work (in-flight connects, reconnect retries) —
+        // never the shared app scope's children (see connectionWorkScope).
+        connectionWorkScope.coroutineContext.cancelChildren()
         disconnectFocused()
 
         // Get clients to disconnect while holding lock, then disconnect outside lock
@@ -713,7 +727,7 @@ class ConnectionManager(
         // onConnectionLost first, same hazard as every other intentional-disconnect site.
         clientsToDisconnect
             .map { client ->
-                scope.launch {
+                connectionWorkScope.launch {
                     try {
                         client.onConnectionLost = null
                         client.disconnect()
