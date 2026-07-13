@@ -8,6 +8,9 @@ enum class BunkerUnreachableReason {
     /** Relays connected but the signer never answered (offline or connection revoked). */
     SignerNotResponding,
 
+    /** The signer answered but explicitly refused to sign (permission revoked in the signer app). */
+    PermissionDenied,
+
     /** Cause couldn't be determined (e.g. corrupt saved credentials). */
     Unknown,
 }
