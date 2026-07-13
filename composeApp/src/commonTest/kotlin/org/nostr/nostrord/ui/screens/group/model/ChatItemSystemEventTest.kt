@@ -50,6 +50,64 @@ class ChatItemSystemEventTest {
     }
 
     @Test
+    fun duplicateRemoval_ofSameUser_isNotCountedTwice() {
+        // An offline-queued 9001 flushed on reconnect can land beside a fresh one for
+        // the same user; the merged row must not read "2 members".
+        val events = systemEvents(
+            listOf(
+                msg(9001, createdAt = 1000, tags = listOf(listOf("p", "bob"))),
+                msg(9001, createdAt = 1010, tags = listOf(listOf("p", "bob"))),
+            ),
+        )
+        assertEquals(1, events.size)
+        assertTrue(events[0].additionalUsers.isEmpty())
+        assertEquals("bob", events[0].pubkey)
+    }
+
+    @Test
+    fun removalsOfDifferentUsers_renderSeparateRows() {
+        // Moderation is an audit trail: each removal names its target, never "2 members".
+        val events = systemEvents(
+            listOf(
+                msg(9001, createdAt = 1000, tags = listOf(listOf("p", "bob"))),
+                msg(9001, createdAt = 1010, tags = listOf(listOf("p", "carol"))),
+            ),
+        )
+        assertEquals(2, events.size)
+        assertEquals("bob", events[0].pubkey)
+        assertEquals("carol", events[1].pubkey)
+        assertTrue(events.all { it.additionalUsers.isEmpty() })
+    }
+
+    @Test
+    fun joinsOfDifferentUsers_stillMergeIntoOneRow() {
+        val events = systemEvents(
+            listOf(
+                msg(9021, pubkey = "bob", createdAt = 1000),
+                msg(9021, pubkey = "carol", createdAt = 1010),
+            ),
+        )
+        assertEquals(1, events.size)
+        assertEquals(listOf("carol"), events[0].additionalUsers)
+    }
+
+    @Test
+    fun pluralizeSystemAction_agreesWithMembersSubject() {
+        assertEquals(
+            "were removed from the group",
+            org.nostr.nostrord.ui.screens.group.pluralizeSystemAction("was removed from the group"),
+        )
+        assertEquals(
+            "are now admin",
+            org.nostr.nostrord.ui.screens.group.pluralizeSystemAction("is now admin"),
+        )
+        assertEquals(
+            "joined the group",
+            org.nostr.nostrord.ui.screens.group.pluralizeSystemAction("joined the group"),
+        )
+    }
+
+    @Test
     fun putUser_withoutRole_isSuppressed() {
         // A no-role 9000 is ambiguous (plain add vs. role removal) and the relay does
         // not serve it back reliably, so it is never displayed (issue #66).

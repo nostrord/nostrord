@@ -24,3 +24,12 @@ fun clampSystemEventsToLoadedWindow(
     val oldestMessageTs = sorted.filter { it.kind == 9 }.minOfOrNull { it.createdAt } ?: return sorted
     return sorted.filter { it.kind == 9 || it.createdAt >= oldestMessageTs }
 }
+
+/**
+ * Subject-verb agreement for a merged system row: the action strings are written for a
+ * single subject ("was removed", "is now admin") but a multi-user merge renders "N members"
+ * as the subject.
+ */
+fun pluralizeSystemAction(action: String): String = action
+    .replaceFirst("was ", "were ")
+    .replaceFirst("is now", "are now")
