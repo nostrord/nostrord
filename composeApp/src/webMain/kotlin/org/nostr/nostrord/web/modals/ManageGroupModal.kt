@@ -6,12 +6,14 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
+import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.shortNpub
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.GroupAvatarUploadRow
 import org.nostr.nostrord.web.components.Ic
@@ -354,6 +356,11 @@ private external interface ManageGroupIdProps : Props {
 private val ManageMembersSection =
     FC<ManageGroupIdProps> { props ->
         val repo = AppModule.nostrRepository
+        // Same shared VM as the native manage modal: moderation actions surface relay
+        // rejections/timeouts in moderationError instead of failing silently (#174).
+        val vm = useViewModel(props.groupId) { GroupViewModel(repo, props.groupId) }
+        val moderationError = useStateFlow(vm.moderationError)
+        val moderationBusy = useStateFlow(vm.moderationBusy)
         val members = useStateFlow(repo.groupMembers)[props.groupId].orEmpty()
         val admins = useStateFlow(repo.groupAdmins)[props.groupId].orEmpty().toSet()
         val userMetadata = useStateFlow(repo.userMetadata)
@@ -404,6 +411,12 @@ private val ManageMembersSection =
             tabItem(tab == "All", null, "All · ${members.size}") { setTab("All") }
             tabItem(tab == "Admins", null, "Admins · $adminCount") { setTab("Admins") }
             tabItem(tab == "Members", null, "Members · $memberCount") { setTab("Members") }
+        }
+        moderationError?.let { err ->
+            div {
+                className = ClassName("modal-error")
+                +err
+            }
         }
         div {
             className = ClassName("mod-list member-list")
@@ -469,8 +482,11 @@ private val ManageMembersSection =
                                 }
                                 div {
                                     className = ClassName("mod-menu")
+                                    // Gated while a kind:9000/9001 awaits its OK so a slow relay
+                                    // can't collect a second, duplicate action.
                                     button {
                                         className = ClassName("mod-menu-item")
+                                        disabled = moderationBusy
                                         onClick = {
                                             setOpenMenu(null)
                                             setConfirmAction(pubkey to if (isAdmin) "demote" else "promote")
@@ -480,6 +496,7 @@ private val ManageMembersSection =
                                     }
                                     button {
                                         className = ClassName("mod-menu-item danger")
+                                        disabled = moderationBusy
                                         onClick = {
                                             setOpenMenu(null)
                                             setConfirmAction(pubkey to "remove")
@@ -516,12 +533,10 @@ private val ManageMembersSection =
                 onCancel = { setConfirmAction(null) },
                 onConfirm = {
                     setConfirmAction(null)
-                    launchApp {
-                        when (action) {
-                            "promote" -> repo.addUser(props.groupId, pubkey, listOf("admin"))
-                            "demote" -> repo.addUser(props.groupId, pubkey, emptyList())
-                            else -> repo.removeUser(props.groupId, pubkey)
-                        }
+                    when (action) {
+                        "promote" -> vm.promoteToAdmin(pubkey)
+                        "demote" -> vm.demoteFromAdmin(pubkey)
+                        else -> vm.removeUser(pubkey)
                     }
                 },
             )

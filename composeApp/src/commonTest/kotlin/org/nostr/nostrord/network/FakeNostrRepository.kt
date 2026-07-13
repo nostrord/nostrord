@@ -1,5 +1,6 @@
 package org.nostr.nostrord.network
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -526,16 +527,28 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun setActiveGroup(groupId: String?) {}
 
+    var addUserResult: Result<Unit> = Result.Success(Unit)
+    var addUserCalls = mutableListOf<Triple<String, String, List<String>>>()
+
+    /** When set, addUser suspends until completed — lets tests observe in-flight state. */
+    var addUserGate: CompletableDeferred<Unit>? = null
+
     override suspend fun addUser(
         groupId: String,
         targetPubkey: String,
         roles: List<String>,
-    ): Result<Unit> = Result.Success(Unit)
+    ): Result<Unit> {
+        addUserCalls.add(Triple(groupId, targetPubkey, roles))
+        addUserGate?.await()
+        return addUserResult
+    }
+
+    var removeUserResult: Result<Unit> = Result.Success(Unit)
 
     override suspend fun removeUser(
         groupId: String,
         targetPubkey: String,
-    ): Result<Unit> = Result.Success(Unit)
+    ): Result<Unit> = removeUserResult
 
     override suspend fun rejectJoinRequest(
         groupId: String,

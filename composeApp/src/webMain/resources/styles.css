@@ -8648,6 +8648,15 @@ body {
     background: var(--color-hover);
 }
 
+.mod-menu-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.mod-menu-item:disabled:hover {
+    background: transparent;
+}
+
 .mod-menu-item svg {
     width: 18px;
     height: 18px;
