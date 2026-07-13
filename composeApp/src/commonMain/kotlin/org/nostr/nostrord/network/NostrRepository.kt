@@ -1677,7 +1677,7 @@ class NostrRepository(
 
         // Hydrate from the CacheStore before the inbox streams so old conversations render instantly
         // and already-seen gift wraps are never re-decrypted.
-        hydrateDmCache(myPub)
+        val hydratedCount = hydrateDmCache(myPub)
         wireDmPersistence(myPub)
         // Resume any wraps that never reached a relay before the app last closed.
         resumeDmSendQueue(myPub)
@@ -1689,6 +1689,19 @@ class NostrRepository(
         dmFailCounts = emptyMap()
         dmGivenUpWrapIds = emptySet()
         dmInboxEosedRelays = emptySet()
+
+        // Consistency guard: decrypt progress claims processed wraps, but the message store
+        // came back empty (wiped/lost store, or a failed cache read — hydrateDmCache swallows
+        // it). Trusting the progress here is fatal: the full-sync flag keeps the REQ
+        // incremental so the history is never re-requested, and any re-delivered wrap is
+        // skipped by the dedup — the inbox looks synced and stays empty until the user
+        // manually wipes storage. Drop the sync state so the REQ below streams from 0 and
+        // rebuilds the two stores together.
+        if (hydratedCount == 0 && dmProcessedWrapIds.isNotEmpty()) {
+            dmProcessedWrapIds = emptySet()
+            SecureStorage.saveDmProcessedWrapIds(myPub, emptySet())
+            SecureStorage.saveBooleanPref(dmFullSyncKey(myPub), false)
+        }
 
         _myDmRelays.value = dmRelaysFor(myPub)
         fetchDmRelays(myPub)
@@ -1727,6 +1740,26 @@ class NostrRepository(
                         resendDmInboxReq(pub)
                     }
                 }
+            }
+
+        // A signer outage (revoked permission, offline bunker) burns every backlog wrap's
+        // decrypt attempts into the given-up set, which parks those DMs until an app
+        // restart. When the bunker comes back (banner Reconnect, auto-reconnect), give
+        // them a fresh run: the persisted dedup keeps already-decrypted wraps cheap, so
+        // re-streaming only re-attempts what's actually missing.
+        dmPersistenceJobs +=
+            scope.launch {
+                sessionManager.bunkerState
+                    .map { it is BunkerState.Connected }
+                    .distinctUntilChanged()
+                    .drop(1)
+                    .collect { connected ->
+                        if (!connected) return@collect
+                        if (dmGivenUpWrapIds.isEmpty() && dmFailCounts.isEmpty()) return@collect
+                        dmGivenUpWrapIds = emptySet()
+                        dmFailCounts = emptyMap()
+                        sessionManager.getPublicKey()?.let { resendDmInboxReq(it) }
+                    }
             }
     }
 
@@ -1801,7 +1834,8 @@ class NostrRepository(
      * DMs are stored in the message cache as kind:14 keyed by peer pubkey, so one query rebuilds
      * every conversation without knowing the peers up front.
      */
-    private suspend fun hydrateDmCache(myPub: String) {
+    /** Returns how many cached DMs were hydrated, so the caller can sanity-check sync state. */
+    private suspend fun hydrateDmCache(myPub: String): Int {
         if (!SecureStorage.isDmCacheMigratedFor(myPub)) {
             val legacy = SecureStorage.loadDmMessages(myPub)
             val migrated =
@@ -1837,6 +1871,7 @@ class NostrRepository(
             SecureStorage.loadDmSeenRelays(myPub),
             SecureStorage.loadDmWrapRumor(myPub),
         )
+        return cached.size
     }
 
     /** Persist decrypted messages + read state whenever they change (one collector per session). */
