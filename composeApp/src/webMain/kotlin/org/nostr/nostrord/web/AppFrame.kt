@@ -26,6 +26,7 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
+import org.nostr.nostrord.web.components.BunkerStatusBanner
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
@@ -260,6 +261,9 @@ val AppFrame =
 
         div {
             className = ClassName(if (drawerOpen) "app-frame drawer-open" else "app-frame")
+            // Floating signer-health warning (position: fixed, top-center): visible on
+            // every logged-in page when the bunker is Unreachable/Reconnecting.
+            BunkerStatusBanner {}
             // Always mounted so it can fade in/out with the drawer slide (CSS toggles it via
             // .drawer-open); conditionally rendering it would pop instantly and feel abrupt.
             div {
