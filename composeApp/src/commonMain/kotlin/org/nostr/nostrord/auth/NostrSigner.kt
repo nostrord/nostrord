@@ -118,6 +118,9 @@ interface NostrSigner {
                 val signedJson = nip46Client.signEvent(event.toJsonString())
                 parseSignedEventJson(signedJson)
             } catch (e: Exception) {
+                // A cancelled sign (scope teardown, account switch) must propagate as
+                // cancellation, not read as a signer failure to callers that count them.
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 if (e is SigningException) throw e
                 throw SigningException("Bunker signing failed: ${e.message}", e)
             }

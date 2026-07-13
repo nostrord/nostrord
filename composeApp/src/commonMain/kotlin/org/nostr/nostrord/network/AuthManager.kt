@@ -53,6 +53,10 @@ private const val AUTO_RECONNECT_BASE_MS = 3_000L
 private const val AUTO_RECONNECT_MAX_MS = 60_000L
 private const val AUTO_RECONNECT_MAX_ATTEMPTS = 5
 
+// Consecutive bunker sign failures (timeouts/transport, not explicit permission
+// rejections) before background signs raise the Unreachable banner.
+private const val BUNKER_SIGN_FAILURE_BANNER_THRESHOLD = 3
+
 /**
  * Manages authentication state and signing operations.
  *
@@ -909,22 +913,26 @@ class AuthManager(
         val sessionSigner = ActiveAccountManager.session.value?.signer
         if (sessionSigner != null) {
             return try {
-                sessionSigner.signEvent(event)
+                sessionSigner.signEvent(event).also {
+                    if (sessionSigner is NostrSigner.Bunker) noteBunkerSignSuccess()
+                }
             } catch (e: NostrSigner.SigningException) {
                 if (isPermissionError(e)) {
                     if (sessionSigner is NostrSigner.Bunker) {
-                        // Can't tell an offline signer from a deleted connection
-                        // apart — surface a reconnectable error, never log out.
-                        // Only a user-initiated sign raises the banner: background
-                        // NIP-42 AUTH (kind 22242) signs pass interactive=false, so a
-                        // transient relay/AUTH hiccup never flips the UI to "can't
-                        // reach your signer". (banner-flicker fix)
-                        if (interactive) markSignerUnreachable()
+                        // An explicit permission rejection is deterministic evidence the
+                        // signer revoked this connection — not the transient relay hiccup
+                        // the interactive gate guards against — so raise the banner even
+                        // for background signs (NIP-42 AUTH). A reading-only session has
+                        // no interactive signs: without this, AUTH quietly fails and the
+                        // feed goes deaf with no cue. Never log out: an offline signer
+                        // is indistinguishable and the banner offers Reconnect/Log out.
+                        markSignerUnreachable()
                         throw Exception("Couldn't reach your signer. Please reconnect.")
                     }
                     handlePermissionDenied()
                     throw Exception("Signing permission denied. Please login again.")
                 }
+                if (sessionSigner is NostrSigner.Bunker) noteBunkerSignFailure(interactive)
                 throw e
             }
         }
@@ -965,14 +973,17 @@ class AuthManager(
         try {
             val eventJson = event.toJsonString()
             val signedEventJson = bunker.signEvent(eventJson)
+            noteBunkerSignSuccess()
             return parseSignedEvent(signedEventJson)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             if (isPermissionError(e)) {
-                // Can't tell an offline signer from a deleted connection apart —
-                // surface a reconnectable error, never log out (issue #85).
-                if (interactive) markSignerUnreachable()
+                // Deterministic revocation — banner even for background signs (see
+                // signEvent). Never log out: an offline signer looks identical.
+                markSignerUnreachable()
                 throw Exception("Couldn't reach your signer. Please reconnect.")
             }
+            noteBunkerSignFailure(interactive)
             throw e
         }
     }
@@ -990,6 +1001,30 @@ class AuthManager(
     }
 
     /**
+     * Bunker sign failures that are NOT explicit permission rejections (timeouts,
+     * transport errors). One background failure is no evidence — NIP-42 AUTH
+     * re-challenges hit transient hiccups all the time (the banner-flicker guard) —
+     * but a signer that keeps not answering while nothing succeeds is revoked or
+     * offline, and a reading-only session never signs interactively to find out:
+     * AUTH quietly fails and auth-gated relays withhold events with no cue. After
+     * [BUNKER_SIGN_FAILURE_BANNER_THRESHOLD] consecutive failures the banner is
+     * raised. An interactive failure raises it immediately — the user just watched
+     * the action fail, and the banner carries the recovery path (Reconnect).
+     */
+    private var consecutiveBunkerSignFailures = 0
+
+    private fun noteBunkerSignSuccess() {
+        consecutiveBunkerSignFailures = 0
+    }
+
+    private fun noteBunkerSignFailure(interactive: Boolean) {
+        consecutiveBunkerSignFailures++
+        if (interactive || consecutiveBunkerSignFailures >= BUNKER_SIGN_FAILURE_BANNER_THRESHOLD) {
+            markSignerUnreachable()
+        }
+    }
+
+    /**
      * The bunker signer can't be reached or refused a request. The app cannot
      * tell "signer offline" from "connection deleted on the signer" apart — both
      * surface as a timeout or an error — so this NEVER logs the user out or wipes
@@ -1000,6 +1035,9 @@ class AuthManager(
     private fun markSignerUnreachable(
         reason: BunkerUnreachableReason = BunkerUnreachableReason.SignerNotResponding,
     ) {
+        // Fresh window after a reconnect: a still-broken signer re-trips the
+        // threshold instead of instantly re-raising the banner on its first miss.
+        consecutiveBunkerSignFailures = 0
         nip46Client?.disconnect()
         nip46Client = null
         _isBunkerVerifying.value = false
