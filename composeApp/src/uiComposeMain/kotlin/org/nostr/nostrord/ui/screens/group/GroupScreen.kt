@@ -688,6 +688,31 @@ fun GroupScreen(
         )
     }
 
+    // Accept/decline prompt for an external add (an admin's kind:9000). The group stays
+    // readable as a preview while undecided; backdrop/Esc = decide later (the prompt
+    // returns on the next open). Accept adopts it into the joined list; Decline leaves.
+    val pendingInvite by vm.pendingInvite.collectAsState()
+    var invitePromptDismissed by remember(groupId) { mutableStateOf(false) }
+    if (!invitePromptDismissed) {
+        pendingInvite?.let { invite ->
+            val actorLabel =
+                invite.actorPubkey?.let { pk ->
+                    userMetadata[pk]?.displayName?.takeIf { it.isNotBlank() }
+                        ?: userMetadata[pk]?.name?.takeIf { it.isNotBlank() }
+                        ?: (pk.take(8) + "…")
+                } ?: "An admin"
+            ConfirmDialog(
+                title = "Group Invitation",
+                message = "$actorLabel added you to this group. Accept to add it to your groups, or decline to leave.",
+                confirmLabel = "Accept",
+                cancelLabel = "Decline",
+                onConfirm = { vm.acceptInvite() },
+                onCancel = { vm.declineInvite { onNavigateHome() } },
+                onDismiss = { invitePromptDismissed = true },
+            )
+        }
+    }
+
     // Join error dialog (relay rejected the kind:9021 join request)
     joinError?.let { error ->
         ConfirmDialog(

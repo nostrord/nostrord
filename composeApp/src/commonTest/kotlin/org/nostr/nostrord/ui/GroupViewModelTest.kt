@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.nostr.nostrord.network.FakeNostrRepository
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.deriveMembershipStatus
@@ -159,6 +160,64 @@ class GroupViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(vm.moderationError.value)
+    }
+
+    // -------------------------------------------------------------------------
+    // Pending external add (admin kind:9000) accept / decline
+    // -------------------------------------------------------------------------
+
+    private fun invite(groupId: String) = PendingGroupInvite(
+        groupId = groupId,
+        relayUrl = "wss://relay",
+        actorPubkey = "admin-pk",
+        eventId = "ev1",
+        createdAtSeconds = 100L,
+    )
+
+    @Test
+    fun `pendingInvite surfaces only this group's invite`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.pendingGroupInvitesFlow.value = mapOf(
+            "test-group" to invite("test-group"),
+            "other" to invite("other"),
+        )
+        val vm = vm(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("test-group", vm.pendingInvite.value?.groupId)
+        assertEquals("admin-pk", vm.pendingInvite.value?.actorPubkey)
+    }
+
+    @Test
+    fun `acceptInvite delegates to the repo and the prompt clears`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.pendingGroupInvitesFlow.value = mapOf("test-group" to invite("test-group"))
+        val vm = vm(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.acceptInvite()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("test-group"), fake.acceptedInvites)
+        assertEquals(null, vm.pendingInvite.value)
+    }
+
+    @Test
+    fun `declineInvite leaves the group and then reports done`() = runTest {
+        val fake = FakeNostrRepository()
+        val left = mutableListOf<String>()
+        fake.leaveGroupAction = { groupId, _ ->
+            left += groupId
+            org.nostr.nostrord.utils.Result.Success(Unit)
+        }
+        val vm = vm(fake)
+        var done = false
+
+        vm.declineInvite { done = true }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("test-group"), left)
+        assertTrue(done)
     }
 
     @Test

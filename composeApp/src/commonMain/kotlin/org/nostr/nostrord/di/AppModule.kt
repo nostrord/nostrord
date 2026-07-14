@@ -254,22 +254,24 @@ object AppModule {
             },
         ).also { gm ->
             // Feed + popup for "an admin added you to a group" (kind:9000, live or catch-up).
+            // Fires when the add lands as a PENDING invite; the group itself is only adopted
+            // when the user accepts it from the group screen.
             appScope.launch {
-                gm.externalMembershipAdopted.collect { add -> onExternalGroupAdd(add) }
+                gm.externalAddPending.collect { add -> onExternalGroupAdd(add) }
             }
         }
     }
 
     /**
      * Notify an externally granted membership. Only the kind:9000 path carries an actor;
-     * 39002-inferred adoptions (the user opened the group link and is looking at it) stay
+     * 39002-inferred invites (the user opened the group link and is looking at it) stay
      * silent. Catch-up adds (offline at put time) enter the feed but skip sound/popup via
      * [isRealtime], like every other notification type.
      */
     private suspend fun onExternalGroupAdd(add: GroupManager.ExternalGroupAdd) {
         val actor = add.actorPubkey ?: return
         if (actor == sessionManager.getPublicKey()) return
-        // Give the adoption's mux refresh a moment to land the kind:39000 so the entry
+        // Give the repo's preview fetch a moment to land the kind:39000 so the entry
         // snapshots a real group name instead of a truncated id.
         kotlinx.coroutines.withTimeoutOrNull(3_000) {
             groupManager.groupsByRelay.first { byRelay ->
