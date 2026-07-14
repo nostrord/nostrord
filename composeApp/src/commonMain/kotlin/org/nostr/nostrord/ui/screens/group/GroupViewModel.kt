@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -24,6 +25,7 @@ import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -49,17 +51,16 @@ data class FriendCandidate(
 fun buildFriendCandidates(
     following: Set<String>,
     metadata: Map<String, UserMetadata>,
-): List<FriendCandidate> =
-    following
-        .map { pk ->
-            val meta = metadata[pk]
-            FriendCandidate(
-                pubkey = pk,
-                name = meta?.displayName?.takeIf { it.isNotBlank() }
-                    ?: meta?.name?.takeIf { it.isNotBlank() },
-                picture = meta?.picture,
-            )
-        }.sortedWith(compareBy({ it.name == null }, { it.name?.lowercase() ?: it.pubkey }))
+): List<FriendCandidate> = following
+    .map { pk ->
+        val meta = metadata[pk]
+        FriendCandidate(
+            pubkey = pk,
+            name = meta?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta?.name?.takeIf { it.isNotBlank() },
+            picture = meta?.picture,
+        )
+    }.sortedWith(compareBy({ it.name == null }, { it.name?.lowercase() ?: it.pubkey }))
 
 /** Case-insensitive name / hex-prefix filter; a blank query returns everything. */
 fun filterFriendCandidates(
@@ -445,6 +446,28 @@ class GroupViewModel(
         viewModelScope.launch {
             repo.leaveGroup(groupId)
             onSuccess()
+        }
+    }
+
+    /**
+     * This group's pending external add (an admin's kind:9000 awaiting accept/decline),
+     * if any. Both UIs prompt on it: [acceptInvite] adopts the group into the joined set
+     * + kind:10009; declining routes through [leaveGroup] (kind:9022 + durable left marker).
+     */
+    val pendingInvite: StateFlow<PendingGroupInvite?> =
+        repo.pendingGroupInvites
+            .map { it[groupId] }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, repo.pendingGroupInvites.value[groupId])
+
+    fun acceptInvite() {
+        viewModelScope.launch { repo.acceptGroupInvite(groupId) }
+    }
+
+    /** Decline a pending external add: leave relay-side (kind:9022), which drops the invite. */
+    fun declineInvite(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repo.leaveGroup(groupId)
+            onDone()
         }
     }
 

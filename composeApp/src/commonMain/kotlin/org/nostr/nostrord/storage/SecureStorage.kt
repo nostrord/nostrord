@@ -6,6 +6,7 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.toHexString
 
@@ -794,6 +795,28 @@ fun SecureStorage.addLeftGroupForRelay(
     try {
         saveStringPref(key, Json.encodeToString<Map<String, Long>>(current))
     } catch (_: Exception) {
+    }
+}
+
+// ── Pending group invites ────────────────────────────────────────────────────
+// External adds (an admin's kind:9000) the user hasn't accepted or declined yet. One JSON
+// slot per account; entries are dropped on accept/decline/join/leave.
+private fun pendingGroupInvitesKey(pubkey: String) = "pending_group_invites_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.savePendingGroupInvitesFor(
+    pubkey: String,
+    invites: List<PendingGroupInvite>,
+) {
+    saveStringPref(pendingGroupInvitesKey(pubkey), Json.encodeToString(invites))
+}
+
+fun SecureStorage.getPendingGroupInvitesFor(pubkey: String): List<PendingGroupInvite> {
+    val raw = getStringPref(pendingGroupInvitesKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyList()
     }
 }
 

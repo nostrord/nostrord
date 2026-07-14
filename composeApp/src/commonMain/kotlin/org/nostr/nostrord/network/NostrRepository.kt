@@ -48,6 +48,7 @@ import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.PendingDmWrap
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.RelayReconnectScheduler
 import org.nostr.nostrord.network.managers.SessionManager
@@ -419,6 +420,11 @@ class NostrRepository(
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
     override val restrictedGroups: StateFlow<Map<String, String>> = groupManager.restrictedGroups
     override val leftGroups: StateFlow<Set<String>> = groupManager.leftGroups
+    override val pendingGroupInvites: StateFlow<Map<String, PendingGroupInvite>> = groupManager.pendingGroupInvites
+
+    override suspend fun acceptGroupInvite(groupId: String) {
+        groupManager.acceptPendingInvite(groupId)
+    }
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -889,12 +895,24 @@ class NostrRepository(
             }
         }
 
-        // Membership granted by an admin's kind:9000 (no join request of ours): GroupManager
+        // Membership granted by an admin's kind:9000 and ACCEPTED by the user: GroupManager
         // adopted it into the joined set; mirror it into our kind:10009 so it survives
         // restarts and reaches the account's other devices.
         scope.launch {
             groupManager.externalMembershipAdopted.collect {
                 publishJoinedGroupsList()
+            }
+        }
+
+        // A pending external add is in no group list yet; pull its kind:39000 so the
+        // invite notification and the accept/decline prompt show the group's real name.
+        scope.launch {
+            groupManager.externalAddPending.collect { add ->
+                try {
+                    fetchGroupPreview(add.groupId, add.relayUrl)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
             }
         }
 

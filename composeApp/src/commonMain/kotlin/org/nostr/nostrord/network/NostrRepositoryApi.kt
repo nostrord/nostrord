@@ -7,6 +7,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.DmConversation
 import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
@@ -122,6 +123,16 @@ interface NostrRepositoryApi {
 
     /** Groups the user explicitly LEFT (durable, survives restart); membership reads NONE for these. */
     val leftGroups: StateFlow<Set<String>>
+
+    /**
+     * External adds (an admin's kind:9000) awaiting the user's accept/decline, keyed by
+     * groupId. Accept via [acceptGroupInvite]; decline via [leaveGroup] (kind:9022 + durable
+     * left marker, which also drops the pending entry).
+     */
+    val pendingGroupInvites: StateFlow<Map<String, PendingGroupInvite>>
+
+    /** Adopt a pending external add into the joined set and republish kind:10009. */
+    suspend fun acceptGroupInvite(groupId: String)
 
     // --- Metadata state ---
     val userMetadata: StateFlow<Map<String, UserMetadata>>

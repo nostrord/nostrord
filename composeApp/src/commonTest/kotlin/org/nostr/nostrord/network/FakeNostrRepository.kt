@@ -10,6 +10,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.DmConversation
 import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.PendingGroupInvite
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
@@ -566,6 +567,15 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = MutableStateFlow(emptyMap())
     override val restrictedGroups: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
     override val leftGroups: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    val pendingGroupInvitesFlow = MutableStateFlow<Map<String, PendingGroupInvite>>(emptyMap())
+    override val pendingGroupInvites: StateFlow<Map<String, PendingGroupInvite>> = pendingGroupInvitesFlow
+    val acceptedInvites = mutableListOf<String>()
+
+    override suspend fun acceptGroupInvite(groupId: String) {
+        acceptedInvites += groupId
+        pendingGroupInvitesFlow.update { it - groupId }
+    }
 
     override suspend fun sendReaction(
         groupId: String,
