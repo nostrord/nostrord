@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
-import org.nostr.nostrord.ui.extractDmGroupInvite
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.DmEventSourceDialog
 import org.nostr.nostrord.ui.components.chat.DmMessageContextMenu
@@ -65,6 +64,7 @@ import org.nostr.nostrord.ui.components.chat.rightClickContextMenuModifier
 import org.nostr.nostrord.ui.components.layout.DmConversationList
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.layout.PageHeader
+import org.nostr.nostrord.ui.extractDmGroupInvite
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
