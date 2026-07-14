@@ -42,6 +42,27 @@ class RelayUrlTest {
     }
 
     @Test
+    fun `toRelayUrl adds ws to bare onion host`() {
+        assertEquals(
+            "ws://relayabc123def456ghi789jkl012mno345pqr678stu901vwx234yz.onion",
+            "relayabc123def456ghi789jkl012mno345pqr678stu901vwx234yz.onion".toRelayUrl(),
+        )
+        assertEquals("ws://relay.onion:8080", "relay.onion:8080".toRelayUrl())
+        // A typed scheme on an onion host is kept as-is.
+        assertEquals("ws://relay.onion", "ws://relay.onion".toRelayUrl())
+        assertEquals("wss://relay.onion", "wss://relay.onion".toRelayUrl())
+    }
+
+    @Test
+    fun `isValidRelayUrl accepts ws onion host`() {
+        assertTrue(isValidRelayUrl("ws://relayabc123def456ghi789jkl012mno345pqr678stu901vwx234yz.onion"))
+        assertTrue(isValidRelayUrl("ws://relay.onion:8080"))
+        assertTrue(isValidRelayUrl("wss://relay.onion"))
+        // .onion only exempts the ws:// TLS requirement, not the userinfo check.
+        assertFalse(isValidRelayUrl("ws://foo.onion@evil.com"))
+    }
+
+    @Test
     fun `isValidRelayUrl accepts wss public host`() {
         assertTrue(isValidRelayUrl("wss://relay.damus.io"))
     }

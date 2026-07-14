@@ -162,7 +162,8 @@ fun String.normalizeRelayUrl(): String {
 
 /**
  * Validate a relay URL. Accepts `wss://` always, and `ws://` only for
- * localhost / loopback hosts (useful for local development relays).
+ * localhost / loopback hosts (local development relays) and `.onion` hosts
+ * (Tor encrypts the transport itself).
  */
 /**
  * Add (or correct) the scheme on a relay host. Loopback hosts always get `ws://`
@@ -180,10 +181,14 @@ fun String.toRelayUrl(): String {
     if ('@' in authority) return ""
     val host = authority.substringBefore(':').lowercase()
     val loopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    // Tor onion services encrypt the transport themselves and rarely carry a TLS cert,
+    // so a bare .onion host defaults to ws:// (a typed wss:// is kept).
+    val onion = host.endsWith(".onion")
     val scheme = when {
         loopback -> "ws"
         typedWss -> "wss"
         typedWs -> "ws"
+        onion -> "ws"
         else -> "wss"
     }
     return "$scheme://$body"
@@ -218,7 +223,8 @@ fun isValidRelayUrl(url: String): Boolean {
     val host = authority.substringBefore(':').lowercase()
     if (host.isBlank()) return false
     val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
-    if (trimmed.startsWith("ws://")) return isLoopback
+    // ws:// (no TLS) is allowed only where the transport is already safe: loopback and Tor onion.
+    if (trimmed.startsWith("ws://")) return isLoopback || host.endsWith(".onion")
     if (isLoopback) return true
     val labels = host.split('.')
     return labels.size >= 2 &&
