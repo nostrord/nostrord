@@ -95,8 +95,15 @@ object NostrBuildUploader {
         val isCached = isBlobRef(filename)
 
         val authHeader =
-            buildAuthHeader(UPLOAD_URL, "POST")
-                ?: return Result.Error(AppError.Auth.NotAuthenticated)
+            try {
+                buildAuthHeader(UPLOAD_URL, "POST")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Signer failure (bunker unreachable/timeout, extension denial) — surface
+                // the actual cause; "not authenticated" would be false and misleading.
+                return Result.Error(AppError.Unknown("Upload authorization failed: ${e.message}", e))
+            } ?: return Result.Error(AppError.Auth.NotAuthenticated)
 
         // Blob-ref uploads can't be retried — the JS cache entry is consumed on first use
         val maxAttempts = if (isCached) 1 else 3

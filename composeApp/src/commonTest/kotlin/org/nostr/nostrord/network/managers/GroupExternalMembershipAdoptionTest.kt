@@ -2,6 +2,7 @@ package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.nostr.nostrord.network.GroupMembers
@@ -228,6 +229,146 @@ class GroupExternalMembershipAdoptionTest {
         testScheduler.advanceUntilIdle()
 
         assertTrue(group in second.pendingGroupInvites.value, "undecided invite survives a restart")
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `a put-user older than the member list still enriches a 39002-inferred invite with its actor`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        testScheduler.advanceUntilIdle()
+
+        // Sweep-delivered 39002 registers the silent, actorless invite (0xchat path).
+        gm.handleGroupMembers(GroupMembers(group, listOf(pubkey)), createdAt = 200, relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+        assertEquals(null, gm.pendingGroupInvites.value[group]?.actorPubkey)
+
+        // The enrichment fetch returns the put-user that caused it — dated BEFORE the 39002
+        // (0xchat pins the list's created_at; relay29 bumps it after the add). The staleness
+        // guard must not eat it: the invite gains its actor and the notification can name them.
+        val msg = NostrGroupClient.NostrMessage(
+            id = "evt-put-user-2",
+            pubkey = "admin-pubkey",
+            content = "",
+            createdAt = 150,
+            kind = 9000,
+            tags = listOf(listOf("p", pubkey), listOf("h", group)),
+        )
+        val raw = """["EVENT","padd_one_x",{"tags":[["p","$pubkey"],["h","$group"]]}]"""
+        gm.handleMessage(msg, raw, subscriptionId = "padd_one_x", relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("admin-pubkey", gm.pendingGroupInvites.value[group]?.actorPubkey)
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `pending invite groups are included in the private-group metadata heal set`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        testScheduler.advanceUntilIdle()
+
+        gm.handleGroupMembers(GroupMembers(group, listOf(pubkey)), createdAt = 100, relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+
+        // A private group's 39000 is withheld pre-AUTH and it is absent from the public
+        // listing; the post-AUTH heal must fetch it for a pending invite too, or the
+        // group screen opened from the notification stays blank.
+        assertTrue(group in gm.getUncachedJoinedGroups(relay))
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `a newer put-user refreshes an existing invite so a re-add notifies again`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        val emitted = mutableListOf<GroupManager.ExternalGroupAdd>()
+        val collector = scope.launch { gm.externalAddPending.collect { emitted += it } }
+        testScheduler.advanceUntilIdle()
+
+        fun putUser(id: String, createdAt: Long) {
+            val msg = NostrGroupClient.NostrMessage(
+                id = id,
+                pubkey = "admin-pubkey",
+                content = "",
+                createdAt = createdAt,
+                kind = 9000,
+                tags = listOf(listOf("p", pubkey), listOf("h", group)),
+            )
+            val raw = """["EVENT","mux_padd_x",{"tags":[["p","$pubkey"],["h","$group"]]}]"""
+            gm.handleMessage(msg, raw, subscriptionId = "mux_padd_x", relayUrl = relay)
+        }
+
+        putUser("evt-add-1", 1_000L)
+        testScheduler.advanceUntilIdle()
+        assertEquals("evt-add-1", gm.pendingGroupInvites.value[group]?.eventId)
+
+        // The same event replayed by the inclusive since-cursor: silent.
+        putUser("evt-add-1", 1_000L)
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, emitted.size)
+
+        // A remove we never saw (the watch carries no 9001), then a re-add: the newer
+        // put-user refreshes the invite and notifies again.
+        putUser("evt-add-2", 2_000L)
+        testScheduler.advanceUntilIdle()
+        assertEquals("evt-add-2", gm.pendingGroupInvites.value[group]?.eventId)
+        assertEquals(2_000L, gm.pendingGroupInvites.value[group]?.createdAtSeconds)
+        assertEquals(2, emitted.size)
+
+        collector.cancel()
+        scope.cancel()
+    }
+
+    @Test
+    fun `a group that becomes joined by any path dissolves its pending invite`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        testScheduler.advanceUntilIdle()
+
+        gm.handleGroupMembers(GroupMembers(group, listOf(pubkey)), createdAt = 100, relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+        assertTrue(group in gm.pendingGroupInvites.value)
+
+        // Our own kind:10009 from another device lands (we created or accepted the group
+        // there): the local "invite" from the relay's put-user echo is moot.
+        SecureStorage.saveJoinedGroupsForRelay(pubkey, relay, setOf(group))
+        gm.loadJoinedGroupsFromStorage(pubkey, relay)
+        testScheduler.advanceUntilIdle()
+
+        assertFalse(group in gm.pendingGroupInvites.value, "a joined group never keeps a pending invite")
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `a put-user we authored ourselves does not register an invite`() = runTest {
+        val scope = TestScope(testScheduler)
+        val gm = makeManager(scope)
+        gm.setCurrentPubkey(pubkey)
+        testScheduler.advanceUntilIdle()
+
+        // Some relays echo a creator put-user; we are both actor and target there.
+        val msg = NostrGroupClient.NostrMessage(
+            id = "evt-self-add",
+            pubkey = pubkey,
+            content = "",
+            createdAt = 1_000L,
+            kind = 9000,
+            tags = listOf(listOf("p", pubkey), listOf("h", group)),
+        )
+        val raw = """["EVENT","mux_padd_x",{"tags":[["p","$pubkey"],["h","$group"]]}]"""
+        gm.handleMessage(msg, raw, subscriptionId = "mux_padd_x", relayUrl = relay)
+        testScheduler.advanceUntilIdle()
+
+        assertFalse(group in gm.pendingGroupInvites.value)
 
         scope.cancel()
     }

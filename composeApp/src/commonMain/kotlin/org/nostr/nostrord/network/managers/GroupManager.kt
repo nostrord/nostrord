@@ -1163,8 +1163,15 @@ class GroupManager(
     fun getUncachedJoinedGroups(relayUrl: String): List<String> {
         val normalized = relayUrl.normalizeRelayUrl()
         val joined = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        // Pending external adds sit outside the joined set but are already readable
+        // relay-side (we are a member). Without them here the post-AUTH private-group
+        // heal never fetches their withheld 39000/39002 and the invite's group screen
+        // stays on skeletons / "no longer available" when opened from the notification.
+        val pending = _pendingGroupInvites.value.values
+            .filter { it.relayUrl.normalizeRelayUrl() == normalized }
+            .map { it.groupId }
         val cached = _groupsByRelay.value[normalized]?.map { it.id }?.toSet() ?: emptySet()
-        return (joined - cached).toList()
+        return (joined + pending - cached).toList()
     }
 
     /**
@@ -1377,20 +1384,15 @@ class GroupManager(
         inviteCode: String? = null,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        // The 9021 must reach the group's OWN relay — a foreign fallback (the focused
+        // client) can OK a group it doesn't host, minting a phantom local joined+pending
+        // state the real relay never sees (same class as the #136 send-routing bug).
+        // Leaving a relay's last group drops it from the pool, so reconnect on demand.
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getFocusedClient()
+            ?: messageHandler?.let { handler -> connectionManager.getOrConnectRelay(groupRelayUrl, handler) }
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
-            deletedGroupIds.remove(groupId)
-            persistDroppedGroups()
-            recentlyLeftAt.remove(groupId)
-            // Rejoining clears the durable left marker BEFORE the optimistic bookkeeping below adds
-            // the group back, so the additive kind:10009 merge can't drop the fresh join.
-            _leftGroups.update { it - groupId }
-            try {
-                SecureStorage.removeLeftGroupForRelay(pubKey, groupRelayUrl.normalizeRelayUrl(), groupId)
-            } catch (_: Exception) {}
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
             if (effectiveCode != null) {
@@ -1433,6 +1435,18 @@ class GroupManager(
                 is org.nostr.nostrord.network.PublishResult.Error ->
                     return Result.Error(AppError.Group.JoinFailed(groupId, publish.exception))
             }
+
+            // The relay accepted the join: only now clear the leave/delete markers. Clearing
+            // them before the OK (the old order) silently dropped the durable left protection
+            // when the relay rejected or timed out the request. Still BEFORE the joined-set
+            // write below, so the additive kind:10009 merge can't drop the fresh join.
+            deletedGroupIds.remove(groupId)
+            persistDroppedGroups()
+            recentlyLeftAt.remove(groupId)
+            _leftGroups.update { it - groupId }
+            try {
+                SecureStorage.removeLeftGroupForRelay(pubKey, groupRelayUrl.normalizeRelayUrl(), groupId)
+            } catch (_: Exception) {}
 
             // Normalized key, like every other _joinedGroupsByRelay writer: a raw URL
             // variant ("wss://x/" vs "wss://x") would start a parallel entry whose set
@@ -1611,6 +1625,10 @@ class GroupManager(
             val updatedAfterCreate = relayGroups + confirmedGroupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedCreateRelay, updatedAfterCreate)
             _joinedGroupsByRelay.update { it + (normalizedCreateRelay to updatedAfterCreate) }
+            // The relay's creation-time 39002 (listing us) races this bookkeeping on the
+            // #p sweep and registers a pending "invite" for our own group; settle it so
+            // the creator never sees the accept/decline prompt.
+            discardPendingInvite(confirmedGroupId)
             publishJoinedGroups()
             currentClient.requestGroupMessages(confirmedGroupId)
 
@@ -3808,9 +3826,31 @@ class GroupManager(
      * Emits when an external add first lands in the pending set (or a silent 39002-inferred
      * entry learns its actor from the put-user event). AppModule turns it into a user
      * notification; NostrRepository fetches the group's kind:39000 so the prompt has a name.
+     * Buffer sized for a catch-up burst: AppModule's collector waits up to 3s per event for
+     * the group name, and tryEmit silently drops what doesn't fit.
      */
-    private val _externalAddPending = MutableSharedFlow<ExternalGroupAdd>(extraBufferCapacity = 16)
+    private val _externalAddPending = MutableSharedFlow<ExternalGroupAdd>(extraBufferCapacity = 64)
     val externalAddPending: SharedFlow<ExternalGroupAdd> = _externalAddPending.asSharedFlow()
+
+    init {
+        // This init block sits AFTER _pendingGroupInvites' declaration on purpose: init
+        // blocks run in declaration order, and the collector reads the field from another
+        // thread — launched any earlier it can observe the not-yet-assigned field mid-
+        // construction (an uncaught NPE that poisoned unrelated runTests).
+        //
+        // A group that becomes joined by ANY path settles its pending invite. The write
+        // sites can't all know about invites — the key case is our own kind:10009 from
+        // another device (create/accept there) landing AFTER the relay's put-user echo
+        // registered an "invite" here; without this the creator is prompted to accept
+        // their own group.
+        scope.launch {
+            _joinedGroupsByRelay.collect { byRelay ->
+                if (_pendingGroupInvites.value.isEmpty()) return@collect
+                val joined = byRelay.values.flatten().toSet()
+                _pendingGroupInvites.value.keys.filter { it in joined }.forEach { discardPendingInvite(it) }
+            }
+        }
+    }
 
     private fun persistPendingInvites() {
         val pk = currentPubkey ?: return
@@ -3850,6 +3890,9 @@ class GroupManager(
         eventId: String? = null,
         createdAtSeconds: Long = 0L,
     ) {
+        // Our own put-user echoed back (some relays emit one for the group creator, and we
+        // are the actor when we add ourselves) is not an external add.
+        if (actorPubkey != null && actorPubkey == currentPubkey) return
         if (isRecentlyLeft(groupId) || groupId in deletedGroupIds) return
         if (_joinedGroupsByRelay.value.values.any { groupId in it }) return
         val relay = (relayUrl ?: getRelayForGroup(groupId) ?: currentRelayUrl ?: return).normalizeRelayUrl()
@@ -3867,18 +3910,28 @@ class GroupManager(
         }
         val existing = _pendingGroupInvites.value[groupId]
         if (existing != null) {
-            // A 39002-inferred entry carries no actor; the put-user event does. Upgrade it
-            // so the prompt can say who added us, and notify (the silent entry never did).
-            if (actorPubkey == null || existing.actorPubkey != null) return
-            val upgraded = existing.copy(
+            if (actorPubkey == null) return
+            // The same put-user replayed by the inclusive since-cursor: nothing new.
+            if (eventId != null && eventId == existing.eventId) return
+            val isNewerAdd = createdAtSeconds > existing.createdAtSeconds
+            // Two cases refresh the entry and re-notify: a 39002-inferred entry learning its
+            // actor from the put-user event (the silent entry never announced anyone), and a
+            // NEWER put-user for an invite we already hold — a remove-then-re-add whose
+            // removal we may never have seen (the watch carries no kind:9001, and a removal's
+            // 39002 stops matching #p=self). Anything older is a historical replay. A role
+            // edit of a still-pending invitee is also a put-user and re-notifies too: it is
+            // indistinguishable from a re-add in this stream, and a reminder while the user
+            // hasn't decided is acceptable.
+            if (existing.actorPubkey != null && !isNewerAdd) return
+            val refreshed = existing.copy(
                 actorPubkey = actorPubkey,
                 eventId = eventId ?: existing.eventId,
                 createdAtSeconds = createdAtSeconds.takeIf { it > 0L } ?: existing.createdAtSeconds,
             )
-            _pendingGroupInvites.update { it + (groupId to upgraded) }
+            _pendingGroupInvites.update { it + (groupId to refreshed) }
             persistPendingInvites()
             _externalAddPending.tryEmit(
-                ExternalGroupAdd(groupId, relay, actorPubkey, upgraded.eventId, upgraded.createdAtSeconds),
+                ExternalGroupAdd(groupId, relay, actorPubkey, refreshed.eventId, refreshed.createdAtSeconds),
             )
             return
         }
@@ -3898,6 +3951,19 @@ class GroupManager(
         _externalAddPending.tryEmit(
             ExternalGroupAdd(groupId, relay, actorPubkey, eventId, invite.createdAtSeconds),
         )
+        // 39002-inferred invites carry no actor. Fetch the put-user event itself (#p + #h
+        // passes the h/e/a query rule that blocks the bare-#p watch on 0xchat) so the
+        // invite can name who added us; its arrival upgrades the entry and notifies.
+        if (actorPubkey == null) {
+            val self = currentPubkey ?: return
+            scope.launch {
+                try {
+                    connectionManager.getClientForRelay(relay)?.requestSelfPutUser(groupId, self)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     /** Accept a pending external add: adopt it into the joined set + kind:10009. */
@@ -4125,23 +4191,36 @@ class GroupManager(
         if (message.kind == 9000 && targetPubkey == currentPubkey && relayUrl != null) {
             advancePutUserCursor(targetPubkey, relayUrl, message.createdAt)
         }
+        // A put-user targeting US registers a pending invite BEFORE the staleness guard:
+        // the 39002 that the add produced usually carries a created_at >= the 9000's (0xchat
+        // even pins it at group creation), so gating on it would eat the actor enrichment
+        // fetched after a 39002-inferred invite. registerExternalAdd has its own replay
+        // guards (joined / left / already-pending).
+        if (message.kind == 9000 && targetPubkey == currentPubkey) {
+            registerExternalAdd(
+                groupId,
+                relayUrl,
+                actorPubkey = message.pubkey,
+                eventId = message.id,
+                createdAtSeconds = message.createdAt,
+            )
+        }
+        // A remove targeting US settles the pending invite — also before the staleness
+        // guard, since the removal's own 39002 usually outdates the kind:9001. Only a
+        // remove NEWER than the invite counts: a historical 9001 replay must not kill an
+        // invite created by a later re-add.
+        if (message.kind == 9001 && targetPubkey == currentPubkey) {
+            val invite = _pendingGroupInvites.value[groupId]
+            if (invite != null && message.createdAt > invite.createdAtSeconds) {
+                discardPendingInvite(groupId)
+            }
+        }
         // Skip historical events older than the authoritative member list.
         val memberListTimestamp = memberEventTimestamps[groupId] ?: 0L
         if (message.createdAt <= memberListTimestamp) return
 
         when (message.kind) {
             9000 -> { // add-user
-                // A put-user targeting US is an external add; register it as a pending
-                // invite without waiting for the next kind:39002 refresh.
-                if (targetPubkey == currentPubkey) {
-                    registerExternalAdd(
-                        groupId,
-                        relayUrl,
-                        actorPubkey = message.pubkey,
-                        eventId = message.id,
-                        createdAtSeconds = message.createdAt,
-                    )
-                }
                 _groupMembers.update { current ->
                     val members = current[groupId] ?: return@update current
                     if (targetPubkey in members) {
