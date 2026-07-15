@@ -80,6 +80,17 @@ actual object SecureStorage {
     }
 
     private fun initialize() {
+        // Test mode (set by the Gradle Test tasks): never touch the OS keyring (its dbus-java
+        // thread poisons kotlinx runTest, see KeychainStore) and never inherit this machine's
+        // real prefs unlock state (a dev box with legacy app data would park the whole suite
+        // on NeedsLegacyMigration, killing every encrypted slot). Ephemeral key, unlocked —
+        // the state a fresh keychainless install runs in.
+        if (System.getProperty("nostrord.disableKeychain") == "true") {
+            masterKey = SecretKeySpec(randomKeyBytes(), "AES")
+            keySource = KeySource.Ephemeral
+            _unlockState.value = UnlockState.Unlocked
+            return
+        }
         legacyKey = loadLegacyKey()
 
         val existingKeychainKey = KeychainStore.getMasterKey()
