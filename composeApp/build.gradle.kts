@@ -247,6 +247,11 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
         showCauses = true
         showExceptions = true
     }
+    // Keep unit tests off the real OS keyring: java-keyring's Secret Service (dbus-java)
+    // reader thread races its own executor shutdown and the stray RejectedExecutionException
+    // poisons a later runTest as UncaughtExceptionsBeforeTest (intermittent cross-class
+    // failure). KeychainStore honors this and SecureStorage uses its no-keychain fallback.
+    systemProperty("nostrord.disableKeychain", "true")
 }
 
 val appVersion = project.property("app.version") as String
