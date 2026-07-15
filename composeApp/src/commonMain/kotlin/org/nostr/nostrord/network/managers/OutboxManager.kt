@@ -17,6 +17,7 @@ import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadKind10009Timestamp
 import org.nostr.nostrord.storage.loadRelayListFor
+import org.nostr.nostrord.storage.saveKind10009RepublishPendingFor
 import org.nostr.nostrord.storage.saveKind10009Timestamp
 import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.utils.AppError
@@ -212,6 +213,16 @@ class OutboxManager(
         }
     }
 
+    /**
+     * True while no relay has ACCEPTED the most recent kind:10009 publish. Set at every
+     * attempt, cleared on the first relay OK (also mirrored to storage so a restart keeps
+     * the retry intent). The reconnect hook in NostrRepository republishes the CURRENT
+     * list — never the stale snapshot: the event is replaceable and an old snapshot could
+     * resurrect a since-left group.
+     */
+    private val _kind10009NeedsRepublish = MutableStateFlow(false)
+    val kind10009NeedsRepublish: StateFlow<Boolean> = _kind10009NeedsRepublish.asStateFlow()
+
     suspend fun publishJoinedGroupsList(
         pubKey: String,
         joinedGroupsByRelay: Map<String, Set<String>>,
@@ -265,6 +276,12 @@ class OutboxManager(
                     add(signedEvent.toJsonObject())
                 }.toString()
 
+            // Assume lost until a relay OKs it; the reconnect hook retries while this holds.
+            _kind10009NeedsRepublish.value = true
+            try {
+                SecureStorage.saveKind10009RepublishPendingFor(pubKey, true)
+            } catch (_: Exception) {}
+
             val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
             var published =
                 targets.mapNotNull { relayUrl ->
@@ -310,6 +327,10 @@ class OutboxManager(
                                 }
                             }
                             SecureStorage.saveKind10009Timestamp(pubKey, event.createdAt)
+                            _kind10009NeedsRepublish.value = false
+                            try {
+                                SecureStorage.saveKind10009RepublishPendingFor(pubKey, false)
+                            } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {
                     }

@@ -67,6 +67,7 @@ import org.nostr.nostrord.storage.clearDmMessages
 import org.nostr.nostrord.storage.getLastActiveAt
 import org.nostr.nostrord.storage.isDmCacheMigratedFor
 import org.nostr.nostrord.storage.isGroupFetchLazy
+import org.nostr.nostrord.storage.isKind10009RepublishPendingFor
 import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
 import org.nostr.nostrord.storage.loadDmProcessedWrapIds
@@ -910,6 +911,31 @@ class NostrRepository(
             groupManager.externalAddPending.collect { add ->
                 try {
                     fetchGroupPreview(add.groupId, add.relayUrl)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
+        }
+
+        // A kind:10009 publish no relay accepted (offline leave, zombie socket, or the
+        // NIP-29-focused fallback rejecting it) retries on every (re)connect while the
+        // pending flag holds — in memory for this session, persisted across restarts.
+        // Always publishes the CURRENT list, never the lost snapshot (replaceable event).
+        scope.launch {
+            connectionManager.connectionState.collect { st ->
+                if (st !is ConnectionManager.ConnectionState.Connected) return@collect
+                val pk = sessionManager.getPublicKey() ?: return@collect
+                val pending = outboxManager.kind10009NeedsRepublish.value ||
+                    try {
+                        SecureStorage.isKind10009RepublishPendingFor(pk)
+                    } catch (_: Exception) {
+                        false
+                    }
+                if (!pending) return@collect
+                // Let AUTH and the reconnect subscription burst settle first.
+                delay(2_000)
+                try {
+                    publishJoinedGroupsList()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {}
@@ -3144,6 +3170,12 @@ class NostrRepository(
             } ?: return
             connectedPoolRelays.add(relayUrl)
             client.requestGroupMetadata(groupId)
+            // Same AUTH-gated re-send as fetchGroupPreviews: a private group's kind:39000 is
+            // withheld pre-AUTH (0xchat answers with an empty EOSE, not a CLOSED), so for
+            // them the first REQ yields nothing and only the authenticated retry lands.
+            if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupMetadata(groupId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {}
     }
 
@@ -3398,11 +3430,17 @@ class NostrRepository(
         try {
             val relayUrl = groupManager.getRelayForGroup(groupId)
                 ?: connectionManager.currentRelayUrl.value
-            val relayPubkey = relayMetadata.value[relayUrl]?.groupNaddrAuthor
-                ?: relayMetadata.value[relayUrl.trimEnd('/')]?.groupNaddrAuthor
+            val relayPubkey = (relayMetadata.value[relayUrl] ?: relayMetadata.value[relayUrl.normalizeRelayUrl()])
+                ?.groupNaddrAuthor
             val naddr = Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
-            val groupName = groupManager.groupsByRelay.value.values
-                .firstNotNullOfOrNull { list -> list.firstOrNull { it.id == groupId }?.name?.takeIf { it.isNotBlank() } }
+            // The group's own relay first: NIP-29 ids are relay-local, so an any-relay scan
+            // could name a same-id group from another relay.
+            val byRelay = groupManager.groupsByRelay.value
+            val groupName = (byRelay[relayUrl.normalizeRelayUrl()] ?: byRelay[relayUrl])
+                ?.firstOrNull { it.id == groupId }
+                ?.name
+                ?.takeIf { it.isNotBlank() }
+                ?: byRelay.values.firstNotNullOfOrNull { list -> list.firstOrNull { it.id == groupId }?.name?.takeIf { it.isNotBlank() } }
             val title = groupName?.let { "the group \"$it\"" } ?: "a group"
             sendDm(targetPubkey, "You've been added to $title.\nnostr:$naddr")
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3965,7 +4003,9 @@ class NostrRepository(
 
     /**
      * Build a NIP-98 Authorization header value for HTTP requests.
-     * Returns "Nostr <base64>" or null if not authenticated.
+     * Returns "Nostr <base64>", or null only when no account is signed in. A signer
+     * failure (bunker timeout, extension denial) propagates so the caller can surface
+     * the real cause instead of a false "not authenticated".
      */
     @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
     suspend fun buildNip98AuthHeader(url: String, method: String): String? {
@@ -3977,11 +4017,7 @@ class NostrRepository(
             tags = listOf(listOf("u", url), listOf("method", method)),
             content = "",
         )
-        val signed = try {
-            sessionManager.signEvent(event)
-        } catch (_: Throwable) {
-            return null
-        }
+        val signed = sessionManager.signEvent(event)
         val json = signed.toJsonObject().toString()
         val encoded = kotlin.io.encoding.Base64.encode(json.encodeToByteArray())
         return "Nostr $encoded"
@@ -4899,7 +4935,9 @@ class NostrRepository(
             subId.startsWith("reactions_") ||
             subId.startsWith("zaps_") ||
             subId.startsWith("threadfocus_") ||
-            subId.startsWith("event_")
+            subId.startsWith("event_") ||
+            // requestSelfPutUser's actor-enrichment fetch (distinct from the live mux_padd_ watch).
+            subId.startsWith("padd_one_")
         ) {
             scope.launch {
                 try {

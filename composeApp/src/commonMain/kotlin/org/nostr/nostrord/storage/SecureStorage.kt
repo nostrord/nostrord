@@ -798,6 +798,20 @@ fun SecureStorage.addLeftGroupForRelay(
     }
 }
 
+// ── kind:10009 republish-pending flag ────────────────────────────────────────
+// True while no relay has ACCEPTED the latest kind:10009 publish (offline leave, zombie
+// socket): the reconnect hook republishes the CURRENT list and clears it on the first OK.
+private fun kind10009RepublishPendingKey(pubkey: String) = "kind10009_republish_pending_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveKind10009RepublishPendingFor(
+    pubkey: String,
+    pending: Boolean,
+) {
+    saveStringPref(kind10009RepublishPendingKey(pubkey), if (pending) "true" else "")
+}
+
+fun SecureStorage.isKind10009RepublishPendingFor(pubkey: String): Boolean = getStringPref(kind10009RepublishPendingKey(pubkey), "") == "true"
+
 // ── Pending group invites ────────────────────────────────────────────────────
 // External adds (an admin's kind:9000) the user hasn't accepted or declined yet. One JSON
 // slot per account; entries are dropped on accept/decline/join/leave.

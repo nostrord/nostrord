@@ -48,6 +48,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.cache.CacheStore
 import org.nostr.nostrord.storage.cache.createCacheStore
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Simple dependency injection container.
@@ -268,9 +269,26 @@ object AppModule {
      * silent. Catch-up adds (offline at put time) enter the feed but skip sound/popup via
      * [isRealtime], like every other notification type.
      */
+    // Feed-entry age cap for external adds, matching the put-user watch's own 7-day
+    // catch-up lookback. The no-since 39002 membership sweep has no such bound: on a
+    // first connect it surfaces relay-side memberships from months ago, and their
+    // enrichment 9000s carry the original timestamps — real pending invites, but
+    // "added you 213d ago" is history, not news.
+    private val GROUP_ADD_FEED_MAX_AGE_S = 7L * 24 * 3600
+
     private suspend fun onExternalGroupAdd(add: GroupManager.ExternalGroupAdd) {
         val actor = add.actorPubkey ?: return
         if (actor == sessionManager.getPublicKey()) return
+        if (epochSeconds() - add.createdAtSeconds > GROUP_ADD_FEED_MAX_AGE_S) return
+        // A relay-authored put-user (creator echo / relay backfill) is not a person adding
+        // you: skip the "<relay key> added you" feed entry. The pending invite itself still
+        // surfaces in the group screen prompt. Both key forms, like the VM's label lookup —
+        // the metadata map is keyed by whatever URL the NIP-11 fetch received.
+        val relayMeta = relayMetadataManager.relayMetadata.value
+        val relayKey = (relayMeta[add.relayUrl] ?: relayMeta[add.relayUrl.normalizeRelayUrl()])
+            ?.pubkey
+            ?.takeIf { it.isNotBlank() }
+        if (actor == relayKey) return
         // Give the repo's preview fetch a moment to land the kind:39000 so the entry
         // snapshots a real group name instead of a truncated id.
         kotlinx.coroutines.withTimeoutOrNull(3_000) {
@@ -278,6 +296,9 @@ object AppModule {
                 byRelay.values.any { list -> list.any { it.id == add.groupId } }
             }
         }
+        // Settled while we waited (create/join bookkeeping claimed its own echo, or the
+        // user already decided): a notification for it would be noise.
+        if (add.groupId !in groupManager.pendingGroupInvites.value) return
         val groupName = groupDisplayName(add.groupId)
         notificationHistoryStore.add(
             NotificationEntry(

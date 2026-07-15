@@ -801,6 +801,31 @@ class NostrGroupClient(
     }
 
     /**
+     * One-shot fetch of the put-user event that added [pubkey] to [groupId] — the actor
+     * enrichment for a 39002-inferred pending invite. Bare-#p kind:9000 queries are blocked
+     * on 0xchat-style relays, but #p + #h passes their h/e/a rule. Closed after EOSE by
+     * closeOneShotSubAfterEose (padd_one_ prefix).
+     */
+    suspend fun requestSelfPutUser(groupId: String, pubkey: String): String {
+        val subId = "padd_one_${groupId.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(9000) }
+                    put("#h", buildJsonArray { add(groupId) })
+                    put("#p", buildJsonArray { add(pubkey) })
+                    put("limit", 1)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
      * Subscribe for kind:39000 metadata for a specific group.
      * Called when entering a group screen to ensure metadata is fresh.
      *
@@ -1225,6 +1250,16 @@ class NostrGroupClient(
         // with #p = us), live or as catch-up after an offline window — including groups we
         // never opened, which no other subscription covers. Kept independent of the group
         // batches so it stays armed on a relay where we have zero groups yet.
+        //
+        // Two filters, because 0xchat's relay gates STORED queries on having an h/e/a tag
+        // (a bare-#p kind:9000 REQ is CLOSED "invalid query") while its LIVE broadcast does
+        // plain filter matching:
+        //  - kinds 9000+39002 with since: live adds on every relay (the 39002 alongside makes
+        //    0xchat accept the REQ instead of closing it) + stored catch-up on relays that
+        //    serve bare-#p queries.
+        //  - kinds 39002 no-since: membership sweep at every (re)subscribe — the offline
+        //    catch-up for relays like 0xchat, which never advance a 39002's created_at
+        //    (pinned at group creation), making any `since` filter blind to adds there.
         send(
             buildJsonArray {
                 add("CLOSE")
@@ -1238,9 +1273,18 @@ class NostrGroupClient(
                     add(putUserSubId)
                     add(
                         buildJsonObject {
-                            putJsonArray("kinds") { add(9000) }
+                            putJsonArray("kinds") {
+                                add(9000)
+                                add(39002)
+                            }
                             putJsonArray("#p") { add(putUserPubkey) }
                             put("since", putUserSinceSeconds)
+                        },
+                    )
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") { add(39002) }
+                            putJsonArray("#p") { add(putUserPubkey) }
                         },
                     )
                 }.toString(),
