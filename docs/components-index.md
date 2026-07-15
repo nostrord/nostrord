@@ -120,6 +120,7 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `GroupAvatarUploadRow` | webMain/kotlin/org/nostr/nostrord/web/components/GroupAvatarUploadRow.kt | Group avatar preview + "Change photo" upload. Shared by Create Group and Manage > Info so the |
 | `GroupInfoModal` | webMain/kotlin/org/nostr/nostrord/web/modals/GroupInfoModal.kt | Group info modal — prototype GroupInfoModal: title bar, gradient cover with the |
 | `GroupInviteCard` | webMain/kotlin/org/nostr/nostrord/web/components/GroupInviteCard.kt | DM group-invite card (prototype InviteCard): "GROUP INVITE" eyebrow + group avatar/name, |
+| `GroupInviteModal` | webMain/kotlin/org/nostr/nostrord/web/modals/GroupInviteModal.kt | The pending-invite prompt (web counterpart of GroupScreen's GroupInviteDialog), in the |
 | `IdentifierField` | webMain/kotlin/org/nostr/nostrord/web/components/IdentifierField.kt | [IdentifierRow] over the pubkey formats (npub / nprofile / nostrord link / |
 | `IdentifierRow` | webMain/kotlin/org/nostr/nostrord/web/components/IdentifierField.kt | Cycling identifier field (prototype IdentifierField, the .identifier-* OOCSS |
 | `ImageViewerHost` | webMain/kotlin/org/nostr/nostrord/web/components/ImageViewer.kt | Place once at the app root. Renders the fullscreen overlay whenever an image is open. |

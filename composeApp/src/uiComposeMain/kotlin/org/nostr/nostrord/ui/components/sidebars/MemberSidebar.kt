@@ -46,6 +46,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.forms.AppSearchField
@@ -73,8 +74,11 @@ fun MemberSidebar(
     isCurrentUserAdmin: Boolean = false,
     currentUserPubkey: String? = null,
     onRemoveMember: (MemberInfo) -> Unit = {},
-    onAddMember: (String) -> Unit = {},
+    onAddMember: (pubkey: String, notifyViaDm: Boolean) -> Unit = { _, _ -> },
     friends: List<FriendCandidate> = emptyList(),
+    groupRelay: String? = null,
+    userGroupLists: Map<String, List<UserGroupRef>> = emptyMap(),
+    onPrefetchTarget: (String) -> Unit = {},
     onManage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -181,6 +185,9 @@ fun MemberSidebar(
                 onAddMember = onAddMember,
                 onDismiss = { showAddMemberModal = false },
                 friends = friends,
+                groupRelay = groupRelay,
+                userGroupLists = userGroupLists,
+                onPrefetchTarget = onPrefetchTarget,
             )
         }
 

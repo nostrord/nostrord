@@ -6,10 +6,12 @@ import org.nostr.nostrord.nostr.Nip19
  * A group reference carried by a DM, split out of the text so the DM screens can render
  * the prototype invite card (eyebrow + name + about + "View group" button) instead of the
  * generic inline preview. [remainingText] is the message body without the naddr line.
+ * [relayUrl] is always present: navigation needs the host relay, so a hint-less naddr is
+ * not extracted (it stays inline text) rather than rendering a card with a dead button.
  */
 data class DmGroupInvite(
     val groupId: String,
-    val relayUrl: String?,
+    val relayUrl: String,
     val remainingText: String,
 )
 
@@ -30,13 +32,15 @@ fun extractDmGroupInvite(content: String): DmGroupInvite? {
             null
         } as? Nip19.Entity.Naddr ?: continue
         if (entity.kind != 39000) continue
+        // Relay TLVs are optional in NIP-19; without one the card could not open the group.
+        val relayUrl = entity.relays.firstOrNull { it.isNotBlank() } ?: continue
         val remaining = lines
             .filterIndexed { i, _ -> i != index }
             .joinToString("\n")
             .trim()
         return DmGroupInvite(
             groupId = entity.identifier,
-            relayUrl = entity.relays.firstOrNull(),
+            relayUrl = relayUrl,
             remainingText = remaining,
         )
     }

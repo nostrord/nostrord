@@ -25,6 +25,14 @@ class DmGroupInviteTest {
     }
 
     @Test
+    fun `a naddr without a relay hint is not an invite card`() {
+        // Relay TLVs are optional in NIP-19; a card without a host relay could not open
+        // the group, so the line must stay inline text instead of a dead button.
+        val hintless = Nip19.encodeNaddr(identifier = "mygroup", relay = "", kind = 39000)
+        assertNull(extractDmGroupInvite("nostr:$hintless"))
+    }
+
+    @Test
     fun `inline naddr or non-39000 naddr is not an invite`() {
         assertNull(extractDmGroupInvite("check nostr:$naddr out"))
         val article = Nip19.encodeNaddr(identifier = "post", relay = relay, kind = 30023)

@@ -433,9 +433,7 @@ val DmPage =
                                         GroupInviteCard {
                                             groupId = invite.groupId
                                             relayUrl = invite.relayUrl
-                                            onOpen = {
-                                                invite.relayUrl?.let { props.onOpenGroup(GroupRoute(it, invite.groupId)) }
-                                            }
+                                            onOpen = { props.onOpenGroup(GroupRoute(invite.relayUrl, invite.groupId)) }
                                         }
                                     }
                                     span {

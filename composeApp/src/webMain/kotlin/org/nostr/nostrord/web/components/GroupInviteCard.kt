@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.components
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
@@ -27,7 +28,11 @@ val GroupInviteCard =
     FC<GroupInviteCardProps> { props ->
         val repo = AppModule.nostrRepository
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
-        val meta = groupsByRelay.values.flatten().firstOrNull { it.id == props.groupId }
+        // The card's own relay first: NIP-29 ids are relay-local, and a flattened scan
+        // could resolve a same-id group from another relay.
+        val meta =
+            props.relayUrl?.let { url -> groupsByRelay[url.normalizeRelayUrl()]?.firstOrNull { it.id == props.groupId } }
+                ?: groupsByRelay.values.flatten().firstOrNull { it.id == props.groupId }
         val name = meta?.name?.takeIf { it.isNotBlank() } ?: props.groupId
 
         useEffect(props.groupId, props.relayUrl, meta?.name) {

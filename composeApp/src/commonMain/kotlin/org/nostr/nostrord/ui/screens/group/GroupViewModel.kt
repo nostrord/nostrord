@@ -30,6 +30,7 @@ import org.nostr.nostrord.ui.screens.withMinDuration
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.utils.shortNpub
 
 /** A group offered in the `%group` mention autocomplete (with its hosting relay). */
 data class MentionableGroup(
@@ -61,6 +62,27 @@ fun buildFriendCandidates(
             picture = meta?.picture,
         )
     }.sortedWith(compareBy({ it.name == null }, { it.name?.lowercase() ?: it.pubkey }))
+
+/** Relay hosting [groupId] (the relay whose group list carries it), else [fallbackRelay]. */
+fun groupHostRelay(
+    groupId: String,
+    groupsByRelay: Map<String, List<GroupMetadata>>,
+    fallbackRelay: String?,
+): String? = groupsByRelay.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key ?: fallbackRelay
+
+/**
+ * True when [target]'s public kind:10009 pins any group on [groupRelayUrl]: their client
+ * connects to that relay, so the in-app add notification reaches them without the DM.
+ * Unknown or unfetched lists read false — the DM stays the safe default.
+ */
+fun pubkeyUsesRelay(
+    target: String,
+    groupRelayUrl: String?,
+    userGroupLists: Map<String, List<UserGroupRef>>,
+): Boolean {
+    val relay = groupRelayUrl?.normalizeRelayUrl() ?: return false
+    return userGroupLists[target].orEmpty().any { it.relayUrl.normalizeRelayUrl() == relay }
+}
 
 /** Case-insensitive name / hex-prefix filter; a blank query returns everything. */
 fun filterFriendCandidates(
@@ -157,6 +179,7 @@ class GroupViewModel(
     val groups = repo.groups
     val groupsByRelay = repo.groupsByRelay
     val userMetadata = repo.userMetadata
+    val userGroupLists = repo.userGroupLists
 
     /**
      * Reactions with NIP-51 muted reactors removed, same contract as [messages]: the raw
@@ -459,8 +482,40 @@ class GroupViewModel(
             .map { it[groupId] }
             .stateIn(viewModelScope, SharingStarted.Eagerly, repo.pendingGroupInvites.value[groupId])
 
+    /**
+     * Who invited us, for the pending-invite prompt: display name, short-npub fallback,
+     * or null when there is no actor or the "actor" is the relay itself (relays author
+     * the creator/backfill put-users; a relay key is not a person worth naming).
+     */
+    val pendingInviteActorLabel: StateFlow<String?> =
+        combine(pendingInvite, repo.userMetadata, repo.relayMetadata) { invite, meta, relayMeta ->
+            val actor = invite?.actorPubkey ?: return@combine null
+            val relayKey = (relayMeta[invite.relayUrl] ?: relayMeta[invite.relayUrl.normalizeRelayUrl()])
+                ?.pubkey
+                ?.takeIf { it.isNotBlank() }
+            if (actor == relayKey) return@combine null
+            meta[actor]?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta[actor]?.name?.takeIf { it.isNotBlank() }
+                ?: shortNpub(actor)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    init {
+        // Resolve the inviter's profile for the prompt (no-op when already cached).
+        viewModelScope.launch {
+            pendingInvite.collect { invite ->
+                val actor = invite?.actorPubkey ?: return@collect
+                if (repo.userMetadata.value[actor] == null) repo.requestUserMetadata(setOf(actor))
+            }
+        }
+    }
+
     fun acceptInvite() {
         viewModelScope.launch { repo.acceptGroupInvite(groupId) }
+    }
+
+    /** Fetch [pubkey]'s public kind:10009 so the add-member "on this relay" hint has data. */
+    fun prefetchUserGroupList(pubkey: String) {
+        viewModelScope.launch { repo.requestUserGroupList(pubkey) }
     }
 
     /** Decline a pending external add: leave relay-side (kind:9022), which drops the invite. */

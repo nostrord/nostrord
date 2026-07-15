@@ -2,13 +2,21 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
@@ -18,6 +26,7 @@ import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.ConfirmDialog
+import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
@@ -112,6 +121,10 @@ fun GroupScreen(
     val groups by vm.groups.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
+    // The add-member DM default: whether the target's kind:10009 pins a group on this
+    // group's host relay (in-app notification reaches them there, DM redundant).
+    val userGroupLists by vm.userGroupLists.collectAsState()
+    val allGroupsByRelay by vm.groupsByRelay.collectAsState()
     val allReactions by vm.reactions.collectAsState()
     val pendingReactions by vm.pendingReactions.collectAsState()
     val messageStatus by vm.messageStatus.collectAsState()
@@ -692,22 +705,20 @@ fun GroupScreen(
     // readable as a preview while undecided; backdrop/Esc = decide later (the prompt
     // returns on the next open). Accept adopts it into the joined list; Decline leaves.
     val pendingInvite by vm.pendingInvite.collectAsState()
+    val inviteActorLabel by vm.pendingInviteActorLabel.collectAsState()
     var invitePromptDismissed by remember(groupId) { mutableStateOf(false) }
     if (!invitePromptDismissed) {
         pendingInvite?.let { invite ->
-            val actorLabel =
-                invite.actorPubkey?.let { pk ->
-                    userMetadata[pk]?.displayName?.takeIf { it.isNotBlank() }
-                        ?: userMetadata[pk]?.name?.takeIf { it.isNotBlank() }
-                        ?: (pk.take(8) + "…")
-                } ?: "An admin"
-            ConfirmDialog(
-                title = "Group Invitation",
-                message = "$actorLabel added you to this group. Accept to add it to your groups, or decline to leave.",
-                confirmLabel = "Accept",
-                cancelLabel = "Decline",
-                onConfirm = { vm.acceptInvite() },
-                onCancel = { vm.declineInvite { onNavigateHome() } },
+            GroupInviteDialog(
+                groupName = currentGroupMetadata?.name?.takeIf { it.isNotBlank() }
+                    ?: groupName?.takeIf { it.isNotBlank() }
+                    ?: "#${groupId.take(8)}",
+                groupPicture = currentGroupMetadata?.picture,
+                groupId = groupId,
+                relayHost = invite.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/'),
+                actorLabel = inviteActorLabel,
+                onAccept = { vm.acceptInvite() },
+                onDecline = { vm.declineInvite { onNavigateHome() } },
                 onDismiss = { invitePromptDismissed = true },
             )
         }
@@ -1007,8 +1018,11 @@ fun GroupScreen(
                     },
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
-                    onAddMember = { pubkey -> vm.addUser(pubkey, notifyViaDm = true) },
+                    onAddMember = { pubkey, notify -> vm.addUser(pubkey, notifyViaDm = notify) },
                     friends = friends,
+                    groupRelay = groupHostRelay(groupId, allGroupsByRelay, currentRelayUrl),
+                    userGroupLists = userGroupLists,
+                    onPrefetchTarget = { vm.prefetchUserGroupList(it) },
                     pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
@@ -1158,8 +1172,11 @@ fun GroupScreen(
                     onShowMemberSheet = { showMemberSheet = it },
                     isCurrentUserAdmin = isAdmin,
                     onRemoveMember = { member -> memberToRemove = member },
-                    onAddMember = { pubkey -> vm.addUser(pubkey, notifyViaDm = true) },
+                    onAddMember = { pubkey, notify -> vm.addUser(pubkey, notifyViaDm = notify) },
                     friends = friends,
+                    groupRelay = groupHostRelay(groupId, allGroupsByRelay, currentRelayUrl),
+                    userGroupLists = userGroupLists,
+                    onPrefetchTarget = { vm.prefetchUserGroupList(it) },
                     pendingJoinRequestCount = pendingRequests.size,
                     onJoinRequestsClick = { showJoinRequestsModal = true },
                     isPendingApproval = isPendingApproval,
@@ -1184,4 +1201,102 @@ fun GroupScreen(
             }
         }
     } // CompositionLocalProvider
+}
+
+/**
+ * The pending-invite prompt (Compose counterpart of the web GroupInviteModal): "GROUP
+ * INVITE" eyebrow + group avatar/name/relay, one line saying who invited (or a neutral
+ * "You were added" when the actor is unknown or the relay itself), and Decline / Accept.
+ * Backdrop/Esc runs [onDismiss] = decide later.
+ */
+@Composable
+private fun GroupInviteDialog(
+    groupName: String,
+    groupPicture: String?,
+    groupId: String,
+    relayHost: String,
+    actorLabel: String?,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.width(480.dp),
+        containerColor = NostrordColors.Surface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            // Same eyebrow as the DM GroupInviteCard (muted, 11sp bold, tight tracking).
+            Text(
+                text = "GROUP INVITE",
+                color = NostrordColors.TextMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
+            )
+        },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OptimizedSmallAvatar(
+                        imageUrl = groupPicture?.ifBlank { null },
+                        identifier = groupId,
+                        displayName = groupName,
+                        size = 44.dp,
+                        shape = RoundedCornerShape(10.dp),
+                        isGroup = true,
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = groupName,
+                            color = NostrordColors.TextPrimary,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = relayHost,
+                            color = NostrordColors.TextMuted,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text =
+                    if (actorLabel != null) {
+                        "$actorLabel invited you to this group. Accept to add it to your groups, or decline to leave."
+                    } else {
+                        "You were added to this group. Accept to add it to your groups, or decline to leave."
+                    },
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onAccept,
+                colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.Primary,
+                    contentColor = Color.White,
+                ),
+                shape = RoundedCornerShape(8.dp),
+            ) { Text("Accept", fontWeight = FontWeight.SemiBold) }
+        },
+        dismissButton = {
+            Button(
+                onClick = onDecline,
+                colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.SurfaceVariant,
+                    contentColor = NostrordColors.TextPrimary,
+                ),
+                shape = RoundedCornerShape(8.dp),
+            ) { Text("Decline", fontWeight = FontWeight.SemiBold) }
+        },
+    )
 }

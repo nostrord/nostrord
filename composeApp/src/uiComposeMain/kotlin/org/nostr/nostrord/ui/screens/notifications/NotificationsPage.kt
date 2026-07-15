@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
@@ -30,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -127,15 +132,19 @@ fun NotificationsPage(
                         val groupMeta =
                             groupsByRelay[entry.relayUrl]?.firstOrNull { it.id == entry.groupId }
                                 ?: groupsByRelay.values.firstNotNullOfOrNull { list -> list.firstOrNull { it.id == entry.groupId } }
+                        // Live metadata first: the snapshot taken at notification time can be
+                        // the truncated id (metadata hadn't landed yet, e.g. a private group
+                        // pre-AUTH) and would otherwise shadow the real name forever.
                         val groupName =
-                            entry.groupName?.takeIf { it.isNotBlank() }
-                                ?: groupMeta?.name?.takeIf { it.isNotBlank() }
+                            groupMeta?.name?.takeIf { it.isNotBlank() }
+                                ?: entry.groupName?.takeIf { it.isNotBlank() }
                                 ?: entry.groupId.take(8)
                         NotificationRow(
                             entry = entry,
                             authorName = authorName,
                             avatarUrl = meta?.picture,
                             groupName = groupName,
+                            groupPicture = groupMeta?.picture,
                             onClick = {
                                 vm.markRead(entry.id)
                                 onOpenGroupAtRelay(entry.groupId, groupName, entry.relayUrl, entry.messageId)
@@ -148,12 +157,16 @@ fun NotificationsPage(
     }
 }
 
+// Inline-content slot id for the tiny group avatar inside the row header text.
+private const val GROUP_AVATAR_INLINE = "groupAvatar"
+
 @Composable
 private fun NotificationRow(
     entry: NotificationEntry,
     authorName: String,
     avatarUrl: String?,
     groupName: String,
+    groupPicture: String?,
     onClick: () -> Unit,
 ) {
     Row(
@@ -194,11 +207,35 @@ private fun NotificationRow(
                         append(actionLabel(entry))
                         append(" in ")
                     }
+                    // The group identity: its standard rounded-square avatar + name.
+                    appendInlineContent(GROUP_AVATAR_INLINE, "▢")
+                    append(' ')
                     withStyle(SpanStyle(color = NostrordColors.TextLink, fontWeight = FontWeight.Medium)) {
-                        append("#$groupName")
+                        append(groupName)
                     }
                 }
-            Text(text = header, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = header,
+                fontSize = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                inlineContent =
+                mapOf(
+                    GROUP_AVATAR_INLINE to
+                        InlineTextContent(
+                            Placeholder(16.sp, 16.sp, PlaceholderVerticalAlign.TextCenter),
+                        ) {
+                            OptimizedSmallAvatar(
+                                imageUrl = groupPicture?.ifBlank { null },
+                                identifier = entry.groupId,
+                                displayName = groupName,
+                                size = 16.dp,
+                                shape = RoundedCornerShape(4.dp),
+                                isGroup = true,
+                            )
+                        },
+                ),
+            )
             val preview = entry.preview.takeIf { it.isNotBlank() }
             if (preview != null) {
                 Spacer(modifier = Modifier.height(2.dp))
