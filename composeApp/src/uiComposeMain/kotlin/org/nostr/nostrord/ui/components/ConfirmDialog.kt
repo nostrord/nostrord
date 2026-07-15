@@ -29,10 +29,6 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  * [confirmEnabled] gates the confirm action (e.g. while an async op is in flight). Dialogs that host
  * their own input field or bespoke content (rename, add-relay, the delete-group warning) keep their
  * own AlertDialog.
- *
- * [onCancel], when set, makes the cancel button an ACTION of its own instead of a close
- * (backdrop/Esc still run [onDismiss]) — for prompts whose two buttons are both decisions,
- * like the group-invite Accept/Decline.
  */
 @Composable
 fun ConfirmDialog(
@@ -45,7 +41,6 @@ fun ConfirmDialog(
     destructive: Boolean = false,
     confirmEnabled: Boolean = true,
     cancelEnabled: Boolean = true,
-    onCancel: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -75,7 +70,7 @@ fun ConfirmDialog(
         cancelLabel?.let { label ->
             {
                 Button(
-                    onClick = onCancel ?: onDismiss,
+                    onClick = onDismiss,
                     enabled = cancelEnabled,
                     colors =
                     ButtonDefaults.buttonColors(

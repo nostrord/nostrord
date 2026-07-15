@@ -116,8 +116,11 @@ fun GroupScreenDesktop(
     onShowMemberSheet: (Boolean) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     onRemoveMember: (MemberInfo) -> Unit = {},
-    onAddMember: (String) -> Unit = {},
+    onAddMember: (pubkey: String, notifyViaDm: Boolean) -> Unit = { _, _ -> },
     friends: List<FriendCandidate> = emptyList(),
+    groupRelay: String? = null,
+    userGroupLists: Map<String, List<org.nostr.nostrord.network.UserGroupRef>> = emptyMap(),
+    onPrefetchTarget: (String) -> Unit = {},
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     isPendingApproval: Boolean = false,
@@ -301,6 +304,9 @@ fun GroupScreenDesktop(
                     onRemoveMember = onRemoveMember,
                     onAddMember = onAddMember,
                     friends = friends,
+                    groupRelay = groupRelay,
+                    userGroupLists = userGroupLists,
+                    onPrefetchTarget = onPrefetchTarget,
                     onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 )
             }
@@ -328,6 +334,9 @@ fun GroupScreenDesktop(
                 onRemoveMember = onRemoveMember,
                 onAddMember = onAddMember,
                 friends = friends,
+                groupRelay = groupRelay,
+                userGroupLists = userGroupLists,
+                onPrefetchTarget = onPrefetchTarget,
                 onManage = if (isCurrentUserAdmin) onManageMembers else null,
             )
         }

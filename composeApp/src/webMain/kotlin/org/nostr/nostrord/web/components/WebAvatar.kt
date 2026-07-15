@@ -73,10 +73,19 @@ val WebAvatar =
         // this render before it commits, so the stale picture never shows.
         if (lastSeedRef.current != seed) {
             lastSeedRef.current = seed
-            lastUrlRef.current = null
-            setLoaded(false)
-            setErrored(false)
-            setAttempts(0)
+            // Same non-blank url across the seed change is the same picture — e.g. the
+            // create-group modal reseeds per Group Name keystroke while the uploaded
+            // preview url stays. Resetting there would hide the photo FOREVER: the url
+            // effect below is keyed on the (unchanged) url and never re-runs to set
+            // `loaded` back. Only a different/absent url is a real identity swap that
+            // must drop the previous photo.
+            val samePicture = lastUrlRef.current != null && props.url?.takeIf { it.isNotBlank() } == lastUrlRef.current
+            if (!samePicture) {
+                lastUrlRef.current = null
+                setLoaded(false)
+                setErrored(false)
+                setAttempts(0)
+            }
         }
         // Keep the last good picture if the URL transiently drops to null/blank for the SAME
         // identity (metadata churn, an LRU eviction that briefly removes the entry, or a parent

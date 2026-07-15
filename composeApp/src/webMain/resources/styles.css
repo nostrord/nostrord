@@ -1613,6 +1613,12 @@ body {
     gap: 2px;
 }
 
+/* Add-member "Send a DM invite" toggle: relay-check's look plus breathing room so it
+   doesn't sit flush against the input / scrollable friend list above it. */
+.modal-dm-check {
+    margin-top: 14px;
+}
+
 .group-side-banner-scrim {
     position: absolute;
     inset: auto 0 0 0;
@@ -9525,6 +9531,18 @@ body {
 .npage-group {
     font-weight: 500;
     color: var(--color-text-link);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    vertical-align: text-bottom;
+}
+
+/* Tiny group identity in the row header: the standard rounded-square group avatar. */
+.npage-group-avatar {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-sm);
 }
 
 .npage-preview {

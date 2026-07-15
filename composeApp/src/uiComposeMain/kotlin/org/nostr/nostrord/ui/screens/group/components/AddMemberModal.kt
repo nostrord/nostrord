@@ -31,11 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.screens.group.FriendCandidate
 import org.nostr.nostrord.ui.screens.group.filterFriendCandidates
+import org.nostr.nostrord.ui.screens.group.pubkeyUsesRelay
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -43,18 +45,41 @@ import org.nostr.nostrord.ui.theme.Spacing
 /**
  * Modal for adding a user to the group: pick a follow from the searchable list, or
  * paste an npub / hex pubkey. The input doubles as the friend-search field.
+ *
+ * The "Send a DM invite" checkbox defaults per target: someone whose public kind:10009
+ * pins a group on this relay already gets the in-app add notification there, so the DM
+ * defaults off for them and on for everyone else. Toggling it is an explicit choice
+ * that applies to whoever is added next.
  */
 @Composable
 fun AddMemberModal(
-    onAddMember: (String) -> Unit,
+    onAddMember: (pubkey: String, notifyViaDm: Boolean) -> Unit,
     onDismiss: () -> Unit,
     friends: List<FriendCandidate> = emptyList(),
+    groupRelay: String? = null,
+    userGroupLists: Map<String, List<UserGroupRef>> = emptyMap(),
+    onPrefetchTarget: (String) -> Unit = {},
 ) {
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val focusRequester = remember { FocusRequester() }
     // Submit only unlocks for a key that actually parses (npub/nprofile/hex).
-    val isValidKey = Nip19.parsePubkeyInput(input) is Nip19.PubkeyParse.Ok
+    val parsedHex = (Nip19.parsePubkeyInput(input) as? Nip19.PubkeyParse.Ok)?.hex
+    val isValidKey = parsedHex != null
+
+    var notifyViaDm by remember { mutableStateOf(true) }
+    var notifyTouched by remember { mutableStateOf(false) }
+
+    fun targetOnRelay(pubkey: String) = pubkeyUsesRelay(pubkey, groupRelay, userGroupLists)
+    val typedOnRelay = parsedHex != null && targetOnRelay(parsedHex)
+
+    // Fetch the typed key's kind:10009 so the on-relay check has data (friends' lists
+    // are already fetched by the home discovery).
+    LaunchedEffect(parsedHex) { parsedHex?.let(onPrefetchTarget) }
+    // Smart default; an explicit toggle wins from then on.
+    LaunchedEffect(parsedHex, typedOnRelay) {
+        if (!notifyTouched && parsedHex != null) notifyViaDm = !typedOnRelay
+    }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -66,7 +91,7 @@ fun AddMemberModal(
         // case) and reject nsec with a specific warning.
         when (val parsed = Nip19.parsePubkeyInput(input)) {
             is Nip19.PubkeyParse.Ok -> {
-                onAddMember(parsed.hex)
+                onAddMember(parsed.hex, notifyViaDm)
                 onDismiss()
             }
             Nip19.PubkeyParse.Empty -> error = "Enter an npub or hex pubkey."
@@ -212,7 +237,10 @@ fun AddMemberModal(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
                                         .clickable {
-                                            onAddMember(friend.pubkey)
+                                            // Untouched checkbox = per-target auto (the row's
+                                            // "on this relay" tag shows why no DM goes out).
+                                            val notify = if (notifyTouched) notifyViaDm else !targetOnRelay(friend.pubkey)
+                                            onAddMember(friend.pubkey, notify)
                                             onDismiss()
                                         }
                                         .pointerHoverIcon(PointerIcon.Hand)
@@ -232,13 +260,69 @@ fun AddMemberModal(
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
+                                    if (targetOnRelay(friend.pubkey)) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "on this relay",
+                                            color = NostrordColors.TextMuted,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // DM courtesy toggle. The DM is the only signal that reaches a user
+                    // whose client does not connect to this relay.
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                notifyViaDm = !notifyViaDm
+                                notifyTouched = true
+                            }
+                            .pointerHoverIcon(PointerIcon.Hand),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = notifyViaDm,
+                            onCheckedChange = {
+                                notifyViaDm = it
+                                notifyTouched = true
+                            },
+                            colors =
+                            CheckboxDefaults.colors(
+                                checkedColor = NostrordColors.Primary,
+                                uncheckedColor = NostrordColors.TextMuted,
+                            ),
+                        )
+                        Column {
+                            Text(
+                                text = "Send a DM invite",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NostrordColors.TextPrimary,
+                            )
+                            Text(
+                                text =
+                                if (typedOnRelay) {
+                                    "This user is already on this relay and gets the in-app notification."
+                                } else {
+                                    "A DM is how someone outside this relay finds out."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NostrordColors.TextMuted,
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Buttons
                     Row(

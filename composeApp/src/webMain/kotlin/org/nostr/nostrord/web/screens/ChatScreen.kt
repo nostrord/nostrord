@@ -67,6 +67,7 @@ import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
+import org.nostr.nostrord.web.modals.GroupInviteModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
@@ -1139,7 +1140,13 @@ val ChatScreen =
         // Pending external add (an admin's kind:9000): the accept/decline prompt below.
         // Dismissal is per group id (the component stays mounted across group switches).
         val pendingInvite = useStateFlow(vm.pendingInvite)
+        val inviteActorLabel = useStateFlow(vm.pendingInviteActorLabel)
         val (dismissedInviteGroupId, setDismissedInviteGroupId) = useState<String?>(null)
+        // Mirror Compose (remember(groupId)): leaving the group forgets the dismissal, so
+        // the prompt returns on the NEXT open. Guarded render-time adjustment.
+        if (dismissedInviteGroupId != null && dismissedInviteGroupId != group.id) {
+            setDismissedInviteGroupId(null)
+        }
         // Access shape for the Private/Closed labels: trusts kind:39000 when present, else infers
         // from the relay's restricted signal (metadata is withheld from non-members). Replaces the
         // raw group.isPublic/isOpen so an outsider sees Private/Closed even before any placeholder.
@@ -2506,22 +2513,21 @@ val ChatScreen =
             // kind:10009, Decline leaves (kind:9022), backdrop/Esc = decide later (the
             // group stays readable as a preview and the prompt returns on the next open).
             if (pendingInvite != null && dismissedInviteGroupId != group.id) {
-                val actorLabel =
-                    pendingInvite.actorPubkey?.let { pk -> displayName(pk, userMetadata[pk]) } ?: "An admin"
-                confirmDialog(
-                    title = "Group Invitation",
-                    body = "$actorLabel added you to this group. Accept to add it to your groups, or decline to leave.",
-                    confirmLabel = "Accept",
-                    cancelLabel = "Decline",
-                    onConfirm = { vm.acceptInvite() },
-                    onCancel = {
+                GroupInviteModal {
+                    this.groupId = group.id
+                    this.groupName = group.name?.takeIf { it.isNotBlank() } ?: "#${group.id.take(8)}"
+                    this.picture = group.picture
+                    relayHost = pendingInvite.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                    actorLabel = inviteActorLabel
+                    onAccept = { vm.acceptInvite() }
+                    onDecline = {
                         // launchApp, not the VM: onLeave() unmounts and viewModelScope would
                         // cancel the kind:9022 publish mid-flight (same rule as leaveGroup above).
                         launchApp { repo.leaveGroup(group.id) }
                         props.onLeave()
-                    },
-                    onDismiss = { setDismissedInviteGroupId(group.id) },
-                )
+                    }
+                    onDismiss = { setDismissedInviteGroupId(group.id) }
+                }
             }
             // Delete-message confirm. Mirrors the native AlertDialog
             // (GroupScreen.kt:523-545): destructive action, red confirm,

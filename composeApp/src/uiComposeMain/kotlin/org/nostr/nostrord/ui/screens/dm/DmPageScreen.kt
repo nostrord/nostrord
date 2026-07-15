@@ -414,9 +414,7 @@ fun DmPageScreen(
                                             GroupInviteCard(
                                                 groupId = invite.groupId,
                                                 relayUrl = invite.relayUrl,
-                                                onOpen = {
-                                                    invite.relayUrl?.let { onOpenGroup(it, invite.groupId) }
-                                                },
+                                                onOpen = { onOpenGroup(invite.relayUrl, invite.groupId) },
                                                 modifier = Modifier.padding(vertical = Spacing.xxs),
                                             )
                                         }

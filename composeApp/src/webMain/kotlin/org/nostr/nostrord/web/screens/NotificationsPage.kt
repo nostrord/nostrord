@@ -86,13 +86,21 @@ val NotificationsPage =
                     } else {
                         shown.forEach { entry ->
                             val meta = userMetadata[entry.actorPubkey]
-                            val groupName =
-                                entry.groupName?.takeIf { it.isNotBlank() }
+                            // Live metadata first: the snapshot taken at notification time can
+                            // be the truncated id (metadata hadn't landed yet) and would
+                            // otherwise shadow the real name forever. The entry's own relay is
+                            // checked first — NIP-29 group ids are relay-local, and an any-relay
+                            // scan could name a same-id group from another relay.
+                            val groupMeta =
+                                groupsByRelay[entry.relayUrl]?.firstOrNull { it.id == entry.groupId }
                                     ?: groupsByRelay.values.firstNotNullOfOrNull { list ->
-                                        list.firstOrNull { it.id == entry.groupId }?.name
-                                    }?.takeIf { it.isNotBlank() }
+                                        list.firstOrNull { it.id == entry.groupId }
+                                    }
+                            val groupName =
+                                groupMeta?.name?.takeIf { it.isNotBlank() }
+                                    ?: entry.groupName?.takeIf { it.isNotBlank() }
                                     ?: entry.groupId.take(8)
-                            notifRow(entry, meta, groupName) {
+                            notifRow(entry, meta, groupName, groupMeta?.picture) {
                                 vm.markRead(entry.id)
                                 props.onOpen(entry.relayUrl, entry.groupId, entry.messageId)
                             }
@@ -119,6 +127,7 @@ private fun ChildrenBuilder.notifRow(
     entry: NotificationEntry,
     meta: UserMetadata?,
     groupName: String,
+    groupPicture: String?,
     onSelect: () -> Unit,
 ) {
     val actor = actorName(meta, entry.actorPubkey)
@@ -147,7 +156,14 @@ private fun ChildrenBuilder.notifRow(
                 }
                 span {
                     className = ClassName("npage-group")
-                    +"#$groupName"
+                    WebAvatar {
+                        url = groupPicture
+                        seed = entry.groupId
+                        name = groupName
+                        kind = AvatarKind.GROUP
+                        cls = "npage-group-avatar"
+                    }
+                    +groupName
                 }
             }
             entry.preview.takeIf { it.isNotBlank() }?.let { preview ->

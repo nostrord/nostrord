@@ -184,9 +184,6 @@ private external interface ConfirmDialogProps : Props {
     var cancelDisabled: Boolean
     var onCancel: () -> Unit
     var onConfirm: () -> Unit
-
-    /** Backdrop/Esc handler when the cancel button is an action of its own; defaults to [onCancel]. */
-    var onDismiss: (() -> Unit)?
 }
 
 /**
@@ -196,11 +193,10 @@ private external interface ConfirmDialogProps : Props {
  */
 private val ConfirmDialogFc =
     FC<ConfirmDialogProps> { props ->
-        val dismiss = props.onDismiss ?: props.onCancel
-        useEscClose { if (!props.cancelDisabled) dismiss() }
+        useEscClose { if (!props.cancelDisabled) props.onCancel() }
         div {
             className = ClassName("modal-overlay")
-            onClick = { if (!props.cancelDisabled) dismiss() }
+            onClick = { if (!props.cancelDisabled) props.onCancel() }
             div {
                 className = ClassName("modal-card sm")
                 onClick = { it.stopPropagation() }
@@ -238,10 +234,6 @@ private val ConfirmDialogFc =
  * remove member, leave group, log out) routes through this so the dialogs read identically and the
  * overlay markup is not re-hand-rolled per call site. Clicking the backdrop (or Escape) cancels,
  * unless [cancelDisabled] (e.g. an action is in flight); [confirmDisabled] gates the confirm button.
- *
- * [onDismiss], when set, makes the cancel button an ACTION of its own instead of a close
- * (backdrop/Esc run [onDismiss]) — for prompts whose two buttons are both decisions, like
- * the group-invite Accept/Decline.
  */
 fun ChildrenBuilder.confirmDialog(
     title: String,
@@ -253,7 +245,6 @@ fun ChildrenBuilder.confirmDialog(
     cancelLabel: String = "Cancel",
     confirmDisabled: Boolean = false,
     cancelDisabled: Boolean = false,
-    onDismiss: (() -> Unit)? = null,
 ) {
     ConfirmDialogFc {
         this.title = title
@@ -265,6 +256,5 @@ fun ChildrenBuilder.confirmDialog(
         this.cancelDisabled = cancelDisabled
         this.onCancel = onCancel
         this.onConfirm = onConfirm
-        this.onDismiss = onDismiss
     }
 }
