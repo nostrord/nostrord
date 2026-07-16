@@ -331,7 +331,6 @@ class FakeNostrRepository : NostrRepositoryApi {
         isHidden: Boolean,
         picture: String?,
         parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
-        childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?,
     ): Result<Unit> = Result.Success(Unit)
 
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
@@ -339,12 +338,6 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun updateGroupTopology(
         groupId: String,
         parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
-    ): Result<Unit> = Result.Success(Unit)
-
-    override suspend fun updateChildren(
-        groupId: String,
-        children: List<DeclaredChild>,
-        closedChildren: Boolean,
     ): Result<Unit> = Result.Success(Unit)
 
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
@@ -365,7 +358,6 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun refreshGroupMetadata(groupId: String) {}
 
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
-    override val unverifiedChildren: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override suspend fun loadMoreMessages(
         groupId: String,

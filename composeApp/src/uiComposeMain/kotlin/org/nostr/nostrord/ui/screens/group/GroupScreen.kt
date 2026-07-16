@@ -32,7 +32,6 @@ import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
-import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageTab
 import org.nostr.nostrord.ui.screens.group.components.OrphanedGroupContent
@@ -201,7 +200,6 @@ fun GroupScreen(
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var showEditGroupModal by remember { mutableStateOf(false) }
-    var showManageChildrenModal by remember { mutableStateOf(false) }
     var showDeleteGroupDialog by remember { mutableStateOf(false) }
     var deleteInProgress by remember { mutableStateOf(false) }
     var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
@@ -528,16 +526,6 @@ fun GroupScreen(
             },
             initialTab = ManageTab.Info,
             supportsSubgroups = supportsSubgroups,
-        )
-    }
-
-    // Manage children modal (admin only)
-    if (showManageChildrenModal) {
-        ManageChildrenModal(
-            groupId = groupId,
-            currentMetadata = currentGroupMetadata,
-            onDismiss = { showManageChildrenModal = false },
-            onSaved = { showManageChildrenModal = false },
         )
     }
 
@@ -882,7 +870,6 @@ fun GroupScreen(
             showLeaveDialog ||
             showGroupInfoModal ||
             showEditGroupModal ||
-            showManageChildrenModal ||
             showDeleteGroupDialog ||
             messageToDelete != null ||
             selectedUserPubkey != null ||
@@ -969,7 +956,6 @@ fun GroupScreen(
                     onDeleteGroup = { showDeleteGroupDialog = true },
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
-                    onManageChildren = { showManageChildrenModal = true },
                     showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
@@ -1111,7 +1097,6 @@ fun GroupScreen(
                     onDeleteGroup = { showDeleteGroupDialog = true },
                     onManageMembers = { showMemberManagementModal = true },
                     onCreateSubgroup = { showCreateSubgroupModal = true },
-                    onManageChildren = { showManageChildrenModal = true },
                     showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {

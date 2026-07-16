@@ -3166,7 +3166,6 @@ class NostrRepository(
     }
 
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = groupManager.childrenByParent
-    override val unverifiedChildren: StateFlow<Set<String>> = groupManager.unverifiedChildren
 
     override suspend fun refreshGroupMetadata(groupId: String) {
         val relayUrl = groupManager.getRelayForGroup(groupId)
@@ -3285,7 +3284,6 @@ class NostrRepository(
         isHidden: Boolean,
         picture: String?,
         parentOp: GroupManager.ParentOp?,
-        childrenEdit: GroupManager.ChildrenEdit?,
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -3302,7 +3300,6 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
             parentOp = parentOp,
-            childrenEdit = childrenEdit,
         )
         if (result is Result.Success) refreshGroupMetadata(groupId)
         return result
@@ -3329,23 +3326,6 @@ class NostrRepository(
         return groupManager.updateGroupTopology(
             groupId = groupId,
             parent = parent,
-            pubKey = pubKey,
-            currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) },
-        )
-    }
-
-    override suspend fun updateChildren(
-        groupId: String,
-        children: List<org.nostr.nostrord.network.DeclaredChild>,
-        closedChildren: Boolean,
-    ): Result<Unit> {
-        val pubKey = sessionManager.getPublicKey()
-            ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        return groupManager.updateChildren(
-            groupId = groupId,
-            children = children,
-            closedChildren = closedChildren,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
