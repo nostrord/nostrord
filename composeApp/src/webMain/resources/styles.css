@@ -1770,6 +1770,7 @@ body {
 }
 
 .group-side-row {
+    position: relative; /* anchors the drag-over drop indicator */
     display: flex;
     align-items: center;
     gap: var(--space-sm);
@@ -1780,6 +1781,50 @@ body {
     background: transparent;
     color: var(--color-text-secondary);
     cursor: pointer;
+}
+
+/* Channel drag reorder (prototype ChannelsSidebar): dragged row dims, the hovered
+   drop target shows a 2px line at its top edge (drop = insert before it). */
+.group-side-row.dragging {
+    opacity: 0.4;
+}
+
+.group-side-row.drag-over::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    right: 0;
+    left: 0;
+    z-index: 1;
+    height: 2px;
+    border-radius: var(--radius-full);
+    background: var(--color-primary);
+}
+
+.group-side-row-drag {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-left: -4px;
+    color: var(--color-text-muted);
+    cursor: grab;
+    touch-action: none;
+    opacity: 0;
+}
+
+.group-side-row:hover .group-side-row-drag {
+    opacity: 1;
+}
+
+/* No hover on touch devices: keep the handle faintly visible so it stays discoverable. */
+@media (hover: none) {
+    .group-side-row-drag {
+        opacity: 0.6;
+    }
+}
+
+.group-side-row-drag .ico {
+    width: 14px;
+    height: 14px;
 }
 
 .group-side-row:hover {

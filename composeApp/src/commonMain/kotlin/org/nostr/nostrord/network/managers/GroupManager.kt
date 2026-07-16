@@ -1738,6 +1738,80 @@ class GroupManager(
     }
 
     /**
+     * Publish a kind:9002 that reorders the group's channel list (admin only).
+     * Sibling order is the position of the `child` tags, so the event re-declares the
+     * full current metadata with the children in the new order. [orderedIds] must be a
+     * permutation of the current list — the relay rejects a list that drops or invents
+     * children, so mismatches (e.g. a stale local snapshot) fail fast here instead.
+     */
+    suspend fun reorderChildren(
+        groupId: String,
+        orderedIds: List<String>,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event,
+    ): Result<Unit> {
+        val meta = localMetadataFor(groupId)
+            ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Group metadata not loaded")))
+        if (orderedIds.size != meta.children.size || orderedIds.toSet() != meta.children.toSet()) {
+            return Result.Error(AppError.Group.EditFailed(groupId, Exception("Reorder must keep the same channels")))
+        }
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getFocusedClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val tags = mutableListOf(
+                listOf("h", groupId),
+                listOf("name", meta.name?.takeIf { it.isNotBlank() } ?: groupId),
+            )
+            addAccessFlags(
+                tags,
+                isPrivate = !meta.isPublic,
+                isClosed = !meta.isOpen,
+                isRestricted = meta.isRestricted,
+                isHidden = meta.isHidden,
+            )
+            meta.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
+            meta.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
+            meta.parent?.let { tags.add(listOf("parent", it)) }
+            orderedIds.forEach { tags.add(listOf("child", it)) }
+
+            val signed = signEvent(
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 9002,
+                    tags = tags,
+                    content = "",
+                ),
+            )
+            val eventJson = buildJsonArray {
+                add("EVENT")
+                add(signed.toJsonObject())
+            }.toString()
+            val eventId = signed.id
+                ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Event ID not generated")))
+            when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    // Pull the reordered kind:39000 so the channel list re-sorts locally.
+                    currentClient.requestGroupMetadata(groupId)
+                    Result.Success(Unit)
+                }
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception(res.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception("Relay did not respond in time")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.EditFailed(groupId, res.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.EditFailed(groupId, e))
+        }
+    }
+
+    /**
      * Delete a group (admin only). Sends kind:9008 (delete-group).
      * Per NIP-29: when a parent is deleted, its children become roots —
      * the relay re-emits their kind:39000 without the parent tag.

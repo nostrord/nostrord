@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.components.layout
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -23,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
@@ -31,25 +33,35 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.navigation.GroupRoute
@@ -61,6 +73,7 @@ import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageTab
 import org.nostr.nostrord.ui.screens.group.components.MembersModal
 import org.nostr.nostrord.ui.screens.group.isLockedChannel
+import org.nostr.nostrord.ui.screens.group.moveChannelBefore
 import org.nostr.nostrord.ui.screens.group.rootGroupId
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.AvatarGradients
@@ -68,7 +81,9 @@ import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import kotlin.math.roundToInt
 
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the
@@ -107,9 +122,48 @@ fun GroupSidebar(
     val rootMeta = metaById[rootId]
     val rootName = rootMeta?.name ?: rootId
     val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+    // Optimistic channel order while a drag-reorder kind:9002 round-trips; cleared once
+    // the relay's kind:39000 echoes it (or on publish failure).
+    var orderOverride by remember(rootId) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(rootMeta?.children, orderOverride) {
+        if (orderOverride != null && rootMeta?.children == orderOverride) orderOverride = null
+    }
+    val effectiveMetaById =
+        orderOverride?.let { order -> rootMeta?.let { metaById + (rootId to it.copy(children = order)) } } ?: metaById
     // Subgroup channels only: the root's own chat is the "General" row above the list,
     // so listing the root again would duplicate the banner identity.
-    val channels = channelTree(rootId, childrenByParent, metaById).drop(1)
+    val channels = channelTree(rootId, childrenByParent, effectiveMetaById).drop(1)
+
+    // Drag reorder (prototype ChannelsSidebar): dragged row dims, the row the pointer is
+    // over shows a top drop line, drop inserts the dragged channel before it. The target
+    // row is derived from the accumulated vertical offset over the uniform row height.
+    val scope = rememberCoroutineScope()
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragDelta by remember { mutableStateOf(0f) }
+    var rowHeightPx by remember { mutableStateOf(0) }
+    val dragFromIndex = channels.indexOfFirst { it.id == dragId }
+    val dragOverIndex =
+        if (dragId != null && dragFromIndex >= 0 && rowHeightPx > 0) {
+            (dragFromIndex + (dragDelta / rowHeightPx).roundToInt()).coerceIn(0, channels.lastIndex)
+        } else {
+            -1
+        }
+
+    fun endDrag(commit: Boolean) {
+        val id = dragId
+        val over = dragOverIndex
+        dragId = null
+        dragDelta = 0f
+        if (!commit || id == null || over < 0 || over == dragFromIndex) return
+        val currentOrder = channels.filter { it.depth == 1 }.map { it.id }
+        val newOrder = moveChannelBefore(currentOrder, id, channels[over].id)
+        if (newOrder == currentOrder) return
+        orderOverride = newOrder
+        scope.launch {
+            val r = AppModule.nostrRepository.reorderChildren(rootId, newOrder)
+            if (r is Result.Error) orderOverride = null
+        }
+    }
     val joinedHere = joinedGroupsByRelay[route.relayUrl.normalizeRelayUrl()].orEmpty()
     // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
     val supportsSubgroups =
@@ -204,7 +258,7 @@ fun GroupSidebar(
                     }
                 }
                 Spacer(modifier = Modifier.height(Spacing.xs))
-                channels.forEach { entry ->
+                channels.forEachIndexed { index, entry ->
                     val channel = metaById[entry.id]
                     ChannelRow(
                         groupId = entry.id,
@@ -215,6 +269,19 @@ fun GroupSidebar(
                         locked = isLockedChannel(channel, isJoined = entry.id in joinedHere),
                         unread = unreadCounts[entry.id] ?: 0,
                         active = route.groupId == entry.id,
+                        // Only first-level channels reorder: their order is the root's child
+                        // tag positions; nested foreign rows just render.
+                        draggable = isRootAdmin && entry.depth == 1,
+                        dragging = dragId == entry.id,
+                        dropIndicator = index == dragOverIndex && index != dragFromIndex,
+                        onDragStart = {
+                            dragId = entry.id
+                            dragDelta = 0f
+                        },
+                        onDrag = { dy -> dragDelta += dy },
+                        onDragEnd = { endDrag(commit = true) },
+                        onDragCancel = { endDrag(commit = false) },
+                        onHeight = { rowHeightPx = it },
                     ) { onNavigateGroup(GroupRoute(route.relayUrl, entry.id)) }
                 }
             }
@@ -428,17 +495,38 @@ private fun ChannelRow(
     locked: Boolean,
     unread: Int,
     active: Boolean,
+    draggable: Boolean = false,
+    dragging: Boolean = false,
+    dropIndicator: Boolean = false,
+    onDragStart: () -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    onHeight: (Int) -> Unit = {},
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val highlighted = isHovered || active
+    val indicatorColor = NostrordColors.Primary
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
             // Nesting indent, capped so deep foreign trees never crush the label.
             .padding(start = Spacing.md * minOf(depth, 3))
+            .onSizeChanged { onHeight(it.height) }
+            .alpha(if (dragging) 0.4f else 1f)
+            // Drop target line at the top edge (drop = insert before this row).
+            .drawBehind {
+                if (dropIndicator) {
+                    drawRoundRect(
+                        color = indicatorColor,
+                        size = Size(size.width, 2.dp.toPx()),
+                        cornerRadius = CornerRadius(1.dp.toPx()),
+                    )
+                }
+            }
             .clip(NostrordShapes.shapeMedium)
             .background(if (highlighted) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
@@ -447,6 +535,29 @@ private fun ChannelRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs + Spacing.xxs),
     ) {
+        if (draggable) {
+            Icon(
+                imageVector = Icons.Default.DragIndicator,
+                contentDescription = "Drag to reorder",
+                tint = NostrordColors.TextMuted,
+                modifier =
+                Modifier
+                    .size(14.dp)
+                    .alpha(if (isHovered || dragging) 1f else 0.6f)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .pointerInput(groupId) {
+                        detectDragGestures(
+                            onDragStart = { onDragStart() },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragCancel() },
+                        )
+                    },
+            )
+        }
         OptimizedSmallAvatar(
             imageUrl = picture,
             identifier = groupId,

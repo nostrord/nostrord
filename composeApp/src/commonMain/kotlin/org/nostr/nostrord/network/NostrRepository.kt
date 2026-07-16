@@ -3317,6 +3317,21 @@ class NostrRepository(
         )
     }
 
+    override suspend fun reorderChildren(
+        groupId: String,
+        orderedIds: List<String>,
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.reorderChildren(
+            groupId = groupId,
+            orderedIds = orderedIds,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
+
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = groupManager.loadMoreMessages(groupId, channel)
 
     override suspend fun retryStalledLoad(groupId: String, channel: String?): Boolean = groupManager.retryStalledLoad(groupId, channel)

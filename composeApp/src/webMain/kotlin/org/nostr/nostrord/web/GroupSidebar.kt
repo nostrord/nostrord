@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web
 
 import js.objects.unsafeJso
+import kotlinx.browser.document
+import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
@@ -9,8 +11,11 @@ import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.channelTree
 import org.nostr.nostrord.ui.screens.group.isLockedChannel
+import org.nostr.nostrord.ui.screens.group.moveChannelBefore
 import org.nostr.nostrord.ui.screens.group.rootGroupId
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
@@ -27,6 +32,7 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.Background
 import web.cssom.ClassName
@@ -73,9 +79,57 @@ val GroupSidebar =
         val rootMeta = metaById[rootId]
         val rootName = rootMeta?.name ?: rootId
         val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+        // Optimistic channel order while a drag-reorder kind:9002 round-trips; cleared once
+        // the relay's kind:39000 echoes it (or on publish failure).
+        val (orderOverride, setOrderOverride) = useState<List<String>?> { null }
+        useEffect(rootMeta?.children, orderOverride) {
+            if (orderOverride != null && rootMeta?.children == orderOverride) setOrderOverride(null)
+        }
+        val effectiveMetaById =
+            if (orderOverride != null && rootMeta != null) {
+                metaById + (rootId to rootMeta.copy(children = orderOverride))
+            } else {
+                metaById
+            }
         // Subgroup channels only: the root's own chat is the "General" row above the list,
         // so listing the root again would duplicate the banner identity.
-        val channels = channelTree(rootId, childrenByParent, metaById).drop(1)
+        val channels = channelTree(rootId, childrenByParent, effectiveMetaById).drop(1)
+
+        // Pointer-based drag reorder (mouse AND touch), ported from the prototype
+        // ChannelsSidebar: rows are hit-tested via elementFromPoint + data-sgid, and the
+        // drop inserts the dragged channel before the hovered one.
+        val (dragId, setDragId) = useState<String?> { null }
+        val (overId, setOverId) = useState<String?> { null }
+
+        fun startDrag(id: String, e: react.dom.events.PointerEvent<*>) {
+            e.preventDefault()
+            e.stopPropagation()
+            setDragId(id)
+            val currentOrder = channels.filter { it.depth == 1 }.map { it.id }
+            fun targetAt(x: Double, y: Double): String? = document.asDynamic().elementFromPoint(x, y)?.closest("[data-sgid]")?.getAttribute("data-sgid") as String?
+            var onUpRef: ((dynamic) -> Unit)? = null
+            val onMove: (dynamic) -> Unit = { ev -> setOverId(targetAt(ev.clientX as Double, ev.clientY as Double)) }
+            val onUp: (dynamic) -> Unit = { ev ->
+                val target = targetAt(ev.clientX as Double, ev.clientY as Double)
+                if (target != null && target != id) {
+                    val newOrder = moveChannelBefore(currentOrder, id, target)
+                    if (newOrder != currentOrder) {
+                        setOrderOverride(newOrder)
+                        launchApp {
+                            val r = AppModule.nostrRepository.reorderChildren(rootId, newOrder)
+                            if (r is Result.Error) setOrderOverride(null)
+                        }
+                    }
+                }
+                setDragId(null)
+                setOverId(null)
+                window.asDynamic().removeEventListener("pointermove", onMove)
+                window.asDynamic().removeEventListener("pointerup", onUpRef)
+            }
+            onUpRef = onUp
+            window.asDynamic().addEventListener("pointermove", onMove)
+            window.asDynamic().addEventListener("pointerup", onUp)
+        }
         val joinedHere = joinedGroupsByRelay[route.relayUrl.normalizeRelayUrl()].orEmpty()
         // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
         val supportsSubgroups =
@@ -217,10 +271,30 @@ val GroupSidebar =
                         // capped so deep foreign trees never crush the label.
                         val indent = entry.depth - 1
                         val depthCls = if (indent > 0) " depth${minOf(indent, 3)}" else ""
+                        // Only first-level channels reorder: their order is the root's child
+                        // tag positions; nested foreign rows just render.
+                        val draggable = isRootAdmin && entry.depth == 1
                         button {
                             key = entry.id
-                            className = ClassName(if (active) "group-side-row active$depthCls" else "group-side-row$depthCls")
+                            className =
+                                ClassName(
+                                    buildString {
+                                        append(if (active) "group-side-row active$depthCls" else "group-side-row$depthCls")
+                                        if (dragId == entry.id) append(" dragging")
+                                        if (overId == entry.id && dragId != null && dragId != entry.id) append(" drag-over")
+                                    },
+                                )
+                            if (draggable) asDynamic()["data-sgid"] = entry.id
                             onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, entry.id)) }
+                            if (draggable) {
+                                span {
+                                    className = ClassName("group-side-row-drag")
+                                    title = "Drag to reorder"
+                                    onPointerDown = { e -> startDrag(entry.id, e) }
+                                    onClick = { it.stopPropagation() }
+                                    icon(Ic.Drag)
+                                }
+                            }
                             WebAvatar {
                                 url = channel?.picture
                                 seed = entry.id

@@ -335,6 +335,11 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
 
+    override suspend fun reorderChildren(
+        groupId: String,
+        orderedIds: List<String>,
+    ): Result<Unit> = Result.Success(Unit)
+
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
 
     override suspend fun requestGroupMessages(
