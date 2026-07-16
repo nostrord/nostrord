@@ -28,7 +28,6 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
-import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
@@ -214,7 +213,6 @@ fun GroupScreen(
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
-    var showCreateSubgroupModal by remember { mutableStateOf(false) }
     var inputOverlayOpen by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
@@ -497,18 +495,6 @@ fun GroupScreen(
                 vm.leaveGroup { onNavigateHome() }
             },
             onDismiss = { showGroupInfoModal = false },
-        )
-    }
-
-    if (showCreateSubgroupModal) {
-        CreateGroupModal(
-            currentRelayUrl = currentRelayUrl,
-            parentGroupId = groupId,
-            onDismiss = { showCreateSubgroupModal = false },
-            onGroupCreated = { _, newId, newName ->
-                showCreateSubgroupModal = false
-                onNavigateToGroup(newId, newName, null, null)
-            },
         )
     }
 
@@ -955,7 +941,6 @@ fun GroupScreen(
                     onEditGroup = { showEditGroupModal = true },
                     onDeleteGroup = { showDeleteGroupDialog = true },
                     onManageMembers = { showMemberManagementModal = true },
-                    onCreateSubgroup = { showCreateSubgroupModal = true },
                     showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
@@ -1096,7 +1081,6 @@ fun GroupScreen(
                     onEditGroup = { showEditGroupModal = true },
                     onDeleteGroup = { showDeleteGroupDialog = true },
                     onManageMembers = { showMemberManagementModal = true },
-                    onCreateSubgroup = { showCreateSubgroupModal = true },
                     showSubgroupControls = supportsSubgroups,
                     parentGroupName = parentGroupName,
                     onParentClick = {
