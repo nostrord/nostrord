@@ -925,6 +925,9 @@ class NostrRepository(
             connectionManager.connectionState.collect { st ->
                 if (st !is ConnectionManager.ConnectionState.Connected) return@collect
                 val pk = sessionManager.getPublicKey() ?: return@collect
+                // Reconnects drop the standing own-kind:10009 sub with the socket; re-arm it
+                // so lists published by another device keep applying live.
+                outboxManager.armKind10009LiveSub(pk)
                 val pending = outboxManager.kind10009NeedsRepublish.value ||
                     try {
                         SecureStorage.isKind10009RepublishPendingFor(pk)
