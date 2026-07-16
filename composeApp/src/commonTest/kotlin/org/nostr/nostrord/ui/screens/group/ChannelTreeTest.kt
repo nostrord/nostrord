@@ -111,6 +111,23 @@ class ChannelTreeTest {
         assertEquals(0, aggregateUnread("g", emptyMap(), emptyMap()))
     }
 
+    // ── moveChannelBefore ───────────────────────────────────────────────────
+
+    @Test
+    fun moveInsertsDraggedBeforeTarget() {
+        val order = listOf("a", "b", "c", "d")
+        assertEquals(listOf("b", "a", "c", "d"), moveChannelBefore(order, "a", "c"))
+        assertEquals(listOf("d", "a", "b", "c"), moveChannelBefore(order, "d", "a"))
+    }
+
+    @Test
+    fun moveIsNoOpForUnknownOrSelfTargets() {
+        val order = listOf("a", "b")
+        assertEquals(order, moveChannelBefore(order, "a", "a"))
+        assertEquals(order, moveChannelBefore(order, "x", "b"))
+        assertEquals(order, moveChannelBefore(order, "a", "x"))
+    }
+
     // ── isLockedChannel ─────────────────────────────────────────────────────
 
     @Test

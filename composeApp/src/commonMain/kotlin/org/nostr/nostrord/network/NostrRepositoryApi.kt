@@ -420,6 +420,15 @@ interface NostrRepositoryApi {
 
     suspend fun deleteGroup(groupId: String): Result<Unit>
 
+    /**
+     * Reorder the group's channels (kind:9002 full-state edit; order = `child` tag
+     * position). [orderedIds] must be a permutation of the current child list.
+     */
+    suspend fun reorderChildren(
+        groupId: String,
+        orderedIds: List<String>,
+    ): Result<Unit>
+
     fun isGroupJoined(groupId: String): Boolean
 
     suspend fun requestGroupMessages(
