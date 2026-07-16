@@ -1546,6 +1546,7 @@ class GroupManager(
         isRestricted: Boolean = false,
         isHidden: Boolean = false,
         customGroupId: String? = null,
+        parentGroupId: String? = null,
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
@@ -1598,6 +1599,10 @@ class GroupManager(
             addAccessFlags(metaTags, isPrivate, isClosed, isRestricted, isHidden)
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
+            // Subgroup creation rides the same event: relays reject a kind:9002 whose only
+            // payload is a parent tag ("missing metadata tags"), so the parent link must be
+            // declared alongside name/flags instead of in a follow-up topology event.
+            if (!parentGroupId.isNullOrBlank()) metaTags.add(listOf("parent", parentGroupId))
             val signedMeta = signEvent(
                 Event(
                     pubkey = pubKey,
@@ -1629,6 +1634,9 @@ class GroupManager(
             discardPendingInvite(confirmedGroupId)
             publishJoinedGroups()
             currentClient.requestGroupMessages(confirmedGroupId)
+            // Pull the kind:39000 produced by the edit-metadata above so name and parent land
+            // locally right away (childrenByParent needs the parent tag for the rail/Subgroups).
+            currentClient.requestGroupMetadata(confirmedGroupId)
 
             Result.Success(confirmedGroupId)
         } catch (e: Throwable) {
@@ -1636,21 +1644,26 @@ class GroupManager(
         }
     }
 
+    /** Local kind:39000 snapshot for [groupId], from the focused list or any relay's cache. */
+    private fun localMetadataFor(groupId: String): GroupMetadata? = _groups.value.find { it.id == groupId }
+        ?: _groupsByRelay.value.values.firstNotNullOfOrNull { groups -> groups.find { it.id == groupId } }
+
     /**
      * Edit a group's metadata, its place in the hierarchy, and the list of
      * accepted children — all in a single kind:9002 event (admin only).
      *
-     * NIP-29 permits partial-update semantics on kind:9002: tags that are
-     * present overwrite that field; tags that are omitted leave it unchanged.
-     * Batching metadata + parent + children into one event avoids the relay
-     * briefly seeing intermediate states and halves round-trips from the
-     * modal save flow.
+     * A kind:9002 replaces the whole group metadata (NIP-29), so this always
+     * emits the complete state: name, access flags, about/picture, the parent
+     * and the full current child list. Omitting the parent tag is what promotes
+     * a subgroup to root, and the relay rejects an edit that doesn't enumerate
+     * every current child.
      *
-     * - [parentOp]: null leaves the current parent alone. `SetTo(id)` links
-     *   this group under `id`; `Detach` emits `["parent"]` to promote to root.
-     * - [childrenEdit]: null leaves the child list alone. Otherwise emits the
-     *   full list (or the bare `["child"]` clear marker when empty) and the
-     *   paired `["open-children"]`/`["closed-children"]` flag.
+     * - [parentOp]: null keeps the current parent (re-declared from the local
+     *   kind:39000 cache). `SetTo(id)` links this group under `id`; `Detach`
+     *   omits the tag, promoting the group to root.
+     * - [childrenEdit]: null keeps the current child list (re-declared in its
+     *   current order). Otherwise its list must contain exactly the current
+     *   children — reordering is the only change the relay accepts.
      */
     suspend fun editGroup(
         groupId: String,
@@ -1682,35 +1695,18 @@ class GroupManager(
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
 
+            val current = localMetadataFor(groupId)
             when (parentOp) {
                 is ParentOp.SetTo -> metaTags.add(listOf("parent", parentOp.id))
-                ParentOp.Detach -> metaTags.add(listOf("parent"))
-                null -> Unit
+                ParentOp.Detach -> Unit // omitting the parent tag is what promotes to root
+                null -> current?.parent?.let { metaTags.add(listOf("parent", it)) }
             }
 
-            if (childrenEdit != null) {
-                if (childrenEdit.children.isEmpty()) {
-                    // Explicit clear marker; zero child tags would mean "unchanged".
-                    metaTags.add(listOf("child"))
-                } else {
-                    childrenEdit.children.forEach { child ->
-                        val parts = mutableListOf("child", child.id)
-                        val hasFlags = child.flags.isNotEmpty()
-                        if (child.order != null || hasFlags) {
-                            parts.add(child.order.orEmpty())
-                        }
-                        if (hasFlags) parts.addAll(child.flags)
-                        metaTags.add(parts)
-                    }
-                }
-                metaTags.add(
-                    if (childrenEdit.closedChildren) {
-                        listOf("closed-children")
-                    } else {
-                        listOf("open-children")
-                    },
-                )
-            }
+            // The relay rejects an edit that doesn't enumerate every current child, so
+            // always re-declare the full list — [childrenEdit] can only reorder it.
+            val childIds = childrenEdit?.children?.map { it.id }
+                ?: current?.children?.map { it.id }.orEmpty()
+            childIds.forEach { metaTags.add(listOf("child", it)) }
 
             val signedMeta = signEvent(
                 Event(
@@ -1749,7 +1745,7 @@ class GroupManager(
         }
     }
 
-    /** Child-list edit for [editGroup]: the full desired list plus the flag. */
+    /** Child-list edit for [editGroup]: the full current list, reordered. */
     data class ChildrenEdit(
         val children: List<DeclaredChild>,
         val closedChildren: Boolean,
@@ -1759,7 +1755,8 @@ class GroupManager(
      * Publish a kind:9002 that re-parents a group or promotes it to root.
      *
      * - [parent]: `ParentOp.SetTo(id)` moves the group under a parent,
-     *   `ParentOp.Detach` promotes to root (empty parent tag), null = no change.
+     *   `ParentOp.Detach` promotes to root (parent tag omitted), null = keep
+     *   the current parent.
      */
     suspend fun updateGroupTopology(
         groupId: String,
@@ -1773,13 +1770,31 @@ class GroupManager(
             ?: connectionManager.getFocusedClient()
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
+        // A kind:9002 replaces the whole metadata, so re-declare everything alongside the
+        // op: name/flags/about/picture, and the full child list (the relay rejects an edit
+        // that drops existing children).
+        val meta = localMetadataFor(groupId)
+
         return try {
-            val tags = mutableListOf<List<String>>(listOf("h", groupId))
+            val tags = mutableListOf<List<String>>(
+                listOf("h", groupId),
+                listOf("name", meta?.name ?: groupId),
+            )
+            addAccessFlags(
+                tags,
+                isPrivate = meta?.isPublic == false,
+                isClosed = meta?.isOpen == false,
+                isRestricted = meta?.isRestricted == true,
+                isHidden = meta?.isHidden == true,
+            )
+            meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
+            meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
             when (parent) {
                 is ParentOp.SetTo -> tags.add(listOf("parent", parent.id))
-                ParentOp.Detach -> tags.add(listOf("parent"))
-                null -> Unit
+                ParentOp.Detach -> Unit // omitting the parent tag is what promotes to root
+                null -> meta?.parent?.let { tags.add(listOf("parent", it)) }
             }
+            meta?.children?.forEach { tags.add(listOf("child", it.id)) }
             val signed = signEvent(
                 Event(
                     pubkey = pubKey,
@@ -1825,12 +1840,12 @@ class GroupManager(
     }
 
     /**
-     * Publish a kind:9002 that sets the parent's bilateral child-acceptance list
-     * and the `closed-children` / `open-children` flag (NIP-29 "Parent consent").
+     * Publish a kind:9002 that reorders the group's child list (admin only).
      *
-     * The event carries the required metadata tags (name, visibility, access) so
-     * the relay accepts it, plus one `["child", id, order?, flags?]` per entry and
-     * `["closed-children"]` or `["open-children"]` to toggle the flag.
+     * A kind:9002 replaces the whole metadata, so the event re-declares
+     * name/flags/about/picture and the parent, plus one `["child", id]` per
+     * entry in the desired order. [children] must contain exactly the group's
+     * current children — the relay rejects a list that drops or invents any.
      */
     suspend fun updateChildren(
         groupId: String,
@@ -1846,7 +1861,7 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         // Include current metadata so the relay accepts the kind:9002.
-        val meta = _groups.value.find { it.id == groupId }
+        val meta = localMetadataFor(groupId)
 
         return try {
             val tags = mutableListOf<List<String>>(
@@ -1865,28 +1880,12 @@ class GroupManager(
             )
             meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
             meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
+            // Keep the current parent: this event replaces the whole metadata, and
+            // omitting the tag would silently promote the group to root.
+            meta?.parent?.let { tags.add(listOf("parent", it)) }
 
-            if (children.isEmpty()) {
-                // NIP-29: a `kind:9002` with no `child` tags at all leaves the list
-                // unchanged; a single `["child"]` with no id is the explicit clear marker.
-                tags.add(listOf("child"))
-            } else {
-                children.forEach { child ->
-                    val parts = mutableListOf("child", child.id)
-                    val hasFlags = child.flags.isNotEmpty()
-                    if (child.order != null || hasFlags) {
-                        parts.add(child.order.orEmpty())
-                    }
-                    if (hasFlags) {
-                        parts.addAll(child.flags)
-                    }
-                    tags.add(parts)
-                }
-            }
-            if (closedChildren) {
-                tags.add(listOf("closed-children"))
-            } else {
-                tags.add(listOf("open-children"))
+            children.forEach { child ->
+                tags.add(listOf("child", child.id))
             }
 
             val signed = signEvent(
