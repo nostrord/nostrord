@@ -420,15 +420,6 @@ interface NostrRepositoryApi {
 
     suspend fun deleteGroup(groupId: String): Result<Unit>
 
-    /**
-     * Publish a kind:9002 to re-parent a group or promote it to root.
-     * See [GroupManager.updateGroupTopology].
-     */
-    suspend fun updateGroupTopology(
-        groupId: String,
-        parent: GroupManager.ParentOp?,
-    ): Result<Unit>
-
     fun isGroupJoined(groupId: String): Boolean
 
     suspend fun requestGroupMessages(

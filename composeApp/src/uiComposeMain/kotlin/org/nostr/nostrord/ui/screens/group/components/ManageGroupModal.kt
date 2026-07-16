@@ -950,30 +950,30 @@ private fun ManageHierarchySection(
             .sortedBy { (it.name ?: it.id).lowercase() }
     val subIds = childrenByParent[groupId].orEmpty()
 
-    // Reparent through editGroup so the kind:9002 carries the group's full metadata + the parent
-    // op (the relay can reject a bare parent-only 9002); fall back to a topology-only event when
-    // the target's metadata is not cached. Mirrors the web reparent helper.
-    suspend fun reparent(target: GroupMetadata?, id: String, op: GroupManager.ParentOp): Result<Unit> = if (target != null) {
-        AppModule.nostrRepository.editGroup(
-            groupId = target.id,
-            name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
-            about = target.about,
-            isPrivate = !target.isPublic,
-            isClosed = !target.isOpen,
-            isRestricted = target.isRestricted,
-            isHidden = target.isHidden,
-            picture = target.picture,
-            parentOp = op,
-        )
-    } else {
-        AppModule.nostrRepository.updateGroupTopology(id, op)
-    }
+    // Re-parent through editGroup: a kind:9002 replaces the WHOLE metadata (PUT), so the
+    // event must carry the target's full current state — publishing without its kind:39000
+    // cached would clobber the name/flags. Mirrors the web reparent helper.
+    suspend fun reparent(target: GroupMetadata, op: GroupManager.ParentOp): Result<Unit> = AppModule.nostrRepository.editGroup(
+        groupId = target.id,
+        name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
+        about = target.about,
+        isPrivate = !target.isPublic,
+        isClosed = !target.isOpen,
+        isRestricted = target.isRestricted,
+        isHidden = target.isHidden,
+        picture = target.picture,
+        parentOp = op,
+    )
 
-    fun apply(target: GroupMetadata?, id: String, op: GroupManager.ParentOp, fail: String) {
+    fun apply(target: GroupMetadata?, op: GroupManager.ParentOp, fail: String) {
+        if (target == null) {
+            error = "Group metadata not loaded yet. Open the group once and try again."
+            return
+        }
         busy = true
         error = null
         scope.launch {
-            val r = reparent(target, id, op)
+            val r = reparent(target, op)
             busy = false
             if (r is Result.Error) error = r.error.message?.ifBlank { fail } ?: fail
         }
@@ -990,22 +990,30 @@ private fun ManageHierarchySection(
         Spacer(modifier = Modifier.height(Spacing.sm))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             GroupPickerDropdown(
-                placeholder = if (parentCandidates.isEmpty()) "No other groups on this relay" else "Set parent...",
+                placeholder = if (parentCandidates.isEmpty()) "No other groups on this relay" else "Move under...",
                 candidates = parentCandidates,
                 enabled = !busy && parentCandidates.isNotEmpty(),
                 modifier = Modifier.weight(1f),
-                onPick = { g -> apply(currentMetadata, groupId, GroupManager.ParentOp.SetTo(g.id), "Failed to update hierarchy.") },
+                onPick = { g -> apply(currentMetadata, GroupManager.ParentOp.SetTo(g.id), "Failed to update hierarchy.") },
             )
             if (parentId != null) {
                 OutlinedButton(
-                    onClick = { apply(currentMetadata, groupId, GroupManager.ParentOp.Detach, "Failed to update hierarchy.") },
+                    onClick = { apply(currentMetadata, GroupManager.ParentOp.Detach, "Failed to convert to root group.") },
                     enabled = !busy,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                 ) {
-                    Text("Make root", style = NostrordTypography.Button, color = NostrordColors.TextSecondary)
+                    Text("Make root group", style = NostrordTypography.Button, color = NostrordColors.TextSecondary)
                 }
             }
+        }
+        if (parentId != null) {
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                "Making this a root group keeps its members, messages and settings; it leaves ${parentName ?: "its parent"} and gets its own spot in the rail.",
+                style = MaterialTheme.typography.labelSmall,
+                color = NostrordColors.TextMuted,
+            )
         }
         if (error != null) {
             Spacer(modifier = Modifier.height(Spacing.md))
@@ -1013,10 +1021,10 @@ private fun ManageHierarchySection(
         }
 
         Spacer(modifier = Modifier.height(Spacing.xxl))
-        Text("SUBGROUPS (${subIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+        Text("CHANNELS (${subIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
         Spacer(modifier = Modifier.height(Spacing.sm))
         if (subIds.isEmpty()) {
-            ModEmpty("No subgroups.")
+            ModEmpty("No channels.")
         } else {
             subIds.forEach { sid ->
                 val sub = relayGroups.firstOrNull { it.id == sid }
@@ -1025,26 +1033,40 @@ private fun ManageHierarchySection(
                     Modifier
                         .fillMaxWidth()
                         .padding(vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         sub?.name?.takeIf { it.isNotBlank() } ?: sid,
                         style = NostrordTypography.Caption,
                         color = NostrordColors.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    // Detaching edits the CHILD's kind:9002, so it needs its admin key.
+                    if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
+                        TextButton(
+                            onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") },
+                            enabled = !busy,
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                        ) {
+                            Text("Detach", style = NostrordTypography.Caption, color = NostrordColors.TextSecondary)
+                        }
+                    }
                 }
             }
         }
         Spacer(modifier = Modifier.height(Spacing.sm))
         GroupPickerDropdown(
-            placeholder = if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a subgroup...",
+            placeholder = if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...",
             candidates = childCandidates,
             enabled = !busy && childCandidates.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(),
-            onPick = { g -> apply(g, g.id, GroupManager.ParentOp.SetTo(groupId), "Failed to add subgroup.") },
+            onPick = { g -> apply(g, GroupManager.ParentOp.SetTo(groupId), "Failed to add channel.") },
         )
         Spacer(modifier = Modifier.height(Spacing.sm))
         Text(
-            "Only groups you administer on this relay can be added as subgroups.",
+            "Only groups you administer on this relay can be added as channels. Detaching a channel turns it back into a root group.",
             style = MaterialTheme.typography.labelSmall,
             color = NostrordColors.TextMuted,
         )

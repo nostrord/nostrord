@@ -550,9 +550,9 @@ private external interface ManageHierarchyProps : Props {
 }
 
 /**
- * Hierarchy tab: re-parent the group (make it a child of another group on the same relay) or
- * promote it back to root, plus a read-only list of its declared subgroups. Parent changes go
- * through one kind:9002 (updateGroupTopology); a parent must live on the same relay, and the
+ * Hierarchy tab: move the group under a parent (making it a channel), promote it back to a
+ * root group, and manage its channel list (add / detach). Every change is one full-state
+ * kind:9002 via editGroup (PUT semantics); a parent must live on the same relay, and the
  * candidate list excludes the group itself and its own descendants so no cycle can form.
  */
 private val ManageHierarchySection =
@@ -592,45 +592,40 @@ private val ManageHierarchySection =
                 }
                 .sortedBy { (it.name ?: it.id).lowercase() }
 
-        // Re-parent through editGroup so the kind:9002 carries the group's FULL metadata + the
-        // parent op (the relay can reject a bare parent-only 9002); fall back to a topology-only
-        // event when we don't have that group's metadata cached (e.g. an id typed by hand).
-        suspend fun reparent(target: GroupMetadata?, id: String, op: GroupManager.ParentOp): Result<Unit> = if (target != null) {
-            repo.editGroup(
-                groupId = target.id,
-                name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
-                about = target.about,
-                isPrivate = !target.isPublic,
-                isClosed = !target.isOpen,
-                isRestricted = target.isRestricted,
-                isHidden = target.isHidden,
-                picture = target.picture,
-                parentOp = op,
-            )
-        } else {
-            repo.updateGroupTopology(id, op)
-        }
+        // Re-parent through editGroup: a kind:9002 replaces the WHOLE metadata (PUT), so the
+        // event must carry the target's full current state — publishing without its
+        // kind:39000 cached would clobber the name/flags.
+        suspend fun reparent(target: GroupMetadata, op: GroupManager.ParentOp): Result<Unit> = repo.editGroup(
+            groupId = target.id,
+            name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
+            about = target.about,
+            isPrivate = !target.isPublic,
+            isClosed = !target.isOpen,
+            isRestricted = target.isRestricted,
+            isHidden = target.isHidden,
+            picture = target.picture,
+            parentOp = op,
+        )
 
-        fun applyParent(op: GroupManager.ParentOp) {
+        fun apply(target: GroupMetadata?, op: GroupManager.ParentOp, fail: String) {
+            if (target == null) {
+                setError("Group metadata not loaded yet. Open the group once and try again.")
+                return
+            }
             setBusy(true)
             setError(null)
             launchApp {
-                val r = reparent(group, group.id, op)
+                val r = reparent(target, op)
                 setBusy(false)
-                if (r is Result.Error) setError(r.error.message.ifBlank { "Failed to update hierarchy." })
+                if (r is Result.Error) setError(r.error.message.ifBlank { fail })
             }
         }
 
-        fun addSubgroup(childId: String) {
+        fun applyParent(op: GroupManager.ParentOp) = apply(group, op, "Failed to update hierarchy.")
+
+        fun addChannel(childId: String) {
             if (childId.isBlank()) return
-            val child = relayGroups.firstOrNull { it.id == childId }
-            setBusy(true)
-            setError(null)
-            launchApp {
-                val r = reparent(child, childId, GroupManager.ParentOp.SetTo(group.id))
-                setBusy(false)
-                if (r is Result.Error) setError(r.error.message.ifBlank { "Failed to add subgroup." })
-            }
+            apply(relayGroups.firstOrNull { it.id == childId }, GroupManager.ParentOp.SetTo(group.id), "Failed to add channel.")
         }
 
         // Groups you administer that could become a subgroup here: not this group, not an
@@ -673,7 +668,7 @@ private val ManageHierarchySection =
                 }
                 option {
                     value = ""
-                    +(if (candidates.isEmpty()) "No other groups on this relay" else "Set parent...")
+                    +(if (candidates.isEmpty()) "No other groups on this relay" else "Move under...")
                 }
                 candidates.forEach { g ->
                     option {
@@ -688,8 +683,17 @@ private val ManageHierarchySection =
                     className = ClassName("btn-secondary")
                     disabled = busy
                     onClick = { applyParent(GroupManager.ParentOp.Detach) }
-                    +"Make root"
+                    +"Make root group"
                 }
+            }
+        }
+        if (parentId != null) {
+            div {
+                className = ClassName("modal-subtitle")
+                +(
+                    "Making this a root group keeps its members, messages and settings; " +
+                        "it leaves ${parentName ?: "its parent"} and gets its own spot in the rail."
+                    )
             }
         }
         if (error != null) {
@@ -702,14 +706,14 @@ private val ManageHierarchySection =
         val subIds = childrenByParent[group.id].orEmpty()
         div {
             className = ClassName("access-section-title")
-            +"SUBGROUPS (${subIds.size})"
+            +"CHANNELS (${subIds.size})"
         }
         div {
             className = ClassName("mod-list")
             if (subIds.isEmpty()) {
                 div {
                     className = ClassName("mod-empty")
-                    +"No subgroups."
+                    +"No channels."
                 }
             }
             subIds.forEach { sid ->
@@ -720,6 +724,18 @@ private val ManageHierarchySection =
                     span {
                         className = ClassName("mod-name")
                         +(sub?.name?.takeIf { it.isNotBlank() } ?: sid)
+                    }
+                    // Detaching edits the CHILD's kind:9002, so it needs its admin key.
+                    if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
+                        div {
+                            className = ClassName("mod-actions")
+                            button {
+                                className = ClassName("mod-btn")
+                                disabled = busy
+                                onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") }
+                                +"Detach"
+                            }
+                        }
                     }
                 }
             }
@@ -732,11 +748,11 @@ private val ManageHierarchySection =
                 disabled = busy || childCandidates.isEmpty()
                 onChange = { e ->
                     val id = e.currentTarget.value
-                    if (id.isNotBlank()) addSubgroup(id)
+                    if (id.isNotBlank()) addChannel(id)
                 }
                 option {
                     value = ""
-                    +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a subgroup...")
+                    +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...")
                 }
                 childCandidates.forEach { g ->
                     option {
@@ -749,7 +765,7 @@ private val ManageHierarchySection =
         }
         div {
             className = ClassName("modal-subtitle")
-            +"Only groups you administer on this relay can be added as subgroups."
+            +"Only groups you administer on this relay can be added as channels. Detaching a channel turns it back into a root group."
         }
     }
 
