@@ -99,7 +99,14 @@ fun CreateGroupModal(
     // relay, not just the listed ones.
     var customRelay by remember { mutableStateOf("") }
     val usingCustomRelay = selectedRelay == CUSTOM_RELAY
-    val effectiveRelay = if (usingCustomRelay) customRelay.trim().toRelayUrl() else selectedRelay
+    // A subgroup must live on its parent's relay: the parent tag carries a relay-scoped
+    // group id and the relay validates the link against its own state, so cross-relay
+    // channels are not expressible. The relay is therefore not selectable in subgroup mode.
+    val effectiveRelay = when {
+        isSubgroup -> currentRelayUrl
+        usingCustomRelay -> customRelay.trim().toRelayUrl()
+        else -> selectedRelay
+    }
 
     val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
 
@@ -258,68 +265,76 @@ fun CreateGroupModal(
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
 
-                    // Relay selector
+                    // Relay: fixed to the parent's relay for a subgroup, selectable otherwise.
                     FieldLabel("Relay")
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                    ExposedDropdownMenuBox(
-                        expanded = relayDropdownExpanded,
-                        onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
-                    ) {
-                        AppField(
-                            value = if (usingCustomRelay) "Custom relay…" else selectedRelay.removePrefix("wss://"),
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = relayDropdownExpanded)
-                            },
-                            modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                                // It is a select, not an editable field: a hand cursor (overriding
-                                // the inner text field's I-beam), matching the web `.modal-select`.
-                                .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true),
+                    if (isSubgroup) {
+                        Text(
+                            "Created on ${effectiveRelay.removePrefix("wss://")} (same relay as the parent group).",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextSecondary,
                         )
-                        ExposedDropdownMenu(
+                    } else {
+                        ExposedDropdownMenuBox(
                             expanded = relayDropdownExpanded,
-                            onDismissRequest = { relayDropdownExpanded = false },
-                            containerColor = NostrordColors.BackgroundFloating,
+                            onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
                         ) {
-                            relayOptions.forEach { relay ->
+                            AppField(
+                                value = if (usingCustomRelay) "Custom relay…" else selectedRelay.removePrefix("wss://"),
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = relayDropdownExpanded)
+                                },
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                    // It is a select, not an editable field: a hand cursor (overriding
+                                    // the inner text field's I-beam), matching the web `.modal-select`.
+                                    .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = relayDropdownExpanded,
+                                onDismissRequest = { relayDropdownExpanded = false },
+                                containerColor = NostrordColors.BackgroundFloating,
+                            ) {
+                                relayOptions.forEach { relay ->
+                                    RelayMenuItem(
+                                        label = relay.removePrefix("wss://"),
+                                        selected = relay == selectedRelay,
+                                        onClick = {
+                                            selectedRelay = relay
+                                            errorMessage = null
+                                            relayDropdownExpanded = false
+                                        },
+                                    )
+                                }
                                 RelayMenuItem(
-                                    label = relay.removePrefix("wss://"),
-                                    selected = relay == selectedRelay,
+                                    label = "Custom relay…",
+                                    selected = usingCustomRelay,
                                     onClick = {
-                                        selectedRelay = relay
+                                        selectedRelay = CUSTOM_RELAY
                                         errorMessage = null
                                         relayDropdownExpanded = false
                                     },
                                 )
                             }
-                            RelayMenuItem(
-                                label = "Custom relay…",
-                                selected = usingCustomRelay,
-                                onClick = {
-                                    selectedRelay = CUSTOM_RELAY
+                        }
+
+                        if (usingCustomRelay) {
+                            Spacer(modifier = Modifier.height(Spacing.xs))
+                            AppField(
+                                value = customRelay,
+                                onValueChange = {
+                                    customRelay = it
                                     errorMessage = null
-                                    relayDropdownExpanded = false
                                 },
+                                placeholder = "relay.example.com",
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isCreating,
                             )
                         }
-                    }
-
-                    if (usingCustomRelay) {
-                        Spacer(modifier = Modifier.height(Spacing.xs))
-                        AppField(
-                            value = customRelay,
-                            onValueChange = {
-                                customRelay = it
-                                errorMessage = null
-                            },
-                            placeholder = "relay.example.com",
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !isCreating,
-                        )
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
