@@ -579,12 +579,16 @@ private val ManageHierarchySection =
             val id = stack.removeLast()
             if (descendants.add(id)) stack.addAll(childrenByParent[id].orEmpty())
         }
-        // Only groups you administer are offered as a parent (you can't list every group on the
-        // relay), and never this group, its current parent, or any of its descendants (cycles).
+        // Single-level hierarchy: channels don't have channels. Only ROOT groups you
+        // administer are offered as a parent, never this group, its current parent, or
+        // any of its descendants (cycles); a group that already has channels must detach
+        // them before it can be moved under another group.
+        val subIds = childrenByParent[group.id].orEmpty()
         val candidates =
             relayGroups
                 .filter {
-                    it.id != group.id &&
+                    it.parent == null &&
+                        it.id != group.id &&
                         it.id != parentId &&
                         it.id !in descendants &&
                         myPubkey != null &&
@@ -628,16 +632,14 @@ private val ManageHierarchySection =
             apply(relayGroups.firstOrNull { it.id == childId }, GroupManager.ParentOp.SetTo(group.id), "Failed to add channel.")
         }
 
-        // Groups you administer that could become a subgroup here: not this group, not an
-        // existing child, and not an ancestor/descendant (cycle). Only known groups, never the
-        // relay's full list.
+        // Groups you administer that could become a channel here: only childless root
+        // groups (single-level hierarchy), never this group or its descendants.
         val childCandidates =
             relayGroups
                 .filter {
-                    it.id != group.id &&
-                        it.id != parentId &&
-                        it.id != group.parent &&
-                        it.parent != group.id &&
+                    it.parent == null &&
+                        childrenByParent[it.id].orEmpty().isEmpty() &&
+                        it.id != group.id &&
                         it.id !in descendants &&
                         myPubkey != null &&
                         myPubkey in groupAdmins[it.id].orEmpty()
@@ -661,14 +663,20 @@ private val ManageHierarchySection =
             select {
                 className = ClassName("modal-input")
                 value = ""
-                disabled = busy || candidates.isEmpty()
+                disabled = busy || candidates.isEmpty() || subIds.isNotEmpty()
                 onChange = { e ->
                     val id = e.currentTarget.value
                     if (id.isNotBlank()) applyParent(GroupManager.ParentOp.SetTo(id))
                 }
                 option {
                     value = ""
-                    +(if (candidates.isEmpty()) "No other groups on this relay" else "Move under...")
+                    +(
+                        when {
+                            subIds.isNotEmpty() -> "Detach its channels to move this group"
+                            candidates.isEmpty() -> "No other groups on this relay"
+                            else -> "Move under..."
+                        }
+                        )
                 }
                 candidates.forEach { g ->
                     option {
@@ -703,69 +711,72 @@ private val ManageHierarchySection =
             }
         }
 
-        val subIds = childrenByParent[group.id].orEmpty()
-        div {
-            className = ClassName("access-section-title")
-            +"CHANNELS (${subIds.size})"
-        }
-        div {
-            className = ClassName("mod-list")
-            if (subIds.isEmpty()) {
-                div {
-                    className = ClassName("mod-empty")
-                    +"No channels."
-                }
+        // Channels don't have channels (single-level hierarchy): the section only
+        // exists on root groups.
+        if (parentId == null) {
+            div {
+                className = ClassName("access-section-title")
+                +"CHANNELS (${subIds.size})"
             }
-            subIds.forEach { sid ->
-                val sub = relayGroups.firstOrNull { it.id == sid }
-                div {
-                    key = sid
-                    className = ClassName("mod-row")
-                    span {
-                        className = ClassName("mod-name")
-                        +(sub?.name?.takeIf { it.isNotBlank() } ?: sid)
+            div {
+                className = ClassName("mod-list")
+                if (subIds.isEmpty()) {
+                    div {
+                        className = ClassName("mod-empty")
+                        +"No channels."
                     }
-                    // Detaching edits the CHILD's kind:9002, so it needs its admin key.
-                    if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
-                        div {
-                            className = ClassName("mod-actions")
-                            button {
-                                className = ClassName("mod-btn")
-                                disabled = busy
-                                onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") }
-                                +"Detach"
+                }
+                subIds.forEach { sid ->
+                    val sub = relayGroups.firstOrNull { it.id == sid }
+                    div {
+                        key = sid
+                        className = ClassName("mod-row")
+                        span {
+                            className = ClassName("mod-name")
+                            +(sub?.name?.takeIf { it.isNotBlank() } ?: sid)
+                        }
+                        // Detaching edits the CHILD's kind:9002, so it needs its admin key.
+                        if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
+                            div {
+                                className = ClassName("mod-actions")
+                                button {
+                                    className = ClassName("mod-btn")
+                                    disabled = busy
+                                    onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") }
+                                    +"Detach"
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        div {
-            className = ClassName("hierarchy-row")
-            select {
-                className = ClassName("modal-input")
-                value = ""
-                disabled = busy || childCandidates.isEmpty()
-                onChange = { e ->
-                    val id = e.currentTarget.value
-                    if (id.isNotBlank()) addChannel(id)
-                }
-                option {
+            div {
+                className = ClassName("hierarchy-row")
+                select {
+                    className = ClassName("modal-input")
                     value = ""
-                    +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...")
-                }
-                childCandidates.forEach { g ->
+                    disabled = busy || childCandidates.isEmpty()
+                    onChange = { e ->
+                        val id = e.currentTarget.value
+                        if (id.isNotBlank()) addChannel(id)
+                    }
                     option {
-                        key = g.id
-                        value = g.id
-                        +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
+                        value = ""
+                        +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...")
+                    }
+                    childCandidates.forEach { g ->
+                        option {
+                            key = g.id
+                            value = g.id
+                            +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
+                        }
                     }
                 }
             }
-        }
-        div {
-            className = ClassName("modal-subtitle")
-            +"Only groups you administer on this relay can be added as channels. Detaching a channel turns it back into a root group."
+            div {
+                className = ClassName("modal-subtitle")
+                +"Only childless root groups you administer on this relay can be added as channels; channels can't contain channels. Detaching a channel turns it back into a root group."
+            }
         }
     }
 

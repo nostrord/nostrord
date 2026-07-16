@@ -65,7 +65,6 @@ import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
-import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.GroupInviteModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
@@ -2499,13 +2498,6 @@ val ChatScreen =
                     ManageGroupModal {
                         this.group = group
                         initialTab = "requests"
-                        onClose = { setModal(null) }
-                    }
-                "subgroup" ->
-                    CreateGroupModal {
-                        subgroup = true
-                        parentGroupId = group.id
-                        this.relayUrl = relayUrl
                         onClose = { setModal(null) }
                     }
             }

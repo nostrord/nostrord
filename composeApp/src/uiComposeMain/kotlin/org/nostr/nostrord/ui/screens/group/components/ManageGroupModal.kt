@@ -940,15 +940,25 @@ private fun ManageHierarchySection(
         }
         acc
     }
+    // Single-level hierarchy: channels don't have channels. Only ROOT groups can be a
+    // parent, and only childless root groups can become a channel; a group that already
+    // has channels must detach them before it can be moved under another group.
+    val subIds = childrenByParent[groupId].orEmpty()
     val parentCandidates =
         relayGroups
-            .filter { it.id != groupId && it.id != parentId && it.id !in descendants && myPubkey != null && myPubkey in groupAdmins[it.id].orEmpty() }
+            .filter { it.parent == null && it.id != groupId && it.id != parentId && it.id !in descendants && myPubkey != null && myPubkey in groupAdmins[it.id].orEmpty() }
             .sortedBy { (it.name ?: it.id).lowercase() }
     val childCandidates =
         relayGroups
-            .filter { it.id != groupId && it.id != parentId && it.parent != groupId && it.id !in descendants && myPubkey != null && myPubkey in groupAdmins[it.id].orEmpty() }
+            .filter {
+                it.parent == null &&
+                    childrenByParent[it.id].orEmpty().isEmpty() &&
+                    it.id != groupId &&
+                    it.id !in descendants &&
+                    myPubkey != null &&
+                    myPubkey in groupAdmins[it.id].orEmpty()
+            }
             .sortedBy { (it.name ?: it.id).lowercase() }
-    val subIds = childrenByParent[groupId].orEmpty()
 
     // Re-parent through editGroup: a kind:9002 replaces the WHOLE metadata (PUT), so the
     // event must carry the target's full current state — publishing without its kind:39000
@@ -990,9 +1000,13 @@ private fun ManageHierarchySection(
         Spacer(modifier = Modifier.height(Spacing.sm))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             GroupPickerDropdown(
-                placeholder = if (parentCandidates.isEmpty()) "No other groups on this relay" else "Move under...",
+                placeholder = when {
+                    subIds.isNotEmpty() -> "Detach its channels to move this group"
+                    parentCandidates.isEmpty() -> "No other groups on this relay"
+                    else -> "Move under..."
+                },
                 candidates = parentCandidates,
-                enabled = !busy && parentCandidates.isNotEmpty(),
+                enabled = !busy && parentCandidates.isNotEmpty() && subIds.isEmpty(),
                 modifier = Modifier.weight(1f),
                 onPick = { g -> apply(currentMetadata, GroupManager.ParentOp.SetTo(g.id), "Failed to update hierarchy.") },
             )
@@ -1020,56 +1034,60 @@ private fun ManageHierarchySection(
             Text(error!!, style = NostrordTypography.Caption, color = NostrordColors.Error)
         }
 
-        Spacer(modifier = Modifier.height(Spacing.xxl))
-        Text("CHANNELS (${subIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        if (subIds.isEmpty()) {
-            ModEmpty("No channels.")
-        } else {
-            subIds.forEach { sid ->
-                val sub = relayGroups.firstOrNull { it.id == sid }
-                Row(
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = Spacing.xs),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        sub?.name?.takeIf { it.isNotBlank() } ?: sid,
-                        style = NostrordTypography.Caption,
-                        color = NostrordColors.TextPrimary,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    // Detaching edits the CHILD's kind:9002, so it needs its admin key.
-                    if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
-                        TextButton(
-                            onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") },
-                            enabled = !busy,
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
-                        ) {
-                            Text("Detach", style = NostrordTypography.Caption, color = NostrordColors.TextSecondary)
+        // Channels don't have channels (single-level hierarchy): the section only
+        // exists on root groups.
+        if (parentId == null) {
+            Spacer(modifier = Modifier.height(Spacing.xxl))
+            Text("CHANNELS (${subIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            if (subIds.isEmpty()) {
+                ModEmpty("No channels.")
+            } else {
+                subIds.forEach { sid ->
+                    val sub = relayGroups.firstOrNull { it.id == sid }
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            sub?.name?.takeIf { it.isNotBlank() } ?: sid,
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextPrimary,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // Detaching edits the CHILD's kind:9002, so it needs its admin key.
+                        if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
+                            TextButton(
+                                onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") },
+                                enabled = !busy,
+                                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Text("Detach", style = NostrordTypography.Caption, color = NostrordColors.TextSecondary)
+                            }
                         }
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            GroupPickerDropdown(
+                placeholder = if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...",
+                candidates = childCandidates,
+                enabled = !busy && childCandidates.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+                onPick = { g -> apply(g, GroupManager.ParentOp.SetTo(groupId), "Failed to add channel.") },
+            )
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            Text(
+                "Only childless root groups you administer on this relay can be added as channels; channels can't contain channels. Detaching a channel turns it back into a root group.",
+                style = MaterialTheme.typography.labelSmall,
+                color = NostrordColors.TextMuted,
+            )
         }
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        GroupPickerDropdown(
-            placeholder = if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...",
-            candidates = childCandidates,
-            enabled = !busy && childCandidates.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
-            onPick = { g -> apply(g, GroupManager.ParentOp.SetTo(groupId), "Failed to add channel.") },
-        )
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        Text(
-            "Only groups you administer on this relay can be added as channels. Detaching a channel turns it back into a root group.",
-            style = MaterialTheme.typography.labelSmall,
-            color = NostrordColors.TextMuted,
-        )
     }
 }
 
