@@ -63,7 +63,6 @@ fun GroupHeader(
     onManageMembersClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
     onCreateSubgroupClick: () -> Unit = {},
-    onManageChildrenClick: () -> Unit = {},
     showSubgroupControls: Boolean = true,
     parentGroupName: String? = null,
     onParentClick: () -> Unit = {},

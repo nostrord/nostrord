@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.screens.group
 
-import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupMetadata
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,7 +11,7 @@ class ChannelTreeTest {
         id: String,
         name: String? = null,
         parent: String? = null,
-        children: List<DeclaredChild> = emptyList(),
+        children: List<String> = emptyList(),
         isPublic: Boolean = true,
         isOpen: Boolean = true,
     ) = GroupMetadata(
@@ -75,7 +74,7 @@ class ChannelTreeTest {
     @Test
     fun siblingsFollowDeclaredOrderThenName() {
         val metas = mapOf(
-            "root" to meta("root", children = listOf(DeclaredChild("second"), DeclaredChild("first"))),
+            "root" to meta("root", children = listOf("second", "first")),
             "first" to meta("first", name = "Alpha"),
             "second" to meta("second", name = "Zeta"),
             "undeclared" to meta("undeclared", name = "Beta"),

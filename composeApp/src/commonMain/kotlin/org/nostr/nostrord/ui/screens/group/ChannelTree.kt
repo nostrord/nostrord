@@ -39,7 +39,7 @@ fun channelTree(
     val out = mutableListOf(ChannelEntry(rootId, 0))
     val visited = mutableSetOf(rootId)
     fun visit(parentId: String, depth: Int) {
-        val declaredOrder = metaById[parentId]?.children.orEmpty().withIndex().associate { (i, c) -> c.id to i }
+        val declaredOrder = metaById[parentId]?.children.orEmpty().withIndex().associate { (i, id) -> id to i }
         val children = childrenByParent[parentId].orEmpty()
             .filter { visited.add(it) }
             .sortedWith(

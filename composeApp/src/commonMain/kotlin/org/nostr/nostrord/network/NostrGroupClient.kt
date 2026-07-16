@@ -29,45 +29,17 @@ data class GroupMetadata(
     /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
     val parent: String? = null,
     /**
-     * Optional 3rd element of the `parent` tag: the pubkey of the admin whose
-     * `kind:9002` authored the current parent relationship. Used as an
-     * attestation path — a client confirms the link when this pubkey appears
-     * in the parent's `kind:39001`.
+     * Child group ids from the `["child", "<id>"]` tags in this group's kind:39000,
+     * in tag order (sibling display order). The relay keeps parent/child bilateral
+     * and validated, so a listed child is authoritative.
      */
-    val parentAttestation: String? = null,
-    /**
-     * Bilateral declarations — the parent's own list of accepted children
-     * (`["child", "<id>", ...]` tags in its `kind:39000`). Used together with
-     * [closedChildren] to distinguish legitimate subgroups from unilateral claims.
-     */
-    val children: List<DeclaredChild> = emptyList(),
-    /**
-     * `["closed-children"]` flag in `kind:39000`. When true, only children
-     * explicitly listed in [children] are legitimate; all other parent claims
-     * are invalid and MUST be ignored by the client.
-     */
-    val closedChildren: Boolean = false,
+    val children: List<String> = emptyList(),
 ) {
     companion object
 }
 
 /** Explicit serializer — required on Kotlin/Wasm where runtime serializer lookup fails for user classes. */
 val groupMetadataListSerializer: KSerializer<List<GroupMetadata>> = ListSerializer(GroupMetadata.serializer())
-
-/**
- * A `["child", "<id>", "<order>", "<flags>"]` declaration inside a parent's `kind:39000`.
- * `order` is a lexicographic sibling-ordering key; `flags` is a comma-separated hint
- * list (e.g. `"suggested"`). Unknown elements MUST be ignored.
- */
-@Serializable
-@Immutable
-data class DeclaredChild(
-    val id: String,
-    val order: String? = null,
-    val flags: List<String> = emptyList(),
-) {
-    val isSuggested: Boolean get() = "suggested" in flags
-}
 
 /**
  * Group members list from kind 39002 event.
@@ -1502,31 +1474,18 @@ class NostrGroupClient(
             // Get all tag names (including presence-only tags like ["public"], ["open"])
             val tagNames = tags.map { it.jsonArray[0].jsonPrimitive.content }.toSet()
 
-            // NIP-29 subgroups: `parent` carries the parent d-tag (only when it has a value).
-            // An empty `parent` tag (["parent"]) means "detach to root" on republish, which is
-            // semantically the same as omitting the tag — treat as null. A third element,
-            // when present, is the pubkey of the admin whose `kind:9002` set the parent link.
+            // NIP-29 subgroups: `parent` carries the parent d-tag; a group with no (or an
+            // empty) parent tag is a root.
             val parentTag = tags.firstOrNull {
                 it.jsonArray.isNotEmpty() && it.jsonArray[0].jsonPrimitive.content == "parent"
             }?.jsonArray
             val parent = parentTag?.getOrNull(1)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-            val parentAttestation = parentTag?.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
 
-            // Bilateral declarations: parent lists its accepted children via `["child", ...]` tags.
-            // Layout: ["child", id, order, flag1, flag2, ...] — each flag is its own element.
+            // `["child", "<id>"]` tags, in tag order (sibling display order).
             val children = tags.mapNotNull { tag ->
                 val arr = tag.jsonArray
                 if (arr.size < 2 || arr[0].jsonPrimitive.content != "child") return@mapNotNull null
-                val childId = arr[1].jsonPrimitive.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                val order = arr.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                val flags = if (arr.size > 3) {
-                    arr.drop(3).mapNotNull {
-                        it.jsonPrimitive.content.takeIf { s -> s.isNotEmpty() }
-                    }
-                } else {
-                    emptyList()
-                }
-                DeclaredChild(id = childId, order = order, flags = flags)
+                arr[1].jsonPrimitive.content.takeIf { it.isNotBlank() }
             }
 
             GroupMetadata(
@@ -1539,9 +1498,7 @@ class NostrGroupClient(
                 isRestricted = tagNames.contains("restricted"),
                 isHidden = tagNames.contains("hidden"),
                 parent = parent,
-                parentAttestation = parentAttestation,
                 children = children,
-                closedChildren = tagNames.contains("closed-children"),
             )
         } catch (e: Exception) {
             null

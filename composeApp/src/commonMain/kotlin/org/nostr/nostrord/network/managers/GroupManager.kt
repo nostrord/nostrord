@@ -24,7 +24,6 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
-import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.GroupMetadata
@@ -210,19 +209,11 @@ class GroupManager(
 
     // NIP-29 subgroups — topology derived from `parent` tags in kind:39000.
     // Tree is built client-side: groups without a parent tag are roots, the
-    // rest are grouped under the `d` referenced by their `parent` tag.
-    // `childrenByParent` contains Confirmed AND Unverified relationships
-    // (the latter are also listed in `unverifiedChildren` so the UI can flag
-    // them visually per NIP-29 §"Parent consent"). Invalid claims
-    // (closed-children rejection) are hoisted back to the root.
+    // rest are grouped under the `d` referenced by their `parent` tag. The
+    // relay keeps parent/child bilateral and validated, so a declared link
+    // is trusted as-is.
     private val _childrenByParent = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val childrenByParent: StateFlow<Map<String, Set<String>>> = _childrenByParent.asStateFlow()
-
-    // Child ids whose declared parent does NOT list them back and whose parent
-    // tag carries no attestation confirming the link. Per NIP-29 these MAY be
-    // rendered but SHOULD be flagged visually (⚠ badge / tooltip).
-    private val _unverifiedChildren = MutableStateFlow<Set<String>>(emptySet())
-    val unverifiedChildren: StateFlow<Set<String>> = _unverifiedChildren.asStateFlow()
 
     /**
      * Groups the user locally deleted. We ignore incoming kind:39000 for these ids so a
@@ -1661,9 +1652,6 @@ class GroupManager(
      * - [parentOp]: null keeps the current parent (re-declared from the local
      *   kind:39000 cache). `SetTo(id)` links this group under `id`; `Detach`
      *   omits the tag, promoting the group to root.
-     * - [childrenEdit]: null keeps the current child list (re-declared in its
-     *   current order). Otherwise its list must contain exactly the current
-     *   children — reordering is the only change the relay accepts.
      */
     suspend fun editGroup(
         groupId: String,
@@ -1678,7 +1666,6 @@ class GroupManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         parentOp: ParentOp? = null,
-        childrenEdit: ChildrenEdit? = null,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1703,10 +1690,8 @@ class GroupManager(
             }
 
             // The relay rejects an edit that doesn't enumerate every current child, so
-            // always re-declare the full list — [childrenEdit] can only reorder it.
-            val childIds = childrenEdit?.children?.map { it.id }
-                ?: current?.children?.map { it.id }.orEmpty()
-            childIds.forEach { metaTags.add(listOf("child", it)) }
+            // always re-declare the full list in its current order.
+            current?.children.orEmpty().forEach { metaTags.add(listOf("child", it)) }
 
             val signedMeta = signEvent(
                 Event(
@@ -1744,12 +1729,6 @@ class GroupManager(
             Result.Error(AppError.Group.EditFailed(groupId, e))
         }
     }
-
-    /** Child-list edit for [editGroup]: the full current list, reordered. */
-    data class ChildrenEdit(
-        val children: List<DeclaredChild>,
-        val closedChildren: Boolean,
-    )
 
     /**
      * Publish a kind:9002 that re-parents a group or promotes it to root.
@@ -1794,7 +1773,7 @@ class GroupManager(
                 ParentOp.Detach -> Unit // omitting the parent tag is what promotes to root
                 null -> meta?.parent?.let { tags.add(listOf("parent", it)) }
             }
-            meta?.children?.forEach { tags.add(listOf("child", it.id)) }
+            meta?.children?.forEach { tags.add(listOf("child", it)) }
             val signed = signEvent(
                 Event(
                     pubkey = pubKey,
@@ -1837,85 +1816,6 @@ class GroupManager(
 
         /** Republish metadata without a parent (promotes subgroup back to root). */
         object Detach : ParentOp()
-    }
-
-    /**
-     * Publish a kind:9002 that reorders the group's child list (admin only).
-     *
-     * A kind:9002 replaces the whole metadata, so the event re-declares
-     * name/flags/about/picture and the parent, plus one `["child", id]` per
-     * entry in the desired order. [children] must contain exactly the group's
-     * current children — the relay rejects a list that drops or invents any.
-     */
-    suspend fun updateChildren(
-        groupId: String,
-        children: List<DeclaredChild>,
-        closedChildren: Boolean,
-        pubKey: String,
-        currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event,
-    ): Result<Unit> {
-        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
-        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getFocusedClient()
-            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
-
-        // Include current metadata so the relay accepts the kind:9002.
-        val meta = localMetadataFor(groupId)
-
-        return try {
-            val tags = mutableListOf<List<String>>(
-                listOf("h", groupId),
-                listOf("name", meta?.name ?: groupId),
-            )
-            // Re-declare the existing access flags so this topology/children edit doesn't
-            // drop them (presence-only, same rule as createGroup/editGroup). Omitting them
-            // here previously cleared restricted/hidden and emitted bogus public/open tags.
-            addAccessFlags(
-                tags,
-                isPrivate = meta?.isPublic == false,
-                isClosed = meta?.isOpen == false,
-                isRestricted = meta?.isRestricted == true,
-                isHidden = meta?.isHidden == true,
-            )
-            meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
-            meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
-            // Keep the current parent: this event replaces the whole metadata, and
-            // omitting the tag would silently promote the group to root.
-            meta?.parent?.let { tags.add(listOf("parent", it)) }
-
-            children.forEach { child ->
-                tags.add(listOf("child", child.id))
-            }
-
-            val signed = signEvent(
-                Event(
-                    pubkey = pubKey,
-                    createdAt = epochMillis() / 1000,
-                    kind = 9002,
-                    tags = tags,
-                    content = "",
-                ),
-            )
-            val eventJson = buildJsonArray {
-                add("EVENT")
-                add(signed.toJsonObject())
-            }.toString()
-            val eventId = signed.id
-                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
-
-            when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
-                is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.CreateFailed(Exception(res.reason)))
-                is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
-                is org.nostr.nostrord.network.PublishResult.Error ->
-                    Result.Error(AppError.Group.CreateFailed(res.exception))
-            }
-        } catch (e: Throwable) {
-            Result.Error(AppError.Group.CreateFailed(e))
-        }
     }
 
     /**
@@ -3467,62 +3367,28 @@ class GroupManager(
         }
         persistJoinedGroupMetadataSnapshot(relayUrl)
 
-        // Recompute the full tree because a kind:39000 update can add/remove children,
-        // toggle `closed-children`, or carry new `child`/`parent` tags that change classification
-        // for groups other than `metadata` itself.
+        // Recompute the full tree because a kind:39000 update can carry new
+        // `child`/`parent` tags that move groups other than `metadata` itself.
         recomputeSubgroupTopology()
     }
 
     /**
-     * Recompute the parent→children map and the unverified set from the current
-     * `_groups` list and admin map. Called on every kind:39000 / kind:39001 update
-     * since classification depends on both the child's `parent` tag and the
-     * parent's `child` list / `closed-children` flag / admin list (attestation).
-     *
-     * Per NIP-29 classification:
-     * - **confirmed**: parent lists child back, OR the child's parent tag carries
-     *   an attestation pubkey that appears in the parent's `kind:39001`.
-     * - **unverified**: only the child declares and no attestation is present;
-     *   rendered but flagged.
-     * - **invalid**: parent has `closed-children` and does NOT list child;
-     *   claim is ignored — child is hoisted to root.
+     * Recompute the parent→children map from the current `_groups` list. The relay
+     * validates parent links (bilateral, admin-authored), so a `parent` tag on a
+     * known group is trusted as-is; a child whose parent metadata we don't have
+     * yet renders as a root until it arrives.
      */
     private fun recomputeSubgroupTopology() {
         val groups = _groups.value
         val byId = groups.associateBy { it.id }
-        val admins = _groupAdmins.value
 
         val nextChildren = mutableMapOf<String, MutableSet<String>>()
-        val nextUnverified = mutableSetOf<String>()
-
         for (child in groups) {
             val parentId = child.parent ?: continue
-            val parent = byId[parentId]
-            // Missing parent → treat child as root (nothing to verify, per spec).
-            if (parent == null) continue
-
-            val listed = parent.children.any { it.id == child.id }
-            val attestation = child.parentAttestation
-            val attestationValid = attestation != null && attestation in admins[parent.id].orEmpty()
-
-            when {
-                parent.closedChildren && !listed -> {
-                    // Invalid — overrides any attestation. Hoist to root by omitting.
-                }
-                listed || attestationValid -> {
-                    nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
-                }
-                else -> {
-                    // Unverified — nest under the declared parent but tag it so the
-                    // UI can grey-it-out / badge it per NIP-29 §"Parent consent".
-                    nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
-                    nextUnverified.add(child.id)
-                }
-            }
+            if (parentId !in byId) continue
+            nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
         }
-
         _childrenByParent.value = nextChildren.mapValues { (_, s) -> s.toSet() }
-        _unverifiedChildren.value = nextUnverified
     }
 
     /**
@@ -4941,7 +4807,6 @@ class GroupManager(
         // Subgroup topology: recomputeSubgroupTopology reassigns on B's first ingest, but
         // until then B would render A's parent->children grouping. Reset so it starts empty.
         _childrenByParent.value = emptyMap()
-        _unverifiedChildren.value = emptySet()
         _activeGroupId = null
         // Reset every per-group loading controller. Without this, controllers
         // left mid-load (InitialLoading / Paginating / HasMore) at logout

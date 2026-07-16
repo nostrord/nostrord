@@ -402,9 +402,9 @@ interface NostrRepositoryApi {
     val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
 
     /**
-     * Edit a group in one kind:9002 event. [parentOp] and [childrenEdit]
-     * are optional — omit them to leave those fields unchanged
-     * (NIP-29 partial-update semantics).
+     * Edit a group in one kind:9002 event (full-state replace: the current
+     * parent and child list are re-declared automatically). [parentOp] is
+     * optional — omit it to keep the current parent.
      */
     suspend fun editGroup(
         groupId: String,
@@ -416,7 +416,6 @@ interface NostrRepositoryApi {
         isHidden: Boolean = false,
         picture: String? = null,
         parentOp: GroupManager.ParentOp? = null,
-        childrenEdit: GroupManager.ChildrenEdit? = null,
     ): Result<Unit>
 
     suspend fun deleteGroup(groupId: String): Result<Unit>
@@ -428,18 +427,6 @@ interface NostrRepositoryApi {
     suspend fun updateGroupTopology(
         groupId: String,
         parent: GroupManager.ParentOp?,
-    ): Result<Unit>
-
-    /**
-     * Publish a kind:9002 that declares the parent's accepted children
-     * (`["child", id, order?, flags?]`) and, optionally, `["closed-children"]`.
-     * Empty [children] + `closedChildren=true` signals "accepts no children",
-     * per NIP-29 "Parent consent".
-     */
-    suspend fun updateChildren(
-        groupId: String,
-        children: List<DeclaredChild>,
-        closedChildren: Boolean,
     ): Result<Unit>
 
     fun isGroupJoined(groupId: String): Boolean
@@ -470,15 +457,6 @@ interface NostrRepositoryApi {
 
     /** Observable parent→children map derived from `parent` tags in kind:39000. */
     val childrenByParent: StateFlow<Map<String, Set<String>>>
-
-    /**
-     * Subgroups whose declared parent neither lists them via `["child", ...]` nor
-     * attests via an admin pubkey currently in the parent's `kind:39001`. Per NIP-29
-     * these MAY be rendered but SHOULD be flagged (⚠) so users know the relationship
-     * is one-sided. Invalid claims (closed-children rejection) are already hoisted
-     * to root and do not appear here.
-     */
-    val unverifiedChildren: StateFlow<Set<String>>
 
     /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
     suspend fun fetchGroupPreview(

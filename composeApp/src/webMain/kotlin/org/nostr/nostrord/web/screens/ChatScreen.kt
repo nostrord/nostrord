@@ -70,7 +70,6 @@ import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.GroupInviteModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinWithCodeModal
-import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.ManageGroupModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
@@ -2506,7 +2505,6 @@ val ChatScreen =
                         this.relayUrl = relayUrl
                         onClose = { setModal(null) }
                     }
-                "children" -> ManageChildrenModal { onClose = { setModal(null) } }
             }
             // Accept/decline prompt for an external add (an admin's kind:9000). Mirrors the
             // native GroupScreen dialog: Accept adopts the group into the joined list +
