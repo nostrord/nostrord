@@ -76,7 +76,14 @@ val CreateGroupModal =
         // created on any relay, not just the listed ones.
         val (customRelay, setCustomRelay) = useState { "" }
         val usingCustom = selectedRelay == CUSTOM_RELAY
-        val effectiveRelay = if (usingCustom) customRelay.trim().toRelayUrl() else selectedRelay
+        // A subgroup must live on its parent's relay: the parent tag carries a relay-scoped
+        // group id and the relay validates the link against its own state, so cross-relay
+        // channels are not expressible. The relay is therefore not selectable in subgroup mode.
+        val effectiveRelay = when {
+            isSubgroup -> props.relayUrl ?: currentRelayUrl
+            usingCustom -> customRelay.trim().toRelayUrl()
+            else -> selectedRelay
+        }
         val (about, setAbout) = useState { "" }
         val (picture, setPicture) = useState { "" }
         val (isPrivate, setIsPrivate) = useState { false }
@@ -232,34 +239,41 @@ val CreateGroupModal =
                     }
                 }
 
-                // Relay
+                // Relay: fixed to the parent's relay for a subgroup, selectable otherwise.
                 div {
                     className = ClassName("field-label")
                     +"Relay"
                 }
-                select {
-                    className = ClassName("modal-select")
-                    value = if (usingCustom) CUSTOM_RELAY else selectedRelay
-                    onChange = { event -> setSelectedRelay(event.currentTarget.value) }
-                    relayOptions.forEach { relay ->
+                if (isSubgroup) {
+                    div {
+                        className = ClassName("modal-subtitle")
+                        +"Created on ${effectiveRelay.removePrefix("wss://")} (same relay as the parent group)."
+                    }
+                } else {
+                    select {
+                        className = ClassName("modal-select")
+                        value = if (usingCustom) CUSTOM_RELAY else selectedRelay
+                        onChange = { event -> setSelectedRelay(event.currentTarget.value) }
+                        relayOptions.forEach { relay ->
+                            option {
+                                value = relay
+                                +relay.removePrefix("wss://")
+                            }
+                        }
                         option {
-                            value = relay
-                            +relay.removePrefix("wss://")
+                            value = CUSTOM_RELAY
+                            +"Custom relay…"
                         }
                     }
-                    option {
-                        value = CUSTOM_RELAY
-                        +"Custom relay…"
-                    }
-                }
-                if (usingCustom) {
-                    input {
-                        className = ClassName("modal-input")
-                        placeholder = "relay.example.com"
-                        value = customRelay
-                        onChange = { event ->
-                            setCustomRelay(event.currentTarget.value)
-                            setError(null)
+                    if (usingCustom) {
+                        input {
+                            className = ClassName("modal-input")
+                            placeholder = "relay.example.com"
+                            value = customRelay
+                            onChange = { event ->
+                                setCustomRelay(event.currentTarget.value)
+                                setError(null)
+                            }
                         }
                     }
                 }

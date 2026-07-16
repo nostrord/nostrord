@@ -91,7 +91,6 @@ fun GroupSidebar(
     val groupAdmins by vm.groupAdmins.collectAsState()
     val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
-    val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
 
@@ -244,7 +243,8 @@ fun GroupSidebar(
     }
     if (showCreateSubgroup) {
         CreateGroupModal(
-            currentRelayUrl = currentRelayUrl,
+            // The channel must land on the parent's relay, not whatever relay is focused.
+            currentRelayUrl = route.relayUrl,
             userRelays = kind10009Relays,
             parentGroupId = rootId,
             onDismiss = { showCreateSubgroup = false },
