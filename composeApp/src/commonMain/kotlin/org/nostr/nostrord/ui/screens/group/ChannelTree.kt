@@ -69,12 +69,15 @@ fun isLockedChannel(meta: GroupMetadata?, isJoined: Boolean): Boolean = !isJoine
 
 /**
  * Drag-reorder step: move [dragged] so it sits immediately BEFORE [target] (the drop
- * indicator renders at the target's top edge). Returns [order] unchanged when either
- * id is missing or they are equal, so stray drops are no-ops.
+ * indicator renders at the target's top edge); a null [target] is the end-of-list drop
+ * slot. Returns [order] unchanged when an id is missing or they are equal, so stray
+ * drops are no-ops.
  */
-fun moveChannelBefore(order: List<String>, dragged: String, target: String): List<String> {
-    if (dragged == target || dragged !in order || target !in order) return order
+fun moveChannelBefore(order: List<String>, dragged: String, target: String?): List<String> {
+    if (dragged == target || dragged !in order) return order
     val without = order - dragged
+    if (target == null) return without + dragged
+    if (target !in order) return order
     val at = without.indexOf(target)
     return without.subList(0, at) + dragged + without.subList(at, without.size)
 }

@@ -142,9 +142,11 @@ fun GroupSidebar(
     var dragDelta by remember { mutableStateOf(0f) }
     var rowHeightPx by remember { mutableStateOf(0) }
     val dragFromIndex = channels.indexOfFirst { it.id == dragId }
+    // Index channels.size is the end slot (drop after the last row); a row index
+    // inserts BEFORE that row.
     val dragOverIndex =
         if (dragId != null && dragFromIndex >= 0 && rowHeightPx > 0) {
-            (dragFromIndex + (dragDelta / rowHeightPx).roundToInt()).coerceIn(0, channels.lastIndex)
+            (dragFromIndex + (dragDelta / rowHeightPx).roundToInt()).coerceIn(0, channels.size)
         } else {
             -1
         }
@@ -156,7 +158,7 @@ fun GroupSidebar(
         dragDelta = 0f
         if (!commit || id == null || over < 0 || over == dragFromIndex) return
         val currentOrder = channels.filter { it.depth == 1 }.map { it.id }
-        val newOrder = moveChannelBefore(currentOrder, id, channels[over].id)
+        val newOrder = moveChannelBefore(currentOrder, id, channels.getOrNull(over)?.id)
         if (newOrder == currentOrder) return
         orderOverride = newOrder
         scope.launch {
@@ -283,6 +285,18 @@ fun GroupSidebar(
                         onDragCancel = { endDrag(commit = false) },
                         onHeight = { rowHeightPx = it },
                     ) { onNavigateGroup(GroupRoute(route.relayUrl, entry.id)) }
+                }
+                // End drop indicator: the slot after the last row.
+                if (dragId != null && dragOverIndex == channels.size) {
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 1.dp)
+                            .height(2.dp)
+                            .clip(NostrordShapes.shapeSmall)
+                            .background(NostrordColors.Primary),
+                    )
                 }
             }
         }

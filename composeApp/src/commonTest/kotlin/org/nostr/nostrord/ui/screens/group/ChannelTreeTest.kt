@@ -121,6 +121,14 @@ class ChannelTreeTest {
     }
 
     @Test
+    fun moveWithNullTargetDropsAtTheEnd() {
+        val order = listOf("a", "b", "c")
+        assertEquals(listOf("b", "c", "a"), moveChannelBefore(order, "a", null))
+        assertEquals(order, moveChannelBefore(order, "c", null))
+        assertEquals(order, moveChannelBefore(order, "x", null))
+    }
+
+    @Test
     fun moveIsNoOpForUnknownOrSelfTargets() {
         val order = listOf("a", "b")
         assertEquals(order, moveChannelBefore(order, "a", "a"))
