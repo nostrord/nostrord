@@ -19,6 +19,7 @@ import org.nostr.nostrord.ui.navigation.NotificationsRoute
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
+import org.nostr.nostrord.ui.screens.group.rootGroupId
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.utils.accountDisplayLabel
@@ -81,10 +82,13 @@ val AppFrame =
     FC<Props> {
         val repo = AppModule.nostrRepository
         val vm = useViewModel { HomePageViewModel(repo, AppModule.notificationHistoryStore) }
-        val groups = useStateFlow(vm.myGroups)
+        // Channel model: the rail shows only root groups; a subgroup lives in its root's
+        // channel list, with the root chip aggregating the subtree's unread.
+        val railRoots = useStateFlow(vm.railRootGroups)
+        val railUnread = useStateFlow(vm.railUnreadCounts)
+        val groupParents = useStateFlow(vm.groupParents)
         val friends = useStateFlow(vm.friends)
         val friendsLoading = useStateFlow(vm.friendsLoading)
-        val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val dmUnread = useStateFlow(repo.totalDmUnread)
         val dmEnabled = useStateFlow(AppModule.dmSettings.dmEnabled)
@@ -285,12 +289,10 @@ val AppFrame =
 
                     div {
                         className = ClassName("rail-scroll")
-                        // Subgroups are reached from their parent's Subgroups panel, so keep them
-                        // out of the rail when the parent is itself in the rail (avoid duplication).
-                        // A subgroup whose parent you haven't joined stays, so it isn't unreachable.
-                        val railGroupIds = groups.mapTo(HashSet()) { it.meta.id }
-                        val railGroups = groups.filter { it.meta.parent == null || it.meta.parent !in railGroupIds }
-                        railGroups.forEach { group ->
+                        // An open channel highlights its root's rail chip (the chip a click
+                        // would re-open); badge counts aggregate the root's whole subtree.
+                        val activeRootId = groupRoute?.groupId?.let { open -> rootGroupId(open) { groupParents[it] } }
+                        railRoots.forEach { group ->
                             val name = group.meta.name ?: group.meta.id
                             div {
                                 key = group.meta.id
@@ -298,7 +300,7 @@ val AppFrame =
                                 button {
                                     className =
                                         ClassName(
-                                            if (groupRoute?.groupId == group.meta.id && !notificationsOpen) "rail-group-btn active" else "rail-group-btn",
+                                            if (activeRootId == group.meta.id && !notificationsOpen) "rail-group-btn active" else "rail-group-btn",
                                         )
                                     title = name
                                     onClick = { pushRoute(GroupRoute(group.relayUrl, group.meta.id)) }
@@ -310,7 +312,7 @@ val AppFrame =
                                         cls = "group-card-avatar"
                                     }
                                 }
-                                val unread = unreadCounts[group.meta.id] ?: 0
+                                val unread = railUnread[group.meta.id] ?: 0
                                 if (unread > 0) {
                                     span {
                                         className = ClassName("rail-badge")

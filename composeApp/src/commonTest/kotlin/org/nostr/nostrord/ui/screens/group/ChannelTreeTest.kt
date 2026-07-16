@@ -1,0 +1,129 @@
+package org.nostr.nostrord.ui.screens.group
+
+import org.nostr.nostrord.network.DeclaredChild
+import org.nostr.nostrord.network.GroupMetadata
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class ChannelTreeTest {
+    private fun meta(
+        id: String,
+        name: String? = null,
+        parent: String? = null,
+        children: List<DeclaredChild> = emptyList(),
+        isPublic: Boolean = true,
+        isOpen: Boolean = true,
+    ) = GroupMetadata(
+        id = id,
+        name = name,
+        about = null,
+        picture = null,
+        isPublic = isPublic,
+        isOpen = isOpen,
+        parent = parent,
+        children = children,
+    )
+
+    // ── rootGroupId ─────────────────────────────────────────────────────────
+
+    @Test
+    fun rootOfPlainGroupIsItself() {
+        assertEquals("a", rootGroupId("a") { null })
+    }
+
+    @Test
+    fun rootWalksUpTheChain() {
+        val parents = mapOf("c" to "b", "b" to "a")
+        assertEquals("a", rootGroupId("c") { parents[it] })
+        assertEquals("a", rootGroupId("b") { parents[it] })
+        assertEquals("a", rootGroupId("a") { parents[it] })
+    }
+
+    @Test
+    fun rootStopsAtUnresolvableParent() {
+        // b's parent "x" is unknown (not joined / no meta): b is its own root.
+        val parents = mapOf("c" to "b")
+        assertEquals("b", rootGroupId("c") { parents[it] })
+    }
+
+    @Test
+    fun rootSurvivesParentCycle() {
+        val parents = mapOf("a" to "b", "b" to "a")
+        assertEquals("b", rootGroupId("a") { parents[it] })
+    }
+
+    // ── channelTree ─────────────────────────────────────────────────────────
+
+    @Test
+    fun treeStartsWithRootAtDepthZero() {
+        val tree = channelTree("root", emptyMap(), emptyMap())
+        assertEquals(listOf(ChannelEntry("root", 0)), tree)
+    }
+
+    @Test
+    fun treeFlattensDepthFirstWithDepths() {
+        val children = mapOf("root" to setOf("a"), "a" to setOf("a1"))
+        val tree = channelTree("root", children, emptyMap())
+        assertEquals(
+            listOf(ChannelEntry("root", 0), ChannelEntry("a", 1), ChannelEntry("a1", 2)),
+            tree,
+        )
+    }
+
+    @Test
+    fun siblingsFollowDeclaredOrderThenName() {
+        val metas = mapOf(
+            "root" to meta("root", children = listOf(DeclaredChild("second"), DeclaredChild("first"))),
+            "first" to meta("first", name = "Alpha"),
+            "second" to meta("second", name = "Zeta"),
+            "undeclared" to meta("undeclared", name = "Beta"),
+            "unnamed" to meta("unnamed"),
+        )
+        val children = mapOf("root" to setOf("first", "undeclared", "second", "unnamed"))
+        val tree = channelTree("root", children, metas)
+        // Declared ones first in declared order; the rest alphabetically (id fallback for unnamed).
+        assertEquals(
+            listOf("root", "second", "first", "undeclared", "unnamed"),
+            tree.map { it.id },
+        )
+    }
+
+    @Test
+    fun treeGuardsAgainstCycles() {
+        val children = mapOf("root" to setOf("a"), "a" to setOf("root", "a"))
+        val tree = channelTree("root", children, emptyMap())
+        assertEquals(listOf(ChannelEntry("root", 0), ChannelEntry("a", 1)), tree)
+    }
+
+    // ── aggregateUnread ─────────────────────────────────────────────────────
+
+    @Test
+    fun unreadAggregatesRootAndDescendants() {
+        val children = mapOf("root" to setOf("a", "b"), "a" to setOf("a1"))
+        val unread = mapOf("root" to 1, "a" to 2, "a1" to 4, "b" to 8, "other" to 100)
+        assertEquals(15, aggregateUnread("root", children, unread))
+    }
+
+    @Test
+    fun unreadOfLeafIsItsOwnCount() {
+        assertEquals(3, aggregateUnread("g", emptyMap(), mapOf("g" to 3)))
+        assertEquals(0, aggregateUnread("g", emptyMap(), emptyMap()))
+    }
+
+    // ── isLockedChannel ─────────────────────────────────────────────────────
+
+    @Test
+    fun lockReflectsAccessAndMembership() {
+        val open = meta("g")
+        val closed = meta("g", isOpen = false)
+        val private = meta("g", isPublic = false)
+        assertFalse(isLockedChannel(open, isJoined = false))
+        assertTrue(isLockedChannel(closed, isJoined = false))
+        assertTrue(isLockedChannel(private, isJoined = false))
+        assertFalse(isLockedChannel(private, isJoined = true))
+        // Unknown meta can't claim a lock.
+        assertFalse(isLockedChannel(null, isJoined = false))
+    }
+}

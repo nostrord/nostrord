@@ -7,6 +7,9 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.channelTree
+import org.nostr.nostrord.ui.screens.group.isLockedChannel
+import org.nostr.nostrord.ui.screens.group.rootGroupId
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -35,9 +38,10 @@ external interface GroupSidebarProps : Props {
 
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the
- * gradient banner (group identity, opens the info modal) and the group tree below
- * it (Members row, the subgroups section, parent backlink). Mirrors the Compose
- * ui/components/layout/GroupSidebar.
+ * gradient banner (ROOT group identity, Discord's "server") and below it the
+ * per-channel rows (Chat/Threads/Members/Manage act on the OPEN channel) plus the
+ * channel list (the root and its subgroup subtree). Opening any channel keeps this
+ * sidebar anchored on the root. Mirrors the Compose ui/components/layout/GroupSidebar.
  */
 val GroupSidebar =
     FC<GroupSidebarProps> { props ->
@@ -48,6 +52,7 @@ val GroupSidebar =
         val groupMembers = useStateFlow(vm.groupMembers)
         val groupAdmins = useStateFlow(vm.groupAdmins)
         val relayMetadata = useStateFlow(vm.relayMetadata)
+        val joinedGroupsByRelay = useStateFlow(vm.joinedGroupsByRelay)
         val unreadCounts = useStateFlow(AppModule.nostrRepository.unreadCounts)
         val (showMembers, setShowMembers) = useState { false }
         val (showCreateSubgroup, setShowCreateSubgroup) = useState { false }
@@ -56,17 +61,26 @@ val GroupSidebar =
         val (manageTab, setManageTab) = useState<String?> { null }
 
         val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
-        val meta = relayGroups.firstOrNull { it.id == route.groupId }
-        val name = meta?.name ?: route.groupId
+        val metaById = relayGroups.associateBy { it.id }
+        val meta = metaById[route.groupId]
         val currentUserPubkey = vm.getPublicKey()
         val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
         val memberCount = groupMembers[route.groupId].orEmpty().size
-        val subgroupIds = childrenByParent[route.groupId].orEmpty()
+        // Discord-style channel model: the sidebar anchors on the ROOT of the open channel's
+        // subgroup tree (the "server"); the open channel only drives the chat pane + the
+        // per-channel rows (Chat/Threads/Members/Manage — membership is per subgroup).
+        val rootId = rootGroupId(route.groupId) { metaById[it]?.parent }
+        val rootMeta = metaById[rootId]
+        val rootName = rootMeta?.name ?: rootId
+        val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+        // Subgroup channels only: the root's own chat is the "General" row above the list,
+        // so listing the root again would duplicate the banner identity.
+        val channels = channelTree(rootId, childrenByParent, metaById).drop(1)
+        val joinedHere = joinedGroupsByRelay[route.relayUrl.normalizeRelayUrl()].orEmpty()
         // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
         val supportsSubgroups =
             (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])
                 ?.supportsSubgroups == true
-        val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
         // Host relay shown under the group name (same reference as the discovery .group-card),
         // so the same group on two relays is told apart.
         val relayHost = route.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
@@ -79,14 +93,14 @@ val GroupSidebar =
             // a link (to the relay page); the banner itself is not clickable.
             div {
                 className = ClassName("group-side-banner")
-                style = unsafeJso { background = bannerGradientCss(route.groupId).unsafeCast<Background>() }
+                style = unsafeJso { background = bannerGradientCss(rootId).unsafeCast<Background>() }
                 div { className = ClassName("group-side-banner-scrim") }
                 div {
                     className = ClassName("group-side-banner-row")
                     WebAvatar {
-                        url = meta?.picture
-                        seed = route.groupId
-                        this.name = name
+                        url = rootMeta?.picture
+                        seed = rootId
+                        this.name = rootName
                         kind = org.nostr.nostrord.web.components.AvatarKind.GROUP
                         cls = "group-side-banner-avatar"
                     }
@@ -94,7 +108,7 @@ val GroupSidebar =
                         className = ClassName("group-side-banner-meta")
                         span {
                             className = ClassName("group-side-banner-name")
-                            +name
+                            +rootName
                         }
                         if (relayHost.isNotBlank()) {
                             div {
@@ -124,24 +138,17 @@ val GroupSidebar =
 
             div {
                 className = ClassName("group-side-body")
-                parent?.let { p ->
-                    button {
-                        className = ClassName("group-side-row muted")
-                        onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, p.id)) }
-                        icon(Ic.ChevronRight)
-                        span {
-                            className = ClassName("group-side-row-label")
-                            +(p.name ?: p.id)
-                        }
-                    }
-                }
+                // The root group's own chat (Discord's #general); subgroup channels are listed below.
                 button {
-                    className = ClassName(if (route.view == GroupView.Chat) "group-side-row active" else "group-side-row")
-                    onClick = { props.onNavigateGroup(route.copy(view = GroupView.Chat, threadRootId = null)) }
+                    className =
+                        ClassName(
+                            if (route.view == GroupView.Chat && route.groupId == rootId) "group-side-row active" else "group-side-row",
+                        )
+                    onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, rootId)) }
                     icon(Ic.Chat)
                     span {
                         className = ClassName("group-side-row-label")
-                        +"Chat"
+                        +"General"
                     }
                 }
                 button {
@@ -186,51 +193,59 @@ val GroupSidebar =
                     }
                 }
 
-                // Relays that can't host subgroups show no subgroups section at all.
-                if (supportsSubgroups) {
+                // Channels (Discord model): the root's subgroup subtree, depth-first with
+                // indentation. Hidden on relays that can't host subgroups, and for non-admins
+                // when there are no channels yet (admins keep the header for its add button).
+                if (supportsSubgroups && (channels.isNotEmpty() || isRootAdmin)) {
                     div {
                         className = ClassName("group-side-label")
-                        span { +"Subgroups · ${subgroupIds.size}" }
-                        if (isAdmin) {
+                        span { +"Channels · ${channels.size}" }
+                        if (isRootAdmin) {
                             button {
                                 className = ClassName("group-side-label-add")
-                                title = "Add subgroup"
+                                title = "Add channel"
                                 onClick = { setShowCreateSubgroup(true) }
                                 icon(Ic.Add)
                             }
                         }
                     }
-                    subgroupIds.forEach { subId ->
-                        val sub = relayGroups.firstOrNull { it.id == subId }
-                        val subName = sub?.name ?: subId
+                    channels.forEach { entry ->
+                        val channel = metaById[entry.id]
+                        val channelName = channel?.name ?: entry.id
+                        val active = route.groupId == entry.id
+                        // First-level channels sit flush; only nesting below them indents,
+                        // capped so deep foreign trees never crush the label.
+                        val indent = entry.depth - 1
+                        val depthCls = if (indent > 0) " depth${minOf(indent, 3)}" else ""
                         button {
-                            key = subId
-                            className = ClassName("group-side-row")
-                            onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
+                            key = entry.id
+                            className = ClassName(if (active) "group-side-row active$depthCls" else "group-side-row$depthCls")
+                            onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, entry.id)) }
                             WebAvatar {
-                                url = sub?.picture
-                                seed = subId
-                                this.name = subName
+                                url = channel?.picture
+                                seed = entry.id
+                                this.name = channelName
                                 kind = org.nostr.nostrord.web.components.AvatarKind.GROUP
                                 cls = "group-side-row-avatar"
                             }
                             span {
                                 className = ClassName("group-side-row-label")
-                                +subName
+                                +channelName
                             }
-                            val unread = unreadCounts[subId] ?: 0
+                            if (isLockedChannel(channel, isJoined = entry.id in joinedHere)) {
+                                span {
+                                    className = ClassName("group-side-row-lock")
+                                    title = "Members only"
+                                    icon(Ic.Lock)
+                                }
+                            }
+                            val unread = unreadCounts[entry.id] ?: 0
                             if (unread > 0) {
                                 span {
                                     className = ClassName("count-badge")
                                     +(if (unread > 99) "99+" else "$unread")
                                 }
                             }
-                        }
-                    }
-                    if (subgroupIds.isEmpty()) {
-                        div {
-                            className = ClassName("group-side-empty")
-                            +"No subgroups."
                         }
                     }
                 }
@@ -262,7 +277,7 @@ val GroupSidebar =
                 CreateGroupModal {
                     onClose = { setShowCreateSubgroup(false) }
                     subgroup = true
-                    parentGroupId = route.groupId
+                    parentGroupId = rootId
                     relayUrl = route.relayUrl
                 }
             }

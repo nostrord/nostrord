@@ -1831,6 +1831,23 @@ body {
     color: var(--color-text-primary);
 }
 
+/* Channel-list nesting indent (subgroup depth, capped at 3 in the component). */
+.group-side-row.depth1 { margin-left: var(--space-md); width: calc(100% - var(--space-md)); }
+.group-side-row.depth2 { margin-left: calc(var(--space-md) * 2); width: calc(100% - var(--space-md) * 2); }
+.group-side-row.depth3 { margin-left: calc(var(--space-md) * 3); width: calc(100% - var(--space-md) * 3); }
+
+/* Members-only marker on a channel the user hasn't joined (private/closed subgroup). */
+.group-side-row-lock {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+
+.group-side-row-lock .ico {
+    width: 12px;
+    height: 12px;
+}
+
 /* Threads pane (forum-style kind:11 root + NIP-22 kind:1111 replies). Web mirror of the
    Compose ThreadsScreen and the prototype's GroupPanels.ThreadsPanel / ThreadPanel, as a page. */
 .threads-page {
@@ -2043,12 +2060,6 @@ body {
 .group-side-label-add .ico {
     width: 15px;
     height: 15px;
-}
-
-.group-side-empty {
-    padding: var(--space-xs) var(--space-sm);
-    font-size: 12px;
-    color: var(--color-text-muted);
 }
 
 /* ===== Profile page (prototype Profile, #/u/<npub>) ===== */
