@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
@@ -295,6 +296,22 @@ fun GroupHeader(
                             Icon(
                                 Icons.Outlined.Info,
                                 contentDescription = "Group info",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+
+                    // Subgroup channel: the header cog is the discoverable admin entry for
+                    // managing THIS channel (root groups keep the sidebar "Manage group" row).
+                    if (isAdmin && groupMetadata?.parent != null) {
+                        IconButton(
+                            onClick = onEditClick,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = "Manage channel",
                                 tint = NostrordColors.TextSecondary,
                                 modifier = Modifier.size(18.dp),
                             )

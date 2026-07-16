@@ -296,7 +296,6 @@ fun GroupScreenDesktop(
                     groupRelay = groupRelay,
                     userGroupLists = userGroupLists,
                     onPrefetchTarget = onPrefetchTarget,
-                    onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 )
             }
         }
@@ -326,7 +325,6 @@ fun GroupScreenDesktop(
                 groupRelay = groupRelay,
                 userGroupLists = userGroupLists,
                 onPrefetchTarget = onPrefetchTarget,
-                onManage = if (isCurrentUserAdmin) onManageMembers else null,
             )
         }
     }

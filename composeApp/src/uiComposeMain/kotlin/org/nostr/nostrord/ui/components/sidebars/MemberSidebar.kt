@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,7 +78,6 @@ fun MemberSidebar(
     groupRelay: String? = null,
     userGroupLists: Map<String, List<UserGroupRef>> = emptyMap(),
     onPrefetchTarget: (String) -> Unit = {},
-    onManage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -160,20 +158,6 @@ fun MemberSidebar(
                         tint = NostrordColors.TextSecondary,
                         modifier = Modifier.size(18.dp),
                     )
-                }
-                if (onManage != null) {
-                    // Prototype MembersPanel gear: opens member management.
-                    IconButton(
-                        onClick = onManage,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Manage members",
-                            tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
                 }
             }
         }

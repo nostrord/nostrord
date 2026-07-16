@@ -1814,6 +1814,16 @@ val ChatScreen =
                             onClick = { setMembersOpen(!membersOpen) }
                             icon(Ic.People)
                         }
+                        // Subgroup channel: the header cog is the discoverable admin entry for
+                        // managing THIS channel (root groups keep the sidebar "Manage group" row).
+                        if (isAdmin && group.parent != null) {
+                            button {
+                                className = ClassName("chat-icon-btn")
+                                title = "Manage channel"
+                                onClick = { setModal("edit") }
+                                icon(Ic.Settings)
+                            }
+                        }
                     }
                     if (!canPost && !membersResolving && !isOrphaned) {
                         if (composerPending) {
@@ -1842,8 +1852,8 @@ val ChatScreen =
                         }
                     }
                     // No 3-dots menu (prototype shape): Leave lives in the info modal,
-                    // admin management in the sidebar "Manage group" entry and the
-                    // members panel gear.
+                    // admin management in the sidebar "Manage group" entry and, for
+                    // subgroup channels, the header cog above.
                 }
 
                 // In-chat search bar. Floats as an overlay anchored under the header (absolute
@@ -2329,9 +2339,9 @@ val ChatScreen =
                         className = ClassName("member-header-title")
                         +"Members · ${members.size}"
                     }
-                    // Only admins can add/manage members — kind:9000 (put-user) is
-                    // admin-only and the relay rejects it from non-admins. Grouped on
-                    // the right (prototype MembersPanel).
+                    // Only admins can add members — kind:9000 (put-user) is admin-only and
+                    // the relay rejects it from non-admins. Member management lives in the
+                    // Manage modal (sidebar Members row / the header cog), not here.
                     if (isAdmin) {
                         div {
                             className = ClassName("member-header-actions")
@@ -2340,13 +2350,6 @@ val ChatScreen =
                                 title = "Add member"
                                 onClick = { setModal("addmember") }
                                 icon(Ic.PersonAdd)
-                            }
-                            // Prototype MembersPanel gear: opens member management.
-                            button {
-                                className = ClassName("member-add-btn")
-                                title = "Manage members"
-                                onClick = { setModal("members") }
-                                icon(Ic.Settings)
                             }
                         }
                     }

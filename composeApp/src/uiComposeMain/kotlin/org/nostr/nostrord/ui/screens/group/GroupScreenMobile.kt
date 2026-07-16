@@ -346,7 +346,6 @@ fun GroupScreenMobile(
                     groupRelay = groupRelay,
                     userGroupLists = userGroupLists,
                     onPrefetchTarget = onPrefetchTarget,
-                    onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 )
             }
         } // Box
