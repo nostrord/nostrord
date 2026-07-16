@@ -547,15 +547,6 @@ class GroupViewModel(
         }
     }
 
-    fun updateTopology(
-        parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
-        onDone: (Result<Unit>) -> Unit = {},
-    ) {
-        viewModelScope.launch {
-            onDone(repo.updateGroupTopology(groupId, parent))
-        }
-    }
-
     // Reactions with an in-flight send, keyed "$targetEventId|$emoji". The reaction
     // only appears optimistically after signEvent resolves, which on NIP-46 (bunker)
     // is a 1-2s round-trip; we surface a pending badge + spinner during that window

@@ -3317,21 +3317,6 @@ class NostrRepository(
         )
     }
 
-    override suspend fun updateGroupTopology(
-        groupId: String,
-        parent: GroupManager.ParentOp?,
-    ): Result<Unit> {
-        val pubKey = sessionManager.getPublicKey()
-            ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        return groupManager.updateGroupTopology(
-            groupId = groupId,
-            parent = parent,
-            pubKey = pubKey,
-            currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) },
-        )
-    }
-
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = groupManager.loadMoreMessages(groupId, channel)
 
     override suspend fun retryStalledLoad(groupId: String, channel: String?): Boolean = groupManager.retryStalledLoad(groupId, channel)
