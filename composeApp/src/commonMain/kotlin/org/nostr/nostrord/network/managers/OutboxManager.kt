@@ -46,6 +46,14 @@ class OutboxManager(
     private var kind10009SubId: String? = null
     private var kind10009Received = false
 
+    // Best "stale" own kind:10009 seen during a fetch (newer than every other received
+    // event but still <= the local guard) and the relays that served that exact version.
+    // Feeds the stale-guard self-heal in [loadJoinedGroupsFromNostr]: a guard poisoned by
+    // a publish no relay stored (older builds advanced it unconditionally) would otherwise
+    // reject the network's real list forever, keeping this device divergent.
+    private var pendingBestStaleTs = 0L
+    private val pendingBestStaleRelays = mutableSetOf<String>()
+
     private val groupsMutex = Mutex()
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
     private var latestKind10009CreatedAt: Long = 0
@@ -118,7 +126,7 @@ class OutboxManager(
 
             coroutineScope {
                 launch { loadUserRelayList(pubKey, messageHandler) }
-                launch { loadJoinedGroupsFromNostr(pubKey, messageHandler) }
+                launch { loadJoinedGroupsFromNostr(pubKey, messageHandler = messageHandler) }
             }
             onDiscoveryComplete?.invoke()
         }
@@ -146,13 +154,20 @@ class OutboxManager(
      */
     suspend fun loadJoinedGroupsFromNostr(
         pubKey: String,
+        allowHeal: Boolean = true,
         messageHandler: (String, NostrGroupClient) -> Unit,
     ): Set<String> {
         val relaysToQuery = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
 
         kind10009Received = false
+        groupsMutex.withLock {
+            pendingBestStaleTs = 0L
+            pendingBestStaleRelays.clear()
+        }
 
-        val subId = "joined-groups-${epochMillis()}"
+        // Fixed id: relays REPLACE a re-used subscription id, so repeated loads
+        // (re-login, account switch) never leak a stack of open subs.
+        val subId = "joined-groups"
         kind10009SubId = subId
 
         val reqMessage =
@@ -208,8 +223,66 @@ class OutboxManager(
             }
         }
 
+        // Stale-guard self-heal: every received event was rejected as "stale", at least two
+        // relays agree on the same newest version, and we have no unconfirmed publish of our
+        // own — the guard is a phantom (a publish no relay stored, from builds that advanced
+        // it unconditionally). Regress it just below the consensus version and refetch once:
+        // the same events then pass the guard and apply through the normal authoritative
+        // path. Without this, the device rejects the network's real list forever and two
+        // devices never converge.
+        if (allowHeal) {
+            val regressed =
+                groupsMutex.withLock {
+                    val consensus = pendingBestStaleTs > 0L && pendingBestStaleRelays.size >= 2
+                    if (consensus && !_kind10009NeedsRepublish.value && pendingBestStaleTs < latestKind10009CreatedAt) {
+                        latestKind10009CreatedAt = pendingBestStaleTs - 1
+                        true
+                    } else {
+                        false
+                    }
+                }
+            if (regressed) {
+                return loadJoinedGroupsFromNostr(pubKey, allowHeal = false, messageHandler = messageHandler)
+            }
+        }
+
+        // Live cross-device sync: a standing sub for our own kind:10009 so a list published
+        // by another device applies while this app is OPEN (the fetch above is one-shot and
+        // CLOSEd; without this, two open devices only converge on restart).
+        armKind10009LiveSub(pubKey)
+
         return groupsMutex.withLock {
             allRelayGroups.values.flatten().toSet()
+        }
+    }
+
+    /**
+     * (Re)arm the standing own-kind:10009 subscription on every connected publish/bootstrap
+     * relay. Fixed sub id, so re-arming replaces instead of stacking; safe to call on each
+     * reconnect. NOT in the one-shot EOSE-close set — it must stay open for live pushes.
+     */
+    fun armKind10009LiveSub(pubKey: String) {
+        if (pubKey.isBlank()) return
+        val reqMessage =
+            buildJsonArray {
+                add("REQ")
+                add("own-grouplist-live")
+                add(
+                    buildJsonObject {
+                        putJsonArray("kinds") { add(10009) }
+                        putJsonArray("authors") { add(pubKey) }
+                        put("limit", 1)
+                    },
+                )
+            }.toString()
+        val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
+        scope.launch {
+            targets.forEach { relayUrl ->
+                try {
+                    connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }?.send(reqMessage)
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
@@ -369,8 +442,24 @@ class OutboxManager(
             groupsMutex.withLock {
                 if (createdAt > latestKind10009CreatedAt) {
                     latestKind10009CreatedAt = createdAt
+                    // Durable acceptance: without this, only a publish OK ever persisted the
+                    // guard, so a network-accepted newer list was forgotten on restart (and a
+                    // phantom persisted guard kept poisoning every session).
+                    try {
+                        SecureStorage.saveKind10009Timestamp(pubKey, createdAt)
+                    } catch (_: Exception) {}
+                    pendingBestStaleTs = 0L
+                    pendingBestStaleRelays.clear()
                     true
                 } else {
+                    // Track the strongest stale candidate for the guard self-heal.
+                    if (createdAt > pendingBestStaleTs) {
+                        pendingBestStaleTs = createdAt
+                        pendingBestStaleRelays.clear()
+                        pendingBestStaleRelays.add(currentRelayUrl.normalizeRelayUrl())
+                    } else if (createdAt == pendingBestStaleTs && createdAt > 0L) {
+                        pendingBestStaleRelays.add(currentRelayUrl.normalizeRelayUrl())
+                    }
                     false
                 }
             }
