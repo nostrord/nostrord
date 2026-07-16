@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +53,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -81,6 +81,7 @@ import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.grabPointerIcon
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import kotlin.math.roundToInt
@@ -523,6 +524,15 @@ private fun ChannelRow(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val highlighted = isHovered || active
     val indicatorColor = NostrordColors.Primary
+    // pointerInput's coroutine only ever sees the lambdas captured when it launched,
+    // but the drop math lives in callbacks the sidebar recreates every recomposition
+    // (they close over the current drag indexes). Route through rememberUpdatedState
+    // so the gesture always invokes the latest ones — without this the drop commits
+    // against the stale first-composition state and never reorders.
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnDragCancel by rememberUpdatedState(onDragCancel)
     Row(
         modifier =
         Modifier
@@ -558,16 +568,16 @@ private fun ChannelRow(
                 Modifier
                     .size(14.dp)
                     .alpha(if (isHovered || dragging) 1f else 0.6f)
-                    .pointerHoverIcon(PointerIcon.Hand)
+                    .pointerHoverIcon(grabPointerIcon, overrideDescendants = true)
                     .pointerInput(groupId) {
                         detectDragGestures(
-                            onDragStart = { onDragStart() },
+                            onDragStart = { currentOnDragStart() },
                             onDrag = { change, amount ->
                                 change.consume()
-                                onDrag(amount.y)
+                                currentOnDrag(amount.y)
                             },
-                            onDragEnd = { onDragEnd() },
-                            onDragCancel = { onDragCancel() },
+                            onDragEnd = { currentOnDragEnd() },
+                            onDragCancel = { currentOnDragCancel() },
                         )
                     },
             )
