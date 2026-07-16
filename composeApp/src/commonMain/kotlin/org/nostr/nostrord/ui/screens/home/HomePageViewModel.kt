@@ -30,6 +30,7 @@ import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadFollowingCacheFor
 import org.nostr.nostrord.storage.saveFollowingCacheFor
+import org.nostr.nostrord.ui.screens.group.aggregateUnread
 import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
@@ -249,6 +250,42 @@ class HomePageViewModel(
             .map { list -> list.map { it.copy(people = emptyList(), memberCount = 0, peopleLoading = false) } }
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Rail entries under the Discord-style channel model: root groups only. A subgroup
+     * lives in its root's channel list, not the rail; one whose parent isn't joined
+     * stays (it would be unreachable otherwise). [railGroups] remains the unfiltered
+     * joined list for non-rail consumers (restore validation, history labels).
+     */
+    val railRootGroups: StateFlow<List<DiscoverGroup>> =
+        railGroups
+            .map { list ->
+                val joinedIds = list.mapTo(HashSet()) { it.meta.id }
+                list.filter { it.meta.parent == null || it.meta.parent !in joinedIds }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Joined-scoped parent links (child id -> parent id, only when the parent is itself
+     * joined). Feeding [rootGroupId] with this resolves any open channel to the rail
+     * entry that should highlight, matching [railRootGroups]'s filter exactly.
+     */
+    val groupParents: StateFlow<Map<String, String>> =
+        railGroups
+            .map { list ->
+                val joinedIds = list.mapTo(HashSet()) { it.meta.id }
+                list.mapNotNull { g -> g.meta.parent?.takeIf { it in joinedIds }?.let { g.meta.id to it } }.toMap()
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * Rail badge counts: each root's own unread plus all its descendant channels', so a
+     * message in a subgroup still surfaces when the group is closed.
+     */
+    val railUnreadCounts: StateFlow<Map<String, Int>> =
+        combine(railRootGroups, repo.childrenByParent, repo.unreadCounts) { roots, children, unread ->
+            roots.associate { it.meta.id to aggregateUnread(it.meta.id, children, unread) }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /**
      * [myGroups] filtered by the search [query] over name + description. The Home page's "My groups"

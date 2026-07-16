@@ -24,7 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -55,10 +55,13 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.GroupView
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.channelTree
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageGroupModal
 import org.nostr.nostrord.ui.screens.group.components.ManageTab
 import org.nostr.nostrord.ui.screens.group.components.MembersModal
+import org.nostr.nostrord.ui.screens.group.isLockedChannel
+import org.nostr.nostrord.ui.screens.group.rootGroupId
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
@@ -69,10 +72,10 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the
- * gradient banner (group identity, opens the info modal) and the group tree below
- * it (Members row, the subgroups section, parent backlink). Rows the prototype
- * backs with mock-only features (Threads / Pinned / Media panels) arrive with
- * those features. Mirrors the web web/GroupSidebar.
+ * gradient banner (ROOT group identity, Discord's "server") and below it the
+ * per-channel rows (Chat/Threads/Members/Manage act on the OPEN channel) plus the
+ * channel list (the root and its subgroup subtree). Opening any channel keeps this
+ * sidebar anchored on the root. Mirrors the web web/GroupSidebar.
  */
 @Composable
 fun GroupSidebar(
@@ -86,23 +89,33 @@ fun GroupSidebar(
     val childrenByParent by vm.childrenByParent.collectAsState()
     val groupMembers by vm.groupMembers.collectAsState()
     val groupAdmins by vm.groupAdmins.collectAsState()
+    val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
 
     val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
-    val meta = relayGroups.firstOrNull { it.id == route.groupId }
-    val name = meta?.name ?: route.groupId
+    val metaById = relayGroups.associateBy { it.id }
+    val meta = metaById[route.groupId]
     val currentUserPubkey = remember { vm.getPublicKey() }
     val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
     val memberCount = groupMembers[route.groupId].orEmpty().size
-    val subgroupIds = childrenByParent[route.groupId].orEmpty()
+    // Discord-style channel model: the sidebar anchors on the ROOT of the open channel's
+    // subgroup tree (the "server"); the open channel only drives the chat pane + the
+    // per-channel rows (Chat/Threads/Members/Manage — membership is per subgroup).
+    val rootId = rootGroupId(route.groupId) { metaById[it]?.parent }
+    val rootMeta = metaById[rootId]
+    val rootName = rootMeta?.name ?: rootId
+    val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+    // Subgroup channels only: the root's own chat is the "General" row above the list,
+    // so listing the root again would duplicate the banner identity.
+    val channels = channelTree(rootId, childrenByParent, metaById).drop(1)
+    val joinedHere = joinedGroupsByRelay[route.relayUrl.normalizeRelayUrl()].orEmpty()
     // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
     val supportsSubgroups =
         (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])
             ?.supportsSubgroups == true
-    val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
 
     var showMembers by remember { mutableStateOf(false) }
     var showCreateSubgroup by remember { mutableStateOf(false) }
@@ -116,9 +129,9 @@ fun GroupSidebar(
 
     Column(modifier = Modifier.fillMaxSize()) {
         GroupBanner(
-            seed = route.groupId,
-            name = name,
-            picture = meta?.picture,
+            seed = rootId,
+            name = rootName,
+            picture = rootMeta?.picture,
             relayUrl = route.relayUrl,
             relayHost = relayHost,
             relayIconUrl = relayIconUrl,
@@ -131,18 +144,12 @@ fun GroupSidebar(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.sm, vertical = Spacing.md),
         ) {
-            if (parent != null) {
-                SidebarRow(
-                    icon = Icons.Default.KeyboardArrowLeft,
-                    label = parent.name ?: parent.id,
-                    muted = true,
-                ) { onNavigateGroup(GroupRoute(route.relayUrl, parent.id)) }
-            }
+            // The root group's own chat (Discord's #general); subgroup channels are listed below.
             SidebarRow(
                 icon = Icons.AutoMirrored.Filled.Chat,
-                label = "Chat",
-                active = route.view == GroupView.Chat,
-            ) { onNavigateGroup(route.copy(view = GroupView.Chat, threadRootId = null)) }
+                label = "General",
+                active = route.view == GroupView.Chat && route.groupId == rootId,
+            ) { onNavigateGroup(GroupRoute(route.relayUrl, rootId)) }
             SidebarRow(
                 icon = Icons.Default.Forum,
                 label = "Threads",
@@ -167,25 +174,27 @@ fun GroupSidebar(
                 }
             }
 
-            // Relays that can't host subgroups show no subgroups section at all.
-            if (supportsSubgroups) {
+            // Channels (Discord model): the root's subgroup subtree, depth-first with
+            // indentation. Hidden on relays that can't host subgroups, and for non-admins
+            // when there are no channels yet (admins keep the header for its add button).
+            if (supportsSubgroups && (channels.isNotEmpty() || isRootAdmin)) {
                 Spacer(modifier = Modifier.height(Spacing.md))
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "SUBGROUPS · ${subgroupIds.size}",
+                        "CHANNELS · ${channels.size}",
                         color = NostrordColors.TextMuted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.5.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    if (isAdmin) {
+                    if (isRootAdmin) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add subgroup",
+                            contentDescription = "Add channel",
                             tint = NostrordColors.TextMuted,
                             modifier =
                             Modifier
@@ -196,22 +205,18 @@ fun GroupSidebar(
                     }
                 }
                 Spacer(modifier = Modifier.height(Spacing.xs))
-                subgroupIds.forEach { subId ->
-                    val sub = relayGroups.firstOrNull { it.id == subId }
-                    SubgroupRow(
-                        groupId = subId,
-                        name = sub?.name ?: subId,
-                        picture = sub?.picture,
-                        unread = unreadCounts[subId] ?: 0,
-                    ) { onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
-                }
-                if (subgroupIds.isEmpty()) {
-                    Text(
-                        "No subgroups.",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-                    )
+                channels.forEach { entry ->
+                    val channel = metaById[entry.id]
+                    ChannelRow(
+                        groupId = entry.id,
+                        name = channel?.name ?: entry.id,
+                        picture = channel?.picture,
+                        // First-level channels sit flush; only nesting below them indents.
+                        depth = entry.depth - 1,
+                        locked = isLockedChannel(channel, isJoined = entry.id in joinedHere),
+                        unread = unreadCounts[entry.id] ?: 0,
+                        active = route.groupId == entry.id,
+                    ) { onNavigateGroup(GroupRoute(route.relayUrl, entry.id)) }
                 }
             }
         }
@@ -241,7 +246,7 @@ fun GroupSidebar(
         CreateGroupModal(
             currentRelayUrl = currentRelayUrl,
             userRelays = kind10009Relays,
-            parentGroupId = route.groupId,
+            parentGroupId = rootId,
             onDismiss = { showCreateSubgroup = false },
             onGroupCreated = { relayUrl, newId, _ ->
                 showCreateSubgroup = false
@@ -415,21 +420,27 @@ private fun SidebarRow(
 }
 
 @Composable
-private fun SubgroupRow(
+private fun ChannelRow(
     groupId: String,
     name: String,
     picture: String?,
+    depth: Int,
+    locked: Boolean,
     unread: Int,
+    active: Boolean,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val highlighted = isHovered || active
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
+            // Nesting indent, capped so deep foreign trees never crush the label.
+            .padding(start = Spacing.md * minOf(depth, 3))
             .clip(NostrordShapes.shapeMedium)
-            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .background(if (highlighted) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs + Spacing.xxs),
@@ -446,13 +457,21 @@ private fun SubgroupRow(
         )
         Text(
             name,
-            color = if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+            color = if (highlighted) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (locked) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Members only",
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(12.dp),
+            )
+        }
         if (unread > 0) {
             Box(
                 modifier =

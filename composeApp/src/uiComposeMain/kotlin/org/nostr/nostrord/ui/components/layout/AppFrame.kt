@@ -142,6 +142,7 @@ import org.nostr.nostrord.ui.screens.group.components.AddGroupModal
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
+import org.nostr.nostrord.ui.screens.group.rootGroupId
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageScreen
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
@@ -177,7 +178,12 @@ fun AppFrame() {
     // meta-only projection (distinctUntilChanged) skips the member-avatar metadata waves that would
     // otherwise recompose the whole rail dozens of times on home open.
     val groups by vm.railGroups.collectAsState()
-    val unreadCounts by vm.unreadCounts.collectAsState()
+    // Channel model: the rail shows only root groups; a subgroup lives in its root's
+    // channel list. `groups` stays the full joined list for restore validation and
+    // history labels, which must keep resolving subgroup routes.
+    val railRoots by vm.railRootGroups.collectAsState()
+    val railUnread by vm.railUnreadCounts.collectAsState()
+    val groupParents by vm.groupParents.collectAsState()
     val notificationUnread by vm.notificationUnread.collectAsState()
     val dmUnread by AppModule.nostrRepository.totalDmUnread.collectAsState()
     val dmEnabled by AppModule.dmSettings.dmEnabled.collectAsState()
@@ -362,13 +368,16 @@ fun AppFrame() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    groups.forEach { group ->
+                    // An open channel highlights its root's rail chip (the chip a click
+                    // would re-open); badge counts aggregate the root's whole subtree.
+                    val activeRootId = groupRoute?.groupId?.let { open -> rootGroupId(open) { groupParents[it] } }
+                    railRoots.forEach { group ->
                         RailGroupButton(
                             name = group.meta.name ?: group.meta.id,
                             picture = group.meta.picture,
                             groupId = group.meta.id,
-                            unread = unreadCounts[group.meta.id] ?: 0,
-                            active = groupRoute?.groupId == group.meta.id && !showNotifications,
+                            unread = railUnread[group.meta.id] ?: 0,
+                            active = activeRootId == group.meta.id && !showNotifications,
                         ) {
                             history.navigate(GroupRoute(group.relayUrl, group.meta.id))
                             closeDrawer()

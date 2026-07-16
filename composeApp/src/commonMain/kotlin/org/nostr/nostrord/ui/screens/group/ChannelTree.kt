@@ -1,0 +1,68 @@
+package org.nostr.nostrord.ui.screens.group
+
+import org.nostr.nostrord.network.GroupMetadata
+
+/**
+ * Discord-style channel model over the NIP-29 subgroup topology: the rail shows only
+ * root groups ("servers"); opening one lists the root plus its whole subgroup subtree
+ * as channels. These are the pure derivations both UIs and the rail share.
+ */
+
+/** One row of the flattened channel list. [depth] is 0 for the root, 1 per nesting level. */
+data class ChannelEntry(val id: String, val depth: Int)
+
+/**
+ * Walk `parent` links up to the root group. [parentOf] returns null when a group has no
+ * parent or the parent is outside the resolvable set (unknown meta / not joined), which
+ * makes that group its own root. Cycle-guarded: a loop stops at the first repeat.
+ */
+fun rootGroupId(groupId: String, parentOf: (String) -> String?): String {
+    var current = groupId
+    val visited = mutableSetOf(current)
+    while (true) {
+        val parent = parentOf(current) ?: return current
+        if (!visited.add(parent)) return current
+        current = parent
+    }
+}
+
+/**
+ * Flatten the subgroup tree under [rootId] into the channel list: the root first (the
+ * "general" channel), then each descendant depth-first. Siblings follow the parent's
+ * declared child order (position in `meta.children`), undeclared ones after, by name.
+ */
+fun channelTree(
+    rootId: String,
+    childrenByParent: Map<String, Set<String>>,
+    metaById: Map<String, GroupMetadata>,
+): List<ChannelEntry> {
+    val out = mutableListOf(ChannelEntry(rootId, 0))
+    val visited = mutableSetOf(rootId)
+    fun visit(parentId: String, depth: Int) {
+        val declaredOrder = metaById[parentId]?.children.orEmpty().withIndex().associate { (i, c) -> c.id to i }
+        val children = childrenByParent[parentId].orEmpty()
+            .filter { visited.add(it) }
+            .sortedWith(
+                compareBy(
+                    { declaredOrder[it] ?: Int.MAX_VALUE },
+                    { (metaById[it]?.name ?: it).lowercase() },
+                ),
+            )
+        children.forEach { child ->
+            out.add(ChannelEntry(child, depth))
+            visit(child, depth + 1)
+        }
+    }
+    visit(rootId, 1)
+    return out
+}
+
+/** Unread total for a rail root: its own count plus every descendant channel's. */
+fun aggregateUnread(
+    rootId: String,
+    childrenByParent: Map<String, Set<String>>,
+    unreadCounts: Map<String, Int>,
+): Int = channelTree(rootId, childrenByParent, emptyMap()).sumOf { unreadCounts[it.id] ?: 0 }
+
+/** A channel the user can see but not read/post without joining (private or closed, not a member). */
+fun isLockedChannel(meta: GroupMetadata?, isJoined: Boolean): Boolean = !isJoined && meta != null && (!meta.isPublic || !meta.isOpen)
