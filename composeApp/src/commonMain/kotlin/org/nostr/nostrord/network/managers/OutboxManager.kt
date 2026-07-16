@@ -58,6 +58,12 @@ class OutboxManager(
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
     private var latestKind10009CreatedAt: Long = 0
 
+    // Newest kind:10009 createdAt actually SEEN this session (events received or
+    // published), unlike the guard above which can rehydrate from storage without
+    // any event backing it. Gates the stale additive merge: a version older than
+    // one already seen must never resurrect groups the newer list omits.
+    private var newestSeenKind10009CreatedAt: Long = 0
+
     private val _kind10009Relays = MutableStateFlow<Set<String>>(emptySet())
     val kind10009Relays: StateFlow<Set<String>> = _kind10009Relays.asStateFlow()
 
@@ -100,6 +106,7 @@ class OutboxManager(
         // before login so we don't always know the pubkey yet — just start at
         // 0 and let initialize() rehydrate the right scope when login completes.
         latestKind10009CreatedAt = 0
+        newestSeenKind10009CreatedAt = 0
     }
 
     fun initialize(
@@ -112,6 +119,7 @@ class OutboxManager(
         // account's (legitimately older) kind:10009 as "stale", leaving the
         // sidebar empty until restart.
         latestKind10009CreatedAt = SecureStorage.loadKind10009Timestamp(pubKey)
+        newestSeenKind10009CreatedAt = 0
         scope.launch {
             coroutineScope {
                 bootstrapRelays.forEach { url ->
@@ -398,6 +406,9 @@ class OutboxManager(
                                 if (event.createdAt > latestKind10009CreatedAt) {
                                     latestKind10009CreatedAt = event.createdAt
                                 }
+                                if (event.createdAt > newestSeenKind10009CreatedAt) {
+                                    newestSeenKind10009CreatedAt = event.createdAt
+                                }
                             }
                             SecureStorage.saveKind10009Timestamp(pubKey, event.createdAt)
                             _kind10009NeedsRepublish.value = false
@@ -438,16 +449,29 @@ class OutboxManager(
         val tags = event["tags"]?.jsonArray ?: return
 
         val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+        var supersededByNewerSeen = false
         val isNewest =
             groupsMutex.withLock {
-                if (createdAt > latestKind10009CreatedAt) {
-                    latestKind10009CreatedAt = createdAt
-                    // Durable acceptance: without this, only a publish OK ever persisted the
-                    // guard, so a network-accepted newer list was forgotten on restart (and a
-                    // phantom persisted guard kept poisoning every session).
-                    try {
-                        SecureStorage.saveKind10009Timestamp(pubKey, createdAt)
-                    } catch (_: Exception) {}
+                supersededByNewerSeen = createdAt < newestSeenKind10009CreatedAt
+                if (createdAt > newestSeenKind10009CreatedAt) {
+                    newestSeenKind10009CreatedAt = createdAt
+                }
+                // >= not >: re-applying the guard's own event is idempotent and heals local
+                // state poisoned by a stale-version merge — a buggy relay can keep serving
+                // superseded versions of the replaceable event alongside the newest one,
+                // and with a strict > a ghost group re-added by that merge survived every
+                // restart (nothing ever outran the persisted guard again) until the next
+                // real publish.
+                if (createdAt > 0L && createdAt >= latestKind10009CreatedAt) {
+                    if (createdAt > latestKind10009CreatedAt) {
+                        latestKind10009CreatedAt = createdAt
+                        // Durable acceptance: without this, only a publish OK ever persisted the
+                        // guard, so a network-accepted newer list was forgotten on restart (and a
+                        // phantom persisted guard kept poisoning every session).
+                        try {
+                            SecureStorage.saveKind10009Timestamp(pubKey, createdAt)
+                        } catch (_: Exception) {}
+                    }
                     pendingBestStaleTs = 0L
                     pendingBestStaleRelays.clear()
                     true
@@ -496,8 +520,12 @@ class OutboxManager(
             // The freshness guard can outrun what relays actually stored (a publish
             // accepted by only some relays, clock skew, another client's list); a
             // strict drop then hides the user's real groups behind localStorage
-            // forever. Trade-off: a lagging relay can resurrect a group left on
-            // another device until the next confirmed publish supersedes it.
+            // forever.
+            // Only the newest version SEEN this session may merge: a relay serving a
+            // superseded version alongside the newest (chat.wisp.talk does) would
+            // otherwise resurrect — in memory AND in the persisted slots — a group the
+            // newer list just removed on another device.
+            if (supersededByNewerSeen) return
             val known = groupsMutex.withLock { allRelayGroups }
             val additions =
                 immutableRelayGroups
@@ -535,10 +563,16 @@ class OutboxManager(
         // group lingering in memory + storage, and the next publish (which unions storage
         // and memory) resurrected it. Capture those relays before swapping the map.
         val droppedRelays: Set<String>
+        val contentUnchanged: Boolean
         groupsMutex.withLock {
             droppedRelays = allRelayGroups.keys - immutableRelayGroups.keys
+            contentUnchanged = allRelayGroups == immutableRelayGroups
             allRelayGroups = immutableRelayGroups
         }
+        // Every connected relay re-delivers the applied event on each fetch (and
+        // equal-createdAt now re-applies): identical content with the relay set already
+        // in place changes nothing — skip the storage rewrites and callback refires.
+        if (contentUnchanged && _kind10009Relays.value == newRelayGroups.keys + explicitNip29Relays) return
 
         // Persisted relay list must include EVERY relay the kind:10009 event
         // references — both explicit "r" tags AND relays implied by "group" tags
