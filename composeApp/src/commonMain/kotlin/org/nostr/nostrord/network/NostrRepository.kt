@@ -3016,6 +3016,40 @@ class NostrRepository(
         isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
+    ): Result<String> = createGroupInternal(
+        name, about, relayUrl, isPrivate, isClosed, isRestricted, isHidden, picture, customGroupId,
+        parentGroupId = null,
+    )
+
+    override suspend fun createSubgroup(
+        parentGroupId: String,
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
+        picture: String?,
+        customGroupId: String?,
+    ): Result<String> = createGroupInternal(
+        name, about, relayUrl, isPrivate, isClosed, isRestricted, isHidden, picture, customGroupId,
+        // The parent link rides the creation kind:9002: a follow-up parent-only 9002 is
+        // rejected by relays as a moderation action with no metadata tags.
+        parentGroupId = parentGroupId,
+    )
+
+    private suspend fun createGroupInternal(
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
+        picture: String?,
+        customGroupId: String?,
+        parentGroupId: String?,
     ): Result<String> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -3031,6 +3065,7 @@ class NostrRepository(
             isRestricted = isRestricted,
             isHidden = isHidden,
             customGroupId = customGroupId,
+            parentGroupId = parentGroupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
@@ -3040,31 +3075,6 @@ class NostrRepository(
             scope.launch { ensureJoinedRelaysConnected(connectionManager.currentRelayUrl.value) }
         }
         return result
-    }
-
-    override suspend fun createSubgroup(
-        parentGroupId: String,
-        name: String,
-        about: String?,
-        relayUrl: String,
-        isPrivate: Boolean,
-        isClosed: Boolean,
-        isRestricted: Boolean,
-        isHidden: Boolean,
-        picture: String?,
-        customGroupId: String?,
-    ): Result<String> {
-        val created = createGroup(name, about, relayUrl, isPrivate, isClosed, isRestricted, isHidden, picture, customGroupId)
-        if (created !is Result.Success) return created
-        // Attach to parent via kind:9002.
-        val topology = updateGroupTopology(
-            groupId = created.data,
-            parent = GroupManager.ParentOp.SetTo(parentGroupId),
-        )
-        return when (topology) {
-            is Result.Success -> created
-            is Result.Error -> Result.Error(topology.error)
-        }
     }
 
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> {
