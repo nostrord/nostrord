@@ -1789,7 +1789,8 @@ body {
     opacity: 0.4;
 }
 
-.group-side-row.drag-over::before {
+.group-side-row.drag-over::before,
+.group-side-drop-end.drag-over::before {
     content: "";
     position: absolute;
     top: -2px;
@@ -1799,6 +1800,12 @@ body {
     height: 2px;
     border-radius: var(--radius-full);
     background: var(--color-primary);
+}
+
+/* End drop strip, rendered only while dragging: the slot after the last channel. */
+.group-side-drop-end {
+    position: relative;
+    height: 18px;
 }
 
 .group-side-row-drag {

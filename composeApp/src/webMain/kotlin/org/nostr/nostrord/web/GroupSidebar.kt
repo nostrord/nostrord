@@ -112,7 +112,8 @@ val GroupSidebar =
             val onUp: (dynamic) -> Unit = { ev ->
                 val target = targetAt(ev.clientX as Double, ev.clientY as Double)
                 if (target != null && target != id) {
-                    val newOrder = moveChannelBefore(currentOrder, id, target)
+                    // The end strip maps to the null target: drop after the last channel.
+                    val newOrder = moveChannelBefore(currentOrder, id, target.takeIf { it != END_DROP })
                     if (newOrder != currentOrder) {
                         setOrderOverride(newOrder)
                         launchApp {
@@ -322,6 +323,14 @@ val GroupSidebar =
                             }
                         }
                     }
+                    // End drop strip, only while dragging: lets the channel land after the
+                    // last row (a row target always inserts BEFORE it).
+                    if (dragId != null) {
+                        div {
+                            className = ClassName(if (overId == END_DROP) "group-side-drop-end drag-over" else "group-side-drop-end")
+                            asDynamic()["data-sgid"] = END_DROP
+                        }
+                    }
                 }
             }
         }
@@ -357,6 +366,9 @@ val GroupSidebar =
             }
         }
     }
+
+/** `data-sgid` sentinel of the end drop strip (drop after the last channel). */
+private const val END_DROP = "__end__"
 
 private fun placeholderMeta(groupId: String): GroupMetadata = GroupMetadata(
     id = groupId,
