@@ -34,19 +34,25 @@ class SecurityViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private class Store(var ncryptsec: String?)
+    private class Store(var ncryptsec: String?, var plainKey: String? = null)
 
-    private fun vm(store: Store): SecurityViewModel = SecurityViewModel(
+    private fun vm(
+        store: Store,
+        protectApplicable: Boolean = true,
+    ): SecurityViewModel = SecurityViewModel(
         pubkey = pubHex,
         readNcryptsec = { store.ncryptsec },
         writeNcryptsec = { _, nc -> store.ncryptsec = nc },
+        readPlainKey = { store.plainKey },
+        clearPlainKey = { store.plainKey = null },
+        protectApplicable = protectApplicable,
         cryptoDispatcher = testDispatcher,
     )
 
     @Test
     fun `isPasswordProtected reflects whether an ncryptsec is stored`() {
-        assertTrue(vm(Store(Nip49.encrypt(privBytes, oldPassword))).isPasswordProtected)
-        assertFalse(vm(Store(null)).isPasswordProtected)
+        assertTrue(vm(Store(Nip49.encrypt(privBytes, oldPassword))).isPasswordProtected.value)
+        assertFalse(vm(Store(null)).isPasswordProtected.value)
     }
 
     @Test
@@ -100,5 +106,55 @@ class SecurityViewModelTest {
         model.setConfirm("short")
         model.changePassword()
         assertTrue(model.error.value != null)
+    }
+
+    @Test
+    fun `canProtect only for a plain key on an applicable platform`() {
+        val plainHex = privBytes.toHexString()
+        assertTrue(vm(Store(ncryptsec = null, plainKey = plainHex)).canProtect)
+        assertFalse(vm(Store(ncryptsec = null, plainKey = plainHex), protectApplicable = false).canProtect)
+        assertFalse(vm(Store(ncryptsec = null, plainKey = null)).canProtect)
+        assertFalse(vm(Store(ncryptsec = Nip49.encrypt(privBytes, oldPassword), plainKey = plainHex)).canProtect)
+    }
+
+    @Test
+    fun `protect encrypts the plain key, drops the plaintext slot and flips protected`() = runTest {
+        val store = Store(ncryptsec = null, plainKey = privBytes.toHexString())
+        val model = vm(store)
+        model.setNew("a brand new password")
+        model.setConfirm("a brand new password")
+        model.protectWithPassword()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(model.success.value)
+        assertNull(model.error.value)
+        assertTrue(model.isPasswordProtected.value)
+        assertFalse(model.canProtect)
+        assertNull(store.plainKey)
+        assertTrue(Nip49.decrypt(store.ncryptsec!!, "a brand new password").contentEquals(privBytes))
+    }
+
+    @Test
+    fun `protect rejects a mismatched confirmation and keeps the plain key`() {
+        val store = Store(ncryptsec = null, plainKey = privBytes.toHexString())
+        val model = vm(store)
+        model.setNew("a brand new password")
+        model.setConfirm("different")
+        model.protectWithPassword()
+        assertEquals("The passwords do not match.", model.error.value)
+        assertNull(store.ncryptsec)
+        assertTrue(store.plainKey != null)
+    }
+
+    @Test
+    fun `protect is refused when already protected`() {
+        val original = Nip49.encrypt(privBytes, oldPassword)
+        val store = Store(ncryptsec = original, plainKey = null)
+        val model = vm(store)
+        model.setNew("a brand new password")
+        model.setConfirm("a brand new password")
+        model.protectWithPassword()
+        assertTrue(model.error.value != null)
+        assertEquals(original, store.ncryptsec)
     }
 }

@@ -986,9 +986,10 @@ private val SecurityPanel =
         val confirm = useStateFlow(vm.confirm)
         val busy = useStateFlow(vm.busy)
         val error = useStateFlow(vm.error)
-        val success = useStateFlow(vm.success)
+        val successMessage = useStateFlow(vm.successMessage)
+        val isProtected = useStateFlow(vm.isPasswordProtected)
 
-        if (vm.isPasswordProtected) {
+        if (isProtected) {
             // The active account is unlocked per session from a stored ncryptsec; let the user
             // rotate that password (the key itself is unchanged).
             div {
@@ -1010,10 +1011,10 @@ private val SecurityPanel =
                         +it
                     }
                 }
-                if (success) {
+                successMessage?.let {
                     div {
                         className = ClassName("settings-success")
-                        +"Password changed."
+                        +it
                     }
                 }
                 button {
@@ -1021,6 +1022,38 @@ private val SecurityPanel =
                     disabled = busy || current.isEmpty() || newPassword.isEmpty() || confirm.isEmpty()
                     onClick = { vm.changePassword() }
                     +(if (busy) "Saving…" else "Change password")
+                }
+            }
+        } else if (vm.canProtect) {
+            // Plain key at rest (the web default): offer the same protect-with-password
+            // option the login screen has, after the fact.
+            div {
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("settings-section-head")
+                    +"PROTECT YOUR KEY"
+                }
+                div {
+                    className = ClassName("settings-tip")
+                    +(
+                        "Your private key is stored unencrypted in this browser. Set a password to keep it " +
+                            "encrypted at rest (NIP-49); you will be asked for it when the app starts. " +
+                            "It cannot be recovered if you forget it."
+                        )
+                }
+                passwordField("Password", newPassword) { vm.setNew(it) }
+                passwordField("Confirm password", confirm) { vm.setConfirm(it) }
+                error?.let {
+                    div {
+                        className = ClassName("settings-error")
+                        +it
+                    }
+                }
+                button {
+                    className = ClassName("settings-outline-btn")
+                    disabled = busy || newPassword.isEmpty() || confirm.isEmpty()
+                    onClick = { vm.protectWithPassword() }
+                    +(if (busy) "Encrypting…" else "Set password")
                 }
             }
         } else {
