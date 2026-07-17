@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip49
 import org.nostr.nostrord.nostr.hexToByteArray
 import org.nostr.nostrord.nostr.ncryptsecStorageApplicable
@@ -44,6 +45,8 @@ class SecurityViewModel(
     private val writeNcryptsec: (String, String) -> Unit = { pk, nc -> SecureStorage.saveEncryptedPrivateKeyFor(pk, nc) },
     private val readPlainKey: (String) -> String? = { SecureStorage.getPrivateKeyFor(it) },
     private val clearPlainKey: (String) -> Unit = { SecureStorage.clearPrivateKeyFor(it) },
+    private val readLegacyPlainKey: () -> String? = { SecureStorage.getPrivateKey() },
+    private val clearLegacyPlainKey: () -> Unit = { SecureStorage.clearPrivateKey() },
     private val protectApplicable: Boolean = ncryptsecStorageApplicable,
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
@@ -54,7 +57,20 @@ class SecurityViewModel(
 
     /** True when the active account keeps a plain key at rest here and can opt into protection. */
     val canProtect: Boolean
-        get() = pubkey != null && protectApplicable && !_isPasswordProtected.value && readPlainKey(pubkey) != null
+        get() =
+            pubkey != null &&
+                protectApplicable &&
+                !_isPasswordProtected.value &&
+                (readPlainKey(pubkey) != null || legacyPlainKeyFor(pubkey) != null)
+
+    /**
+     * The legacy single-slot plain key, only when it derives [pubkey]. Session restore falls
+     * back to this slot (AuthManager.useAccount), so protection must wrap and clear it too or
+     * the account keeps restoring without a password.
+     */
+    private fun legacyPlainKeyFor(pubkey: String): String? = readLegacyPlainKey()?.takeIf {
+        runCatching { KeyPair.fromPrivateKeyHex(it).publicKeyHex }.getOrNull() == pubkey
+    }
 
     private val _current = MutableStateFlow("")
     val current: StateFlow<String> = _current.asStateFlow()
@@ -148,7 +164,7 @@ class SecurityViewModel(
     fun protectWithPassword() {
         if (_busy.value) return
         val pk = pubkey
-        val hex = pk?.let { readPlainKey(it) }
+        val hex = pk?.let { readPlainKey(it) ?: legacyPlainKeyFor(it) }
         if (pk == null || hex == null || _isPasswordProtected.value) {
             _error.value = "There is no plain key to protect on this device."
             return
@@ -177,6 +193,7 @@ class SecurityViewModel(
                     // leaves both readable rather than neither.
                     writeNcryptsec(pk, ncryptsec)
                     clearPlainKey(pk)
+                    if (legacyPlainKeyFor(pk) != null) clearLegacyPlainKey()
                     _new.value = ""
                     _confirm.value = ""
                     _isPasswordProtected.value = true
