@@ -4,7 +4,9 @@ import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.BunkerState
-import org.nostr.nostrord.network.BunkerUnreachableReason
+import org.nostr.nostrord.network.bunkerBannerCopy
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.loadPomegranateDisconnectedFor
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
@@ -45,23 +47,8 @@ val BunkerStatusBanner =
         if (!show) return@FC
 
         val reason = (state as? BunkerState.Unreachable)?.reason
-        val title = when {
-            reconnecting -> "Reconnecting to your signer…"
-            reason == BunkerUnreachableReason.RelaysUnreachable -> "Can't reach the bunker relays"
-            reason == BunkerUnreachableReason.PermissionDenied -> "Your signer refused to sign"
-            else -> "Can't reach your signer"
-        }
-        val body = when {
-            reconnecting -> "Trying to restore the connection to your bunker…"
-            reason == BunkerUnreachableReason.RelaysUnreachable ->
-                "Your bunker's relays didn't respond. Check your internet or VPN, then reconnect."
-            reason == BunkerUnreachableReason.PermissionDenied ->
-                "The signer rejected this app's request. Re-grant permissions in your signer app, " +
-                    "then reconnect."
-            else ->
-                "Your bunker didn't respond. It may be offline, or its connection was removed. " +
-                    "Reconnect to try again."
-        }
+        val pomegranateGone = session?.pubkey?.let { SecureStorage.loadPomegranateDisconnectedFor(it) } == true
+        val copy = bunkerBannerCopy(reconnecting, reason, pomegranateGone)
 
         div {
             className = ClassName("bunker-banner")
@@ -75,11 +62,11 @@ val BunkerStatusBanner =
                     className = ClassName("bunker-banner-text")
                     div {
                         className = ClassName("bunker-banner-title")
-                        +title
+                        +copy.title
                     }
                     div {
                         className = ClassName("bunker-banner-body")
-                        +body
+                        +copy.body
                     }
                 }
             }
@@ -102,19 +89,21 @@ val BunkerStatusBanner =
                     }
                     +"Log out"
                 }
-                button {
-                    className = ClassName(if (reconnecting) "bunker-banner-btn primary loading" else "bunker-banner-btn primary")
-                    disabled = reconnecting
-                    onClick = { launchApp { repo.ensureBunkerConnected() } }
-                    if (reconnecting) {
-                        span { className = ClassName("bunker-banner-spinner") }
-                    } else {
-                        span {
-                            className = ClassName("bunker-banner-action-icon")
-                            icon(Ic.Refresh)
+                if (copy.canReconnect) {
+                    button {
+                        className = ClassName(if (reconnecting) "bunker-banner-btn primary loading" else "bunker-banner-btn primary")
+                        disabled = reconnecting
+                        onClick = { launchApp { repo.ensureBunkerConnected() } }
+                        if (reconnecting) {
+                            span { className = ClassName("bunker-banner-spinner") }
+                        } else {
+                            span {
+                                className = ClassName("bunker-banner-action-icon")
+                                icon(Ic.Refresh)
+                            }
                         }
+                        +(if (reconnecting) "Reconnecting…" else "Reconnect")
                     }
-                    +(if (reconnecting) "Reconnecting…" else "Reconnect")
                 }
             }
         }

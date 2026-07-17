@@ -33,3 +33,60 @@ sealed interface BunkerState {
     /** Signer unreachable; the banner explains [reason] and offers actions. */
     data class Unreachable(val reason: BunkerUnreachableReason) : BunkerState
 }
+
+/** What the bunker-unreachable banner says and which actions it offers. */
+data class BunkerBannerCopy(
+    val title: String,
+    val body: String,
+    /** False when reconnecting can never succeed (pomegranate signer deleted): only Log out is shown. */
+    val canReconnect: Boolean,
+)
+
+/**
+ * Banner copy shared by the native and web banners so the two never drift.
+ * [pomegranateGone] is the deliberate-disconnect case: the account was deleted on
+ * the pomegranate central server, so the signer is gone for good and the only way
+ * forward is the exported nsec (or logging out).
+ */
+fun bunkerBannerCopy(
+    reconnecting: Boolean,
+    reason: BunkerUnreachableReason?,
+    pomegranateGone: Boolean,
+): BunkerBannerCopy = when {
+    pomegranateGone ->
+        BunkerBannerCopy(
+            title = "This account's signer is gone",
+            body =
+            "This account was disconnected from its Google signer, so it can read but no longer sign. " +
+                "Log out and sign in with the exported private key (nsec) to keep using it.",
+            canReconnect = false,
+        )
+
+    reconnecting ->
+        BunkerBannerCopy(
+            title = "Reconnecting to your signer…",
+            body = "Trying to restore the connection to your bunker…",
+            canReconnect = true,
+        )
+
+    reason == BunkerUnreachableReason.RelaysUnreachable ->
+        BunkerBannerCopy(
+            title = "Can't reach the bunker relays",
+            body = "Your bunker's relays didn't respond. Check your internet or VPN, then reconnect.",
+            canReconnect = true,
+        )
+
+    reason == BunkerUnreachableReason.PermissionDenied ->
+        BunkerBannerCopy(
+            title = "Your signer refused to sign",
+            body = "The signer rejected this app's request. Re-grant permissions in your signer app, then reconnect.",
+            canReconnect = true,
+        )
+
+    else ->
+        BunkerBannerCopy(
+            title = "Can't reach your signer",
+            body = "Your bunker didn't respond. It may be offline, or its connection was removed. Reconnect to try again.",
+            canReconnect = true,
+        )
+}

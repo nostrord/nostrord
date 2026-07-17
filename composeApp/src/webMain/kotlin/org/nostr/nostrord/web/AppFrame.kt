@@ -2,11 +2,11 @@ package org.nostr.nostrord.web
 
 import kotlinx.browser.window
 import kotlinx.coroutines.awaitCancellation
-import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
 import org.nostr.nostrord.auth.removeAccountConfirmLabel
 import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
+import org.nostr.nostrord.auth.signerLabel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
@@ -533,7 +533,7 @@ val AppFrame =
                                                     className = ClassName("account-pop-npub-row")
                                                     span {
                                                         className = ClassName("signer-chip")
-                                                        +signerLabel(account.authMethod)
+                                                        +signerLabel(account)
                                                     }
                                                 }
                                             }
@@ -802,10 +802,3 @@ val AppFrame =
             ImageViewerHost {}
         }
     }
-
-/** Short signer label for the account chip (prototype AccountMenu). */
-private fun signerLabel(method: AuthMethod): String = when (method) {
-    AuthMethod.LOCAL -> "key"
-    AuthMethod.BUNKER -> "bunker"
-    AuthMethod.NIP07 -> "extension"
-}
