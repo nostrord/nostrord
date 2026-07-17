@@ -479,18 +479,6 @@ body {
     overflow-wrap: anywhere;
 }
 
-.pom-nsec {
-    font-family: monospace;
-    font-size: 12px;
-    overflow-wrap: anywhere;
-    background: var(--color-input);
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin: 6px 0;
-    color: var(--color-text-primary);
-    user-select: all;
-}
-
 .pom-actions {
     display: flex;
     align-items: center;

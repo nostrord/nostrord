@@ -6,7 +6,7 @@ import org.nostr.nostrord.ui.screens.backup.BackupViewModel.PomegranateExport
 import org.nostr.nostrord.ui.screens.backup.BackupViewModel.ShardStatus
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.copyToClipboard
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.formError
 import org.nostr.nostrord.web.components.icon
 import react.FC
@@ -124,29 +124,18 @@ val PomegranateKeySection =
                 }
 
                 is PomegranateExport.Done -> {
-                    div {
-                        className = ClassName("field-label")
-                        +"Private key (nsec)"
-                    }
-                    div {
-                        className = ClassName("pom-nsec")
-                        +export.nsec
-                    }
+                    IdentifierRow { ids = vm.pomDirectIds() }
                     div {
                         className = ClassName("settings-tip")
                         +"Store it somewhere safe. With the nsec you can log in on any device via the Private Key tab, with or without Google."
                     }
+                    EncryptedBackupSubsection { this.vm = vm }
                     div {
-                        className = ClassName("pom-actions")
-                        button {
-                            className = ClassName("btn-secondary")
-                            onClick = { copyToClipboard(export.nsec) }
-                            +"Copy nsec"
-                        }
+                        className = ClassName("backup-footer")
                         button {
                             className = ClassName("btn-text")
                             onClick = { vm.cancelPomegranateExport() }
-                            +"Hide"
+                            +"Hide private key"
                         }
                     }
                 }
@@ -162,14 +151,21 @@ val PomegranateKeySection =
             div {
                 className = ClassName("settings-tip")
                 +(
-                    "Removes this account from the central server: Google login and remote signing stop working. " +
-                        "Export your nsec first; without it the account becomes inaccessible."
+                    "Removes this account from the central server and turns off Google login for it. " +
+                        "Export your private key first: with it exported, this device keeps the account and " +
+                        "signs with that key locally. Without it the account can no longer sign anything."
                     )
             }
-            if (disconnect == PomegranateDisconnect.Done) {
+            if (disconnect is PomegranateDisconnect.Done) {
                 div {
                     className = ClassName("settings-tip")
-                    +"Disconnected. This account now works only with its exported key."
+                    +(
+                        if (disconnect.convertedToLocal) {
+                            "Disconnected from Google. This account now signs with the exported key on this device."
+                        } else {
+                            "Disconnected. This account can read but no longer sign; log in with its exported key to keep using it."
+                        }
+                        )
                 }
             } else {
                 div {
