@@ -456,6 +456,36 @@ body {
     margin-top: 16px;
 }
 
+/* Multicolor Google "G" mark (Google tab hero). 1em tracks the container's pinned
+   font-size the same way .ico does, so .ext-icon renders it at 48px. */
+.google-logo {
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+}
+
+/* Google tab: the How-it-works card and the advanced section live inside the
+   centered .ext-content; realign them left and stretch them to the card width,
+   with the check pinned to the first line of wrapped benefit text. */
+.ext-content .bunker-benefits {
+    width: 100%;
+    margin-top: 0;
+    text-align: left;
+}
+
+.ext-content .benefit {
+    align-items: flex-start;
+}
+
+.ext-content .benefit-check {
+    margin-top: 1px;
+}
+
+.ext-content .advanced-section {
+    margin-top: 0;
+    text-align: left;
+}
+
 /* Inline spinner for buttons that show a working state (login Connect /
    Login / Bunker / Extension). Reuses app-spin keyframe; matches the small
    CircularProgressIndicator the native Material Button uses inline. */

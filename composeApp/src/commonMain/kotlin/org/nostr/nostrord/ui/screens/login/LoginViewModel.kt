@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.pomegranate.PomegranateConfig
+import org.nostr.nostrord.auth.pomegranate.PomegranateService
+import org.nostr.nostrord.auth.pomegranate.PomegranateStatus
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.KeyPair
@@ -26,6 +29,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
+import org.nostr.nostrord.storage.savePomegranateCentralFor
 import org.nostr.nostrord.utils.toKotlinResult
 
 /**
@@ -36,6 +40,7 @@ import org.nostr.nostrord.utils.toKotlinResult
  */
 class LoginViewModel(
     private val repo: NostrRepositoryApi,
+    private val pomegranate: PomegranateService = PomegranateService(),
 ) : ViewModel() {
     val authUrl: StateFlow<String?> = repo.authUrl
 
@@ -253,6 +258,38 @@ class LoginViewModel(
     ) {
         viewModelScope.launch {
             onResult(repo.loginWithBunker(url).map { }.toKotlinResult())
+        }
+    }
+
+    /** True where "Login with Google" (pomegranate) can run: the web, with the flag on. */
+    val isGoogleLoginAvailable: Boolean get() = pomegranate.isAvailable
+
+    /**
+     * Login with Google via the pomegranate threshold signer. The popup mints a token,
+     * a first login creates the account (key sharded across operators), and the
+     * resulting `bunker://` URL rides the normal NIP-46 login. The central URL is
+     * persisted per account so settings can offer nsec export / disconnect. Must be
+     * called from a click handler; a popup opened outside a user gesture is blocked.
+     */
+    fun loginWithGoogle(
+        centralUrl: String = PomegranateConfig.CENTRAL_URL,
+        onStatus: (PomegranateStatus) -> Unit,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        viewModelScope.launch {
+            try {
+                val started = pomegranate.startLogin(centralUrl, onStatus = onStatus)
+                val outcome = pomegranate.finishLogin(started, onStatus)
+                onStatus(PomegranateStatus.Connecting)
+                val pubkey = repo.loginWithBunker(outcome.bunkerUrl).toKotlinResult().getOrThrow()
+                SecureStorage.savePomegranateCentralFor(pubkey, outcome.central)
+                onResult(Result.success(Unit))
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                // Throwable, not Exception: popup/dealer failures can surface as raw JS errors.
+                onResult(Result.failure(t))
+            }
         }
     }
 

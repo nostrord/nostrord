@@ -1,9 +1,13 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.auth.pomegranate.PomegranateConfig
+import org.nostr.nostrord.auth.pomegranate.PomegranatePopupClosedException
+import org.nostr.nostrord.auth.pomegranate.PomegranateStatus
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useViewModel
+import org.nostr.nostrord.web.components.GoogleLogo
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.formError
 import org.nostr.nostrord.web.components.formHint
@@ -22,7 +26,7 @@ import web.cssom.ClassName
 import web.html.InputType
 import web.html.text
 
-private enum class Tab { Key, Bunker, Extension }
+private enum class Tab { Key, Bunker, Extension, Google }
 
 private enum class BunkerMode { Qr, Url }
 
@@ -68,6 +72,9 @@ val LoginMethods =
         val (bunkerUrl, setBunkerUrl) = useState { "" }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        val (googleStatus, setGoogleStatus) = useState<PomegranateStatus?> { null }
+        val (googleCentral, setGoogleCentral) = useState { PomegranateConfig.CENTRAL_URL }
+        val (googleAdvanced, setGoogleAdvanced) = useState { false }
 
         // Run a VM auth action. The VM launches on its own scope, so we just react to the
         // callback: success calls onSuccess, failure surfaces the error string.
@@ -87,6 +94,9 @@ val LoginMethods =
             tabItem(tab == Tab.Bunker, Ic.Shield, "Bunker") { setTab(Tab.Bunker) }
             if (extensionAvailable) {
                 tabItem(tab == Tab.Extension, Ic.Extension, "Extension") { setTab(Tab.Extension) }
+            }
+            if (vm.isGoogleLoginAvailable) {
+                tabItem(tab == Tab.Google, Ic.Google, "Google") { setTab(Tab.Google) }
             }
         }
 
@@ -202,6 +212,108 @@ val LoginMethods =
                                 span { className = ClassName("btn-spinner") }
                             }
                             +(if (busy) "Connecting…" else "Connect Extension")
+                        }
+                    }
+                }
+
+                // "Login with Google" (pomegranate threshold signer), web-only.
+                // The whole flow runs in the VM; this tab only reflects its status.
+                Tab.Google -> {
+                    div {
+                        className = ClassName("ext-content")
+                        span {
+                            className = ClassName("ext-icon")
+                            GoogleLogo()
+                        }
+                        div {
+                            className = ClassName("ext-title")
+                            +"Login with Google"
+                        }
+                        p {
+                            className = ClassName("ext-desc")
+                            +"Sign in with your Google account. First time here? A Nostr key is created for you automatically, nothing to install or back up."
+                        }
+                        button {
+                            className = ClassName("btn-primary btn-lg btn-full")
+                            disabled = busy || googleCentral.isBlank()
+                            onClick = {
+                                if (!busy && googleCentral.isNotBlank()) {
+                                    setError(null)
+                                    setBusy(true)
+                                    vm.loginWithGoogle(
+                                        centralUrl = googleCentral,
+                                        onStatus = { setGoogleStatus(it) },
+                                    ) { result ->
+                                        setBusy(false)
+                                        setGoogleStatus(null)
+                                        val err = result.exceptionOrNull()
+                                        when {
+                                            err == null -> props.onSuccess()
+                                            // User dismissed the popup: a cancel, not an error.
+                                            err is PomegranatePopupClosedException -> {}
+                                            else -> setError(err.message ?: "Google login failed")
+                                        }
+                                    }
+                                }
+                            }
+                            if (googleStatus != null) {
+                                span { className = ClassName("btn-spinner") }
+                            }
+                            +when (googleStatus) {
+                                PomegranateStatus.WaitingForGoogle -> "Waiting for Google sign-in…"
+                                PomegranateStatus.Checking -> "Checking your account…"
+                                PomegranateStatus.Creating -> "Setting up your secure account…"
+                                PomegranateStatus.Connecting -> "Connecting…"
+                                null -> "Continue with Google"
+                            }
+                        }
+
+                        div {
+                            className = ClassName("bunker-benefits")
+                            div {
+                                className = ClassName("benefits-head")
+                                icon(Ic.Lock)
+                                span {
+                                    className = ClassName("benefits-title")
+                                    +"How it works"
+                                }
+                            }
+                            benefit("Your key is split into shards held by independent operators")
+                            benefit("No single server ever holds the whole key")
+                            benefit("Google only proves who you are, it never touches your key")
+                            benefit("You can export the full key (nsec) whenever you want")
+                        }
+
+                        // Advanced: swap the central server (self-hosted promenade). Same
+                        // collapsed-by-default pattern as the bunker QR's signer relays.
+                        div {
+                            className = ClassName("advanced-section")
+                            div {
+                                className = ClassName("advanced-header")
+                                onClick = { setGoogleAdvanced(!googleAdvanced) }
+                                span {
+                                    className =
+                                        ClassName(if (googleAdvanced) "advanced-chevron" else "advanced-chevron collapsed")
+                                    icon(Ic.ExpandMore)
+                                }
+                                span {
+                                    className = ClassName("advanced-title")
+                                    +"Advanced options"
+                                }
+                            }
+                            if (googleAdvanced) {
+                                p {
+                                    className = ClassName("advanced-desc")
+                                    +"Central server: checks your Google sign-in and forwards each signing request to the key operators. Change it to use a self-hosted one."
+                                }
+                                iconInput(
+                                    ic = Ic.Public,
+                                    type = InputType.text,
+                                    placeholder = PomegranateConfig.CENTRAL_URL,
+                                    value = googleCentral,
+                                    onChange = { setGoogleCentral(it) },
+                                )
+                            }
                         }
                     }
                 }
