@@ -54,3 +54,15 @@ detekt {
     config.setFrom(files("config/detekt/detekt.yml"))
     source.setFrom(files("composeApp/src"))
 }
+
+// The @jsr scope (promenade trusted dealer) lives on JSR's npm bridge, not the default
+// registry. yarn/npm read the scoped-registry mapping from the generated workspace root
+// (build/js), so it is (re)written before every install.
+tasks.matching { it.name == "kotlinNpmInstall" }.configureEach {
+    val jsWorkspace = layout.buildDirectory.dir("js")
+    doFirst {
+        val jsDir = jsWorkspace.get().asFile.apply { mkdirs() }
+        jsDir.resolve(".npmrc").writeText("@jsr:registry=https://npm.jsr.io\n")
+        jsDir.resolve(".yarnrc").writeText("\"@jsr:registry\" \"https://npm.jsr.io\"\n")
+    }
+}

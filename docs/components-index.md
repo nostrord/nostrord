@@ -117,6 +117,7 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `FollowAllButton` | webMain/kotlin/org/nostr/nostrord/web/components/FollowSuggestions.kt | "Follow all" action above a [FollowSuggestionCard] list. Publishes a single kind:3 |
 | `FollowSuggestionCard` | webMain/kotlin/org/nostr/nostrord/web/components/FollowSuggestions.kt | One "person to follow" row for the onboarding step and the Home "People" filter: |
 | `GeneratedKeyCard` | webMain/kotlin/org/nostr/nostrord/web/components/GeneratedKeyCard.kt | Generated private key panel shown after "Generate New Identity". Displays the |
+| `GoogleLogo` | webMain/kotlin/org/nostr/nostrord/web/components/GoogleLogo.kt | The multicolor Google "G" mark, inlined so the login button needs no asset fetch. |
 | `GroupAvatarUploadRow` | webMain/kotlin/org/nostr/nostrord/web/components/GroupAvatarUploadRow.kt | Group avatar preview + "Change photo" upload. Shared by Create Group and Manage > Info so the |
 | `GroupInfoModal` | webMain/kotlin/org/nostr/nostrord/web/modals/GroupInfoModal.kt | Group info modal — prototype GroupInfoModal: title bar, gradient cover with the |
 | `GroupInviteCard` | webMain/kotlin/org/nostr/nostrord/web/components/GroupInviteCard.kt | DM group-invite card (prototype InviteCard): "GROUP INVITE" eyebrow + group avatar/name, |

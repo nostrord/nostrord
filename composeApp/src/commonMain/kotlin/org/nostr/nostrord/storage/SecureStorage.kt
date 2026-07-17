@@ -1291,11 +1291,37 @@ fun SecureStorage.clearBunkerClientPrivateKeyFor(pubkey: String) {
 }
 
 /** Convenience: wipe every credential slot belonging to [pubkey]. */
+private fun pomegranateCentralForAccountKey(pubkey: String) = "pomegranate_central_${pubkeyDigest(pubkey)}"
+
+/**
+ * Central-server origin of a pomegranate ("Login with Google") bunker account. Its
+ * presence is what marks the account as pomegranate-managed; settings use it to offer
+ * nsec export / disconnect against that server.
+ */
+fun SecureStorage.savePomegranateCentralFor(
+    pubkey: String,
+    central: String,
+) {
+    if (pubkey.isBlank()) return
+    saveStringPref(pomegranateCentralForAccountKey(pubkey), central)
+}
+
+fun SecureStorage.loadPomegranateCentralFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getStringPref(pomegranateCentralForAccountKey(pubkey), "").takeIf { it.isNotBlank() }
+}
+
+fun SecureStorage.clearPomegranateCentralFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(pomegranateCentralForAccountKey(pubkey), "")
+}
+
 fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
     clearPrivateKeyFor(pubkey)
     clearEncryptedPrivateKeyFor(pubkey)
     clearBunkerUrlFor(pubkey)
     clearBunkerClientPrivateKeyFor(pubkey)
+    clearPomegranateCentralFor(pubkey)
 }
 
 private fun droppedGroupsForAccountKey(pubkey: String) = "dropped_groups_${pubkeyDigest(pubkey)}"
