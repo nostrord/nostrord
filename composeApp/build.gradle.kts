@@ -82,7 +82,7 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
-            implementation("io.ktor:ktor-client-okhttp:3.0.0")
+            implementation("io.ktor:ktor-client-okhttp:3.4.2")
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.14.0")
             implementation("androidx.security:security-crypto:1.1.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
@@ -114,10 +114,10 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
 
-            implementation("io.ktor:ktor-client-core:3.0.0")
-            implementation("io.ktor:ktor-client-websockets:3.0.0")
-            implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
-            implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
+            implementation("io.ktor:ktor-client-core:3.4.2")
+            implementation("io.ktor:ktor-client-websockets:3.4.2")
+            implementation("io.ktor:ktor-client-content-negotiation:3.4.2")
+            implementation("io.ktor:ktor-serialization-kotlinx-json:3.4.2")
             implementation("org.jetbrains.kotlinx:atomicfu:0.27.0")
             // SQLDelight runtime: the generated CacheDb interface lives in commonMain. The
             // platform SQLite drivers live in the native source sets; web never constructs one.
@@ -152,7 +152,7 @@ kotlin {
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
             // Darwin engine for the Ktor WebSocket/HTTP client on iOS.
-            implementation("io.ktor:ktor-client-darwin:3.0.0")
+            implementation("io.ktor:ktor-client-darwin:3.4.2")
             // secp256k1 for keygen/Schnorr/ECDH — same backend as desktop (statically
             // linked native libsecp256k1 via cinterop).
             implementation("fr.acinq.secp256k1:secp256k1-kmp:0.14.0")
@@ -164,7 +164,7 @@ kotlin {
             implementation(libs.sqldelight.sqlite.driver)
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
             implementation("media.kamel:kamel-image:0.9.5")
-            implementation("io.ktor:ktor-client-cio:3.0.0")
+            implementation("io.ktor:ktor-client-cio:3.4.2")
             implementation("fr.acinq.secp256k1:secp256k1-kmp:0.14.0")
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.14.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
@@ -213,7 +213,7 @@ kotlin {
         }
 
         jsMain.dependencies {
-            implementation("io.ktor:ktor-client-js:3.0.0")
+            implementation("io.ktor:ktor-client-js:3.4.2")
             // Compression webpack plugin for production builds
             implementation(devNpm("compression-webpack-plugin", "11.1.0"))
 
