@@ -54,10 +54,6 @@ fun BackupKeysSections(
     modifier: Modifier = Modifier,
 ) {
     val revealed by vm.revealed.collectAsState()
-    val passphrase by vm.passphrase.collectAsState()
-    val ncryptsec by vm.ncryptsec.collectAsState()
-    val encrypting by vm.encrypting.collectAsState()
-    val error by vm.error.collectAsState()
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
         BackupCard {
@@ -83,69 +79,8 @@ fun BackupKeysSections(
                     }
                 } else {
                     IdentifierRow(ids = vm.privateDirectIds())
-
-                    // Encrypted-backup subsection, divider-set like the web .backup-subsection.
-                    Spacer(Modifier.height(Spacing.md))
-                    HorizontalDivider(color = NostrordColors.Divider)
-                    Spacer(Modifier.height(Spacing.md))
-                    FieldLabel("Encrypted backup (ncryptsec)")
-                    Spacer(Modifier.height(Spacing.sm))
-                    if (ncryptsec == null) {
-                        val canEncrypt = !encrypting && passphrase.length >= MIN_BACKUP_PASSWORD
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedTextField(
-                                value = passphrase,
-                                onValueChange = { vm.setPassphrase(it) },
-                                placeholder = { Text("Choose a password", fontSize = 14.sp) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                singleLine = true,
-                                isError = error != null,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { if (canEncrypt) vm.encrypt() }),
-                                textStyle = appFieldTextStyle(),
-                                modifier = Modifier.weight(1f),
-                            )
-                            Button(
-                                onClick = { vm.encrypt() },
-                                enabled = canEncrypt,
-                                modifier = Modifier.fillMaxHeight(),
-                            ) {
-                                Text(if (encrypting) "Encrypting…" else "Encrypt")
-                            }
-                        }
-                        error?.let {
-                            Spacer(Modifier.height(Spacing.xs))
-                            Text(it, color = NostrordColors.Error, style = NostrordTypography.Caption)
-                        }
-                        Spacer(Modifier.height(Spacing.xs))
-                        Text(
-                            "Keep this password safe. Without it the encrypted backup cannot be recovered.",
-                            color = NostrordColors.TextSecondary,
-                            style = NostrordTypography.Caption,
-                        )
-                    } else {
-                        IdentifierRow(ids = listOf(Identifier("ncryptsec", ncryptsec!!)))
-                        TextButton(onClick = { vm.setPassphrase("") }) {
-                            Text("Use a different password")
-                        }
-                    }
-
-                    // Footer: divider + right-aligned quiet hide, like the web .backup-footer.
-                    Spacer(Modifier.height(Spacing.md))
-                    HorizontalDivider(color = NostrordColors.Divider)
-                    Spacer(Modifier.height(Spacing.xs))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(
-                            onClick = { vm.hide() },
-                            colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary),
-                        ) {
-                            Text("Hide private key")
-                        }
-                    }
+                    EncryptedBackupSubsection(vm)
+                    BackupFooter("Hide private key") { vm.hide() }
                 }
             }
         } else if (vm.pomegranateCentral != null) {
@@ -156,9 +91,12 @@ fun BackupKeysSections(
                 Spacer(Modifier.height(Spacing.sm))
                 Text(
                     text =
-                    when (vm.authMethod) {
-                        AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
-                        AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
+                    when {
+                        vm.pomegranateDisconnected ->
+                            "This account was disconnected from its Google signer, so it can read but no longer sign. " +
+                                "If you exported the nsec, log out and sign in with it via the Private key option to keep using it."
+                        vm.authMethod == AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
+                        vm.authMethod == AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
                         else -> "No private key is available for this account."
                     },
                     color = NostrordColors.TextSecondary,
@@ -250,16 +188,15 @@ private fun PomegranateBackupSection(vm: BackupViewModel) {
             }
 
             is BackupViewModel.PomegranateExport.Done -> {
-                FieldLabel("Private key (nsec)")
-                Spacer(Modifier.height(Spacing.sm))
-                IdentifierRow(ids = listOf(Identifier("nsec", state.nsec)))
+                IdentifierRow(ids = vm.pomDirectIds())
                 Spacer(Modifier.height(Spacing.sm))
                 Text(
                     "Store it somewhere safe. With the nsec you can log in on any device via the Private Key option, with or without Google.",
                     color = NostrordColors.TextSecondary,
                     style = NostrordTypography.Caption,
                 )
-                TextButton(onClick = { vm.cancelPomegranateExport() }) { Text("Hide") }
+                EncryptedBackupSubsection(vm)
+                BackupFooter("Hide private key") { vm.cancelPomegranateExport() }
             }
         }
     }
@@ -269,15 +206,21 @@ private fun PomegranateBackupSection(vm: BackupViewModel) {
         FieldLabel("Disconnect from central server")
         Spacer(Modifier.height(Spacing.sm))
         Text(
-            "Removes this account from the central server: Google login and remote signing stop working. " +
-                "Export your nsec first; without it the account becomes inaccessible.",
+            "Removes this account from the central server and turns off Google login for it. " +
+                "Export your private key first: with it exported, this device keeps the account and " +
+                "signs with that key locally. Without it the account can no longer sign anything.",
             color = NostrordColors.TextSecondary,
             style = NostrordTypography.Caption,
         )
         Spacer(Modifier.height(Spacing.md))
-        if (disconnect == BackupViewModel.PomegranateDisconnect.Done) {
+        val done = disconnect as? BackupViewModel.PomegranateDisconnect.Done
+        if (done != null) {
             Text(
-                "Disconnected. This account now works only with its exported key.",
+                if (done.convertedToLocal) {
+                    "Disconnected from Google. This account now signs with the exported key on this device."
+                } else {
+                    "Disconnected. This account can read but no longer sign; log in with its exported key to keep using it."
+                },
                 color = NostrordColors.TextSecondary,
                 style = NostrordTypography.Caption,
             )
@@ -295,6 +238,87 @@ private fun PomegranateBackupSection(vm: BackupViewModel) {
                     },
                 )
             }
+        }
+    }
+}
+
+/**
+ * ncryptsec subsection, divider-set like the web .backup-subsection: password-encrypts
+ * the revealed key into a NIP-49 backup. Shared by the local-key card and the
+ * pomegranate export.
+ */
+@Composable
+private fun EncryptedBackupSubsection(vm: BackupViewModel) {
+    val passphrase by vm.passphrase.collectAsState()
+    val ncryptsec by vm.ncryptsec.collectAsState()
+    val encrypting by vm.encrypting.collectAsState()
+    val error by vm.error.collectAsState()
+
+    Spacer(Modifier.height(Spacing.md))
+    HorizontalDivider(color = NostrordColors.Divider)
+    Spacer(Modifier.height(Spacing.md))
+    FieldLabel("Encrypted backup (ncryptsec)")
+    Spacer(Modifier.height(Spacing.sm))
+    if (ncryptsec == null) {
+        val canEncrypt = !encrypting && passphrase.length >= MIN_BACKUP_PASSWORD
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = passphrase,
+                onValueChange = { vm.setPassphrase(it) },
+                placeholder = { Text("Choose a password", fontSize = 14.sp) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                isError = error != null,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (canEncrypt) vm.encrypt() }),
+                textStyle = appFieldTextStyle(),
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = { vm.encrypt() },
+                enabled = canEncrypt,
+                modifier = Modifier.fillMaxHeight(),
+            ) {
+                Text(if (encrypting) "Encrypting…" else "Encrypt")
+            }
+        }
+        error?.let {
+            Spacer(Modifier.height(Spacing.xs))
+            Text(it, color = NostrordColors.Error, style = NostrordTypography.Caption)
+        }
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            "Keep this password safe. Without it the encrypted backup cannot be recovered.",
+            color = NostrordColors.TextSecondary,
+            style = NostrordTypography.Caption,
+        )
+    } else {
+        IdentifierRow(ids = listOf(Identifier("ncryptsec", ncryptsec!!)))
+        TextButton(onClick = { vm.setPassphrase("") }) {
+            Text("Use a different password")
+        }
+    }
+}
+
+/** Footer: divider + right-aligned quiet action, like the web .backup-footer. */
+@Composable
+private fun BackupFooter(
+    text: String,
+    onClick: () -> Unit,
+) {
+    Spacer(Modifier.height(Spacing.md))
+    HorizontalDivider(color = NostrordColors.Divider)
+    Spacer(Modifier.height(Spacing.xs))
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(
+            onClick = onClick,
+            colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary),
+        ) {
+            Text(text)
         }
     }
 }

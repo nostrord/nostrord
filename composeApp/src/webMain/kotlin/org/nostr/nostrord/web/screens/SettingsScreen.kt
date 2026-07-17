@@ -309,10 +309,6 @@ private val BackupPanel =
     FC<Props> {
         val vm = useViewModel { BackupViewModel() }
         val revealed = useStateFlow(vm.revealed)
-        val passphrase = useStateFlow(vm.passphrase)
-        val ncryptsec = useStateFlow(vm.ncryptsec)
-        val encrypting = useStateFlow(vm.encrypting)
-        val error = useStateFlow(vm.error)
 
         // Public key: non-sensitive, shown immediately, cycles npub / nprofile / hex with a QR.
         div {
@@ -347,55 +343,7 @@ private val BackupPanel =
                     }
                 } else {
                     IdentifierRow { ids = vm.privateDirectIds() }
-
-                    // ncryptsec: a password-encrypted export, safe to store and to move between devices.
-                    div {
-                        className = ClassName("backup-subsection")
-                        div {
-                            className = ClassName("field-label")
-                            +"Encrypted backup (ncryptsec)"
-                        }
-                        if (ncryptsec == null) {
-                            div {
-                                className = ClassName("backup-encrypt-row")
-                                input {
-                                    className = ClassName("modal-input")
-                                    type = InputType.password
-                                    placeholder = "Choose a password"
-                                    value = passphrase
-                                    onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
-                                    onKeyDown = { event ->
-                                        if (event.key == "Enter" && passphrase.length >= MIN_BACKUP_PASSWORD && !encrypting) {
-                                            vm.encrypt()
-                                        }
-                                    }
-                                }
-                                button {
-                                    className = ClassName("btn-primary")
-                                    disabled = encrypting || passphrase.length < MIN_BACKUP_PASSWORD
-                                    onClick = { vm.encrypt() }
-                                    +(if (encrypting) "Encrypting…" else "Encrypt")
-                                }
-                            }
-                            error?.let {
-                                div {
-                                    className = ClassName("settings-error")
-                                    +it
-                                }
-                            }
-                            div {
-                                className = ClassName("settings-tip")
-                                +"Keep this password safe. Without it the encrypted backup cannot be recovered."
-                            }
-                        } else {
-                            IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
-                            button {
-                                className = ClassName("btn-text backup-link")
-                                onClick = { vm.setPassphrase("") }
-                                +"Use a different password"
-                            }
-                        }
-                    }
+                    EncryptedBackupSubsection { this.vm = vm }
 
                     div {
                         className = ClassName("backup-footer")
@@ -418,9 +366,12 @@ private val BackupPanel =
                 }
                 div {
                     className = ClassName("settings-tip")
-                    +when (vm.authMethod) {
-                        AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
-                        AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
+                    +when {
+                        vm.pomegranateDisconnected ->
+                            "This account was disconnected from its Google signer, so it can read but no longer sign. " +
+                                "If you exported the nsec, log out and sign in with it via the Private key option to keep using it."
+                        vm.authMethod == AuthMethod.BUNKER -> "Your private key stays in your bunker (NIP-46) and is never exposed here."
+                        vm.authMethod == AuthMethod.NIP07 -> "Your private key stays in your browser extension (NIP-07) and is never exposed here."
                         else -> "No private key is available for this account."
                     }
                 }
@@ -437,6 +388,71 @@ private val BackupPanel =
                 div {
                     className = ClassName("settings-tip")
                     +"• $tip"
+                }
+            }
+        }
+    }
+
+external interface EncryptedBackupProps : Props {
+    var vm: BackupViewModel
+}
+
+/**
+ * ncryptsec subsection (.backup-subsection object): password-encrypts the revealed
+ * key into a NIP-49 backup. Shared by the local-key panel and the pomegranate export.
+ */
+val EncryptedBackupSubsection =
+    FC<EncryptedBackupProps> { props ->
+        val vm = props.vm
+        val passphrase = useStateFlow(vm.passphrase)
+        val ncryptsec = useStateFlow(vm.ncryptsec)
+        val encrypting = useStateFlow(vm.encrypting)
+        val error = useStateFlow(vm.error)
+
+        div {
+            className = ClassName("backup-subsection")
+            div {
+                className = ClassName("field-label")
+                +"Encrypted backup (ncryptsec)"
+            }
+            if (ncryptsec == null) {
+                div {
+                    className = ClassName("backup-encrypt-row")
+                    input {
+                        className = ClassName("modal-input")
+                        type = InputType.password
+                        placeholder = "Choose a password"
+                        value = passphrase
+                        onChange = { event -> vm.setPassphrase(event.currentTarget.value) }
+                        onKeyDown = { event ->
+                            if (event.key == "Enter" && passphrase.length >= MIN_BACKUP_PASSWORD && !encrypting) {
+                                vm.encrypt()
+                            }
+                        }
+                    }
+                    button {
+                        className = ClassName("btn-primary")
+                        disabled = encrypting || passphrase.length < MIN_BACKUP_PASSWORD
+                        onClick = { vm.encrypt() }
+                        +(if (encrypting) "Encrypting…" else "Encrypt")
+                    }
+                }
+                error?.let {
+                    div {
+                        className = ClassName("settings-error")
+                        +it
+                    }
+                }
+                div {
+                    className = ClassName("settings-tip")
+                    +"Keep this password safe. Without it the encrypted backup cannot be recovered."
+                }
+            } else {
+                IdentifierRow { ids = listOf(Identifier("ncryptsec", ncryptsec)) }
+                button {
+                    className = ClassName("btn-text backup-link")
+                    onClick = { vm.setPassphrase("") }
+                    +"Use a different password"
                 }
             }
         }

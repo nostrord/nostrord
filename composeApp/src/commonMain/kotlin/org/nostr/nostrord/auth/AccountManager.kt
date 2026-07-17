@@ -114,6 +114,46 @@ class AccountManager(
     }
 
     /**
+     * Convert the ACTIVE account to a LOCAL-key account in place, signing with
+     * [privateKeyHex] from now on. Used when a pomegranate account is disconnected
+     * from its central server right after exporting its key: the remote signer is
+     * gone for good, but the exported key keeps the account fully functional with
+     * no logout/login round trip. The key must derive the active pubkey.
+     *
+     * Same phase order as [switchAccount] minus the per-account cache reset (the
+     * identity is unchanged, only the signer moves): credentials first, then the
+     * session wrap, then the atomic swap, then a subscription reload so anything
+     * torn down with the old session scope re-arms.
+     */
+    suspend fun convertActiveToLocal(privateKeyHex: String): Result<Unit> {
+        return try {
+            val activeId =
+                accountStore.activeId.value
+                    ?: return Result.failure(IllegalStateException("No active account"))
+            val target =
+                accountStore.get(activeId)
+                    ?: return Result.failure(IllegalStateException("No such account: $activeId"))
+            val derived = KeyPair.fromPrivateKeyHex(privateKeyHex).publicKeyHex
+            if (derived != target.pubkey) {
+                return Result.failure(IllegalStateException("Key does not match the active account"))
+            }
+            SecureStorage.savePrivateKeyFor(target.pubkey, privateKeyHex)
+            val updated = accountStore.upsert(target.copy(authMethod = AuthMethod.LOCAL))
+
+            val ok = authManager.useAccount(updated)
+            if (!ok) return Result.failure(IllegalStateException("Could not load the local key"))
+            val newSession =
+                sessionFactory.build(updated, authManager)
+                    ?: return Result.failure(IllegalStateException("Could not build session for $activeId"))
+            ActiveAccountManager.activate(newSession)
+            AppModule.nostrRepository.reloadForActiveAccount()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Fire [switchAccount] on the manager's long-lived [scope] so the swap
      * completes even if the caller's Composable (e.g. an account menu) leaves
      * composition mid-flight. UI callers MUST use this instead of launching

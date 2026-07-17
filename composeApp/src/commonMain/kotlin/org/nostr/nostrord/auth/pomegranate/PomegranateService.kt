@@ -25,7 +25,6 @@ import org.nostr.nostrord.network.createHttpClient
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.KeyPair
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.hexToByteArray
 import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.utils.epochMillis
@@ -132,15 +131,15 @@ class PomegranateService {
         return shard
     }
 
-    /** Aggregates threshold-many shards back into the key and returns its nsec. */
-    fun aggregateNsec(
+    /** Aggregates threshold-many shards back into the key hex, verified against the account pubkey. */
+    fun aggregateKeyHex(
         shardHexes: List<String>,
         expectedPubkey: String,
     ): String {
         val secretHex = PomegranateDealer.aggregate(shardHexes)
         val derived = Crypto.getPublicKeyXOnly(secretHex.hexToByteArray()).toHexString()
         if (derived != expectedPubkey) throw Exception("Recovered key does not match the account")
-        return Nip19.encodeNsec(secretHex)
+        return secretHex
     }
 
     /**

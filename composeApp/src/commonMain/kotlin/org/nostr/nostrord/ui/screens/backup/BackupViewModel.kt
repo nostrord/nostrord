@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.nostr.nostrord.auth.AccountManager
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.pomegranate.PomegranateOperator
 import org.nostr.nostrord.auth.pomegranate.PomegranatePopupClosedException
@@ -21,6 +22,8 @@ import org.nostr.nostrord.nostr.Nip49
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearPomegranateCentralFor
 import org.nostr.nostrord.storage.loadPomegranateCentralFor
+import org.nostr.nostrord.storage.loadPomegranateDisconnectedFor
+import org.nostr.nostrord.storage.markPomegranateDisconnectedFor
 import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.ui.nprofileRelayHints
 
@@ -52,6 +55,7 @@ class BackupViewModel(
     val authMethod: AuthMethod? = AppModule.accountStore.active?.authMethod,
     private val cryptoDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val pomegranate: PomegranateService = PomegranateService(),
+    private val accountManager: AccountManager = AppModule.accountManager,
 ) : ViewModel() {
     /** npub (default) / nprofile / hex. Empty when signed out. */
     val publicIds: List<Identifier> =
@@ -70,6 +74,10 @@ class BackupViewModel(
     /** Central-server origin when this bunker account came from Login with Google (pomegranate). */
     val pomegranateCentral: String? =
         repo.getPublicKey()?.let { SecureStorage.loadPomegranateCentralFor(it) }
+
+    /** True when this account's pomegranate signer was deliberately deleted: it can never sign again. */
+    val pomegranateDisconnected: Boolean
+        get() = repo.getPublicKey()?.let { SecureStorage.loadPomegranateDisconnectedFor(it) } ?: false
 
     private val _revealed = MutableStateFlow(false)
     val revealed: StateFlow<Boolean> = _revealed.asStateFlow()
@@ -114,10 +122,10 @@ class BackupViewModel(
         }
     }
 
-    /** NIP-49 encrypt the private key under the current [passphrase] into an ncryptsec1 string. */
+    /** NIP-49 encrypt the private key (local, or a finished pomegranate export) under the current [passphrase]. */
     fun encrypt() {
         if (_encrypting.value) return
-        val hex = repo.getPrivateKey() ?: return
+        val hex = repo.getPrivateKey() ?: (_pomExport.value as? PomegranateExport.Done)?.hex ?: return
         val pw = _passphrase.value
         if (pw.length < MIN_BACKUP_PASSWORD) {
             _error.value = "Use at least $MIN_BACKUP_PASSWORD characters."
@@ -165,15 +173,23 @@ class BackupViewModel(
 
         data class Done(
             val nsec: String,
+            val hex: String,
         ) : PomegranateExport
     }
 
-    enum class PomegranateDisconnect { Idle, Working, Done }
+    sealed interface PomegranateDisconnect {
+        data object Idle : PomegranateDisconnect
+
+        data object Working : PomegranateDisconnect
+
+        /** [convertedToLocal] when the exported key was adopted in place and the account keeps signing. */
+        data class Done(val convertedToLocal: Boolean) : PomegranateDisconnect
+    }
 
     private val _pomExport = MutableStateFlow<PomegranateExport>(PomegranateExport.Idle)
     val pomExport: StateFlow<PomegranateExport> = _pomExport.asStateFlow()
 
-    private val _pomDisconnect = MutableStateFlow(PomegranateDisconnect.Idle)
+    private val _pomDisconnect = MutableStateFlow<PomegranateDisconnect>(PomegranateDisconnect.Idle)
     val pomDisconnect: StateFlow<PomegranateDisconnect> = _pomDisconnect.asStateFlow()
 
     private val _pomError = MutableStateFlow<String?>(null)
@@ -235,9 +251,9 @@ class BackupViewModel(
                 val done = ops.count { it.status == ShardStatus.Recovered }
                 if (done >= cur.threshold) {
                     val pubkey = repo.getPublicKey() ?: return@launch
-                    val nsec = pomegranate.aggregateNsec(recoveredShards.toList(), pubkey)
+                    val hex = pomegranate.aggregateKeyHex(recoveredShards.toList(), pubkey)
                     recoveredShards.clear()
-                    _pomExport.value = PomegranateExport.Done(nsec)
+                    _pomExport.value = PomegranateExport.Done(nsec = Nip19.encodeNsec(hex), hex = hex)
                 } else {
                     _pomExport.value = cur.copy(operators = ops, recovered = done)
                 }
@@ -254,18 +270,29 @@ class BackupViewModel(
         }
     }
 
-    /** Leaves the export flow and forgets recovered shards and the shown nsec. */
+    /** Direct formats of the exported pomegranate key: nsec then hex. Empty until [PomegranateExport.Done]. */
+    fun pomDirectIds(): List<Identifier> {
+        val done = _pomExport.value as? PomegranateExport.Done ?: return emptyList()
+        return listOf(Identifier("nsec", done.nsec), Identifier("hex", done.hex))
+    }
+
+    /** Leaves the export flow and forgets recovered shards, the shown nsec and any ncryptsec. */
     fun cancelPomegranateExport() {
         recoveredShards.clear()
         _pomExport.value = PomegranateExport.Idle
         _pomError.value = null
+        _passphrase.value = ""
+        _ncryptsec.value = null
+        _error.value = null
     }
 
     /**
      * Unlinks the account from the central server (Google re-auth + pubkey check,
-     * then DELETE /account). Google login and NIP-46 signing stop working for it;
-     * only an exported nsec keeps the account usable, which is why the UIs demand
-     * an explicit confirmation. On success the pomegranate marker is cleared.
+     * then DELETE /account). Google login stops working for it everywhere. When the
+     * export flow finished first ([PomegranateExport.Done] holds the key), the
+     * account is converted to a LOCAL-key account in place and keeps signing with
+     * the exported key; otherwise it becomes read-only and the disconnected
+     * tombstone drives the "signer is gone" messaging.
      */
     fun disconnectPomegranate() {
         val central = pomegranateCentral ?: return
@@ -277,7 +304,11 @@ class BackupViewModel(
             try {
                 pomegranate.disconnectAccount(central, pubkey)
                 SecureStorage.clearPomegranateCentralFor(pubkey)
-                _pomDisconnect.value = PomegranateDisconnect.Done
+                val exportedHex = (_pomExport.value as? PomegranateExport.Done)?.hex
+                val converted =
+                    exportedHex != null && accountManager.convertActiveToLocal(exportedHex).isSuccess
+                if (!converted) SecureStorage.markPomegranateDisconnectedFor(pubkey)
+                _pomDisconnect.value = PomegranateDisconnect.Done(convertedToLocal = converted)
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
