@@ -1354,9 +1354,13 @@ private fun SecurityPanelContent() {
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         // ncryptsec accounts are unlocked per session and own a rotatable password, independent
-        // of the desktop app-store passphrase handled below.
-        if (accountSecurity.isPasswordProtected) {
+        // of the desktop app-store passphrase handled below. Plain-key accounts on platforms
+        // without secure storage can opt into that protection here (web-only in practice).
+        val isProtected by accountSecurity.isPasswordProtected.collectAsState()
+        if (isProtected) {
             ChangeAccountPasswordForm(accountSecurity)
+        } else if (accountSecurity.canProtect) {
+            ProtectAccountPasswordForm(accountSecurity)
         }
         AppPassphraseContent()
     }
@@ -1411,7 +1415,7 @@ private fun ChangeAccountPasswordForm(vm: SecurityViewModel) {
     val confirm by vm.confirm.collectAsState()
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
-    val success by vm.success.collectAsState()
+    val successMessage by vm.successMessage.collectAsState()
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1465,21 +1469,84 @@ private fun ChangeAccountPasswordForm(vm: SecurityViewModel) {
             }
         }
 
-        if (success) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth(),
+        successMessage?.let { SecuritySuccessCard(it) }
+    }
+}
+
+@Composable
+private fun SecuritySuccessCard(text: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun ProtectAccountPasswordForm(vm: SecurityViewModel) {
+    val new by vm.new.collectAsState()
+    val confirm by vm.confirm.collectAsState()
+    val busy by vm.busy.collectAsState()
+    val error by vm.error.collectAsState()
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        InfoCard(
+            title = "Protect your key",
+            titleColor = NostrordColors.Warning,
+            icon = Icons.Default.Key,
+            content = "Your private key is stored unencrypted on this device. Set a password to keep it " +
+                "encrypted at rest (NIP-49); you will be asked for it when the app starts. It cannot be " +
+                "recovered if you forget it.",
+            isCompact = false,
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Password changed", color = Color.White, fontWeight = FontWeight.Bold)
+                PassphraseField("Password", new) { vm.setNew(it) }
+                PassphraseField("Confirm password", confirm) { vm.setConfirm(it) }
+
+                Text(
+                    text = "At least 6 characters. Must match.",
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextSecondary,
+                )
+
+                error?.let {
+                    Text(text = it, style = NostrordTypography.MessageBody, color = NostrordColors.Error)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = { vm.protectWithPassword() },
+                        enabled = !busy && new.isNotEmpty() && confirm.isNotEmpty(),
+                    ) {
+                        Text(
+                            if (busy) "Encrypting…" else "Set password",
+                            color = NostrordColors.Primary,
+                            style = NostrordTypography.Button,
+                        )
+                    }
                 }
             }
         }
