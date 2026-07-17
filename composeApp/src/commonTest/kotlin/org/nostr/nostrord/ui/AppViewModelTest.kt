@@ -37,14 +37,14 @@ class AppViewModelTest {
     fun `isInitialized starts false`() = runTest {
         val fake = FakeNostrRepository()
         fake.initializeAction = {} // don't flip to true
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         assertFalse(vm.isInitialized.value)
     }
 
     @Test
     fun `isInitialized becomes true after initialize completes`() = runTest {
         val fake = FakeNostrRepository()
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.isInitialized.value)
     }
@@ -52,7 +52,7 @@ class AppViewModelTest {
     @Test
     fun `initialize is called on construction`() = runTest {
         val fake = FakeNostrRepository()
-        AppViewModel(fake)
+        AppViewModel(fake, bootDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(fake.calls.contains("initialize"))
     }
@@ -60,7 +60,7 @@ class AppViewModelTest {
     @Test
     fun `isLoggedIn reflects repo state`() = runTest {
         val fake = FakeNostrRepository()
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         assertFalse(vm.isLoggedIn.value)
         fake._isLoggedIn.value = true
         assertTrue(vm.isLoggedIn.value)
@@ -69,7 +69,7 @@ class AppViewModelTest {
     @Test
     fun `needsOnboarding is true only while the kind10009 group list is empty`() = runTest {
         val fake = FakeNostrRepository()
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.needsOnboarding.value)
 
@@ -86,7 +86,7 @@ class AppViewModelTest {
     @Test
     fun `skipOnboarding flips the session override`() = runTest {
         val fake = FakeNostrRepository()
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         assertFalse(vm.onboardingSkipped.value)
         vm.skipOnboarding()
         assertTrue(vm.onboardingSkipped.value)
@@ -97,7 +97,7 @@ class AppViewModelTest {
         val fake = FakeNostrRepository()
         fake._activePubkey.value = "a".repeat(64)
         fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
-        val vm = AppViewModel(fake)
+        val vm = AppViewModel(fake, bootDispatcher = testDispatcher)
         testDispatcher.scheduler.advanceUntilIdle()
         // Account A has groups: resolved, so neither pending (loading) nor onboarding.
         assertFalse(vm.onboardingDecisionPending.value)
