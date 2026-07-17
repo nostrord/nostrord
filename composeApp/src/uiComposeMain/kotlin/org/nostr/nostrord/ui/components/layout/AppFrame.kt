@@ -95,11 +95,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
 import org.nostr.nostrord.auth.removeAccountConfirmLabel
 import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
+import org.nostr.nostrord.auth.signerLabel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.startup.ExternalLaunchContext
@@ -1248,7 +1248,7 @@ private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Un
                                             color = NostrordColors.BackgroundDark,
                                         ) {
                                             Text(
-                                                signerLabel(account.authMethod),
+                                                signerLabel(account),
                                                 color = NostrordColors.TextMuted,
                                                 fontSize = 10.sp,
                                                 lineHeight = 12.sp,
@@ -1406,13 +1406,6 @@ private fun navEntryLabel(route: HashRoute?, groupName: (String) -> String?): St
     is DmRoute -> if (route.pubkey == null) "Direct messages" else "Direct message"
     is NotificationsRoute -> "Notifications"
     is SettingsRoute -> "Settings"
-}
-
-/** Short signer label for the account chip (prototype AccountMenu). */
-private fun signerLabel(method: AuthMethod): String = when (method) {
-    AuthMethod.LOCAL -> "key"
-    AuthMethod.BUNKER -> "bunker"
-    AuthMethod.NIP07 -> "extension"
 }
 
 /**

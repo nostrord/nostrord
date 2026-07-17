@@ -40,7 +40,9 @@ import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.BunkerState
-import org.nostr.nostrord.network.BunkerUnreachableReason
+import org.nostr.nostrord.network.bunkerBannerCopy
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.loadPomegranateDisconnectedFor
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 
@@ -79,25 +81,8 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
             (state is BunkerState.Unreachable || reconnecting)
 
     val reason = (state as? BunkerState.Unreachable)?.reason
-    val title =
-        when {
-            reconnecting -> "Reconnecting to your signer…"
-            reason == BunkerUnreachableReason.RelaysUnreachable -> "Can't reach the bunker relays"
-            reason == BunkerUnreachableReason.PermissionDenied -> "Your signer refused to sign"
-            else -> "Can't reach your signer"
-        }
-    val body =
-        when {
-            reconnecting -> "Trying to restore the connection to your bunker…"
-            reason == BunkerUnreachableReason.RelaysUnreachable ->
-                "Your bunker's relays didn't respond. Check your internet or VPN, then reconnect."
-            reason == BunkerUnreachableReason.PermissionDenied ->
-                "The signer rejected this app's request. Re-grant permissions in your " +
-                    "signer app, then reconnect."
-            else ->
-                "Your bunker didn't respond. It may be offline, or its connection was " +
-                    "removed. Reconnect to try again."
-        }
+    val pomegranateGone = session?.pubkey?.let { SecureStorage.loadPomegranateDisconnectedFor(it) } == true
+    val copy = bunkerBannerCopy(reconnecting, reason, pomegranateGone)
 
     val scope = rememberCoroutineScope()
 
@@ -130,14 +115,14 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = title,
+                            text = copy.title,
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Warning,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = body,
+                            text = copy.body,
                             style = NostrordTypography.Caption,
                             color = NostrordColors.TextContent,
                         )
@@ -179,35 +164,37 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        Spacer(Modifier.width(4.dp))
-                        TextButton(
-                            enabled = !reconnecting,
-                            onClick = {
-                                scope.launch { repo.ensureBunkerConnected() }
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            if (reconnecting) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
+                        if (copy.canReconnect) {
+                            Spacer(Modifier.width(4.dp))
+                            TextButton(
+                                enabled = !reconnecting,
+                                onClick = {
+                                    scope.launch { repo.ensureBunkerConnected() }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                if (reconnecting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        color = NostrordColors.Warning,
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = NostrordColors.Warning,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = if (reconnecting) "Reconnecting…" else "Reconnect",
+                                    style = NostrordTypography.Caption,
                                     color = NostrordColors.Warning,
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.Refresh,
-                                    contentDescription = null,
-                                    tint = NostrordColors.Warning,
-                                    modifier = Modifier.size(16.dp),
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                             }
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = if (reconnecting) "Reconnecting…" else "Reconnect",
-                                style = NostrordTypography.Caption,
-                                color = NostrordColors.Warning,
-                                fontWeight = FontWeight.SemiBold,
-                            )
                         }
                     }
                 }

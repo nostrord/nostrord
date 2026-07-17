@@ -1316,12 +1316,35 @@ fun SecureStorage.clearPomegranateCentralFor(pubkey: String) {
     saveStringPref(pomegranateCentralForAccountKey(pubkey), "")
 }
 
+private fun pomegranateDisconnectedForAccountKey(pubkey: String) = "pomegranate_disconnected_${pubkeyDigest(pubkey)}"
+
+/**
+ * Set when the user deliberately deletes the account on the pomegranate central
+ * server: Google login and NIP-46 signing are gone for good, and only an exported
+ * nsec can revive the account. Lets the UI say that instead of generic bunker copy.
+ */
+fun SecureStorage.markPomegranateDisconnectedFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveBooleanPref(pomegranateDisconnectedForAccountKey(pubkey), true)
+}
+
+fun SecureStorage.loadPomegranateDisconnectedFor(pubkey: String): Boolean {
+    if (pubkey.isBlank()) return false
+    return getBooleanPref(pomegranateDisconnectedForAccountKey(pubkey), false)
+}
+
+fun SecureStorage.clearPomegranateDisconnectedFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveBooleanPref(pomegranateDisconnectedForAccountKey(pubkey), false)
+}
+
 fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
     clearPrivateKeyFor(pubkey)
     clearEncryptedPrivateKeyFor(pubkey)
     clearBunkerUrlFor(pubkey)
     clearBunkerClientPrivateKeyFor(pubkey)
     clearPomegranateCentralFor(pubkey)
+    clearPomegranateDisconnectedFor(pubkey)
 }
 
 private fun droppedGroupsForAccountKey(pubkey: String) = "dropped_groups_${pubkeyDigest(pubkey)}"

@@ -1,6 +1,9 @@
 package org.nostr.nostrord.auth
 
 import kotlinx.serialization.Serializable
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.loadPomegranateCentralFor
+import org.nostr.nostrord.storage.loadPomegranateDisconnectedFor
 
 /**
  * A persisted user identity the app can sign as.
@@ -32,6 +35,21 @@ enum class AuthMethod {
  * (irrelevant private-key mention). Returning per-method copy from one place keeps
  * native and web in sync.
  */
+/**
+ * Short signer label for the account chip, shared by native and web. Pomegranate
+ * ("Login with Google") accounts are BUNKER underneath (NIP-46 remote signing) but
+ * read "google", which is how the user knows them.
+ */
+fun signerLabel(account: Account): String = when (account.authMethod) {
+    AuthMethod.LOCAL -> "key"
+    AuthMethod.BUNKER -> when {
+        SecureStorage.loadPomegranateCentralFor(account.pubkey) != null -> "google"
+        SecureStorage.loadPomegranateDisconnectedFor(account.pubkey) -> "disconnected"
+        else -> "bunker"
+    }
+    AuthMethod.NIP07 -> "extension"
+}
+
 fun logoutConfirmBody(method: AuthMethod): String = when (method) {
     AuthMethod.LOCAL -> "You will need your private key to log back in."
     AuthMethod.BUNKER -> "You will need your bunker URL to log back in."
