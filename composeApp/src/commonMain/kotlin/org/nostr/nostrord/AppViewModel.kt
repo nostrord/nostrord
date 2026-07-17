@@ -3,6 +3,7 @@ package org.nostr.nostrord
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +27,9 @@ private const val GROUP_RESOLVE_GRACE_MS = 3_000L
 
 class AppViewModel(
     private val repo: NostrRepositoryApi,
+    // Injectable so tests can run the boot launch on the test dispatcher; with the
+    // real Default dispatcher the launch races advanceUntilIdle and flakes on CI.
+    private val bootDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     val isInitialized = repo.isInitialized
     val isLoggedIn = repo.isLoggedIn
@@ -147,7 +151,7 @@ class AppViewModel(
         // init, storage reads) that, if run on Main (viewModelScope's default), stalls the Compose
         // frame clock and freezes the loading spinner mid-arc. StateFlow collectors still deliver on
         // Main, so the UI updates normally.
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(bootDispatcher) {
             withTimeoutOrNull(30_000) {
                 repo.initialize()
             } ?: repo.forceInitialized()
