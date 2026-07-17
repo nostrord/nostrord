@@ -24,6 +24,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -145,6 +148,8 @@ fun BackupKeysSections(
                     }
                 }
             }
+        } else if (vm.pomegranateCentral != null) {
+            PomegranateBackupSection(vm)
         } else {
             BackupCard {
                 FieldLabel("Private key")
@@ -158,6 +163,136 @@ fun BackupKeysSections(
                     },
                     color = NostrordColors.TextSecondary,
                     style = NostrordTypography.Caption,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Backup section for pomegranate (Login with Google) accounts: sharded-key explainer,
+ * per-operator nsec export, and disconnect from the central server. Runtime-reachable
+ * on the web only (the marker is written by the web Google login), but rendered from
+ * the same ViewModel state so the two UIs stay in lockstep.
+ */
+@Composable
+private fun PomegranateBackupSection(vm: BackupViewModel) {
+    val export by vm.pomExport.collectAsState()
+    val disconnect by vm.pomDisconnect.collectAsState()
+    val pomError by vm.pomError.collectAsState()
+    var disconnectArmed by remember { mutableStateOf(false) }
+
+    BackupCard {
+        FieldLabel("Private key")
+        Spacer(Modifier.height(Spacing.sm))
+        Text(
+            text =
+            "This account signs in with Google: the key was created for you, split into shards held by " +
+                "independent operators, and never stored whole anywhere. Signing happens remotely (NIP-46) " +
+                "through the central server. You can reassemble and export it below.",
+            color = NostrordColors.TextSecondary,
+            style = NostrordTypography.Caption,
+        )
+        pomError?.let {
+            Spacer(Modifier.height(Spacing.sm))
+            Text(it, color = NostrordColors.Error, style = NostrordTypography.Caption)
+        }
+        Spacer(Modifier.height(Spacing.md))
+        when (val state = export) {
+            BackupViewModel.PomegranateExport.Idle -> {
+                OutlinedButton(onClick = { vm.startPomegranateExport() }) {
+                    Text("Export private key")
+                }
+            }
+
+            BackupViewModel.PomegranateExport.Authing -> {
+                OutlinedButton(onClick = {}, enabled = false) {
+                    Text("Waiting for Google sign-in…")
+                }
+            }
+
+            is BackupViewModel.PomegranateExport.Recovering -> {
+                Text(
+                    "Recovered ${state.recovered} of ${state.threshold} shards. Any ${state.threshold} operators are enough; a failing one can be skipped.",
+                    color = NostrordColors.TextSecondary,
+                    style = NostrordTypography.Caption,
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                state.operators.forEach { op ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(op.host, color = NostrordColors.TextSecondary, style = NostrordTypography.Caption)
+                        when (op.status) {
+                            BackupViewModel.ShardStatus.Recovered ->
+                                Text("Recovered", color = NostrordColors.Success, style = NostrordTypography.Caption)
+
+                            else -> {
+                                TextButton(
+                                    onClick = { vm.recoverPomegranateShard(op.operator.url) },
+                                    enabled = state.operators.none { it.status == BackupViewModel.ShardStatus.Recovering },
+                                ) {
+                                    Text(
+                                        when (op.status) {
+                                            BackupViewModel.ShardStatus.Recovering -> "Waiting…"
+                                            BackupViewModel.ShardStatus.Failed -> "Retry"
+                                            else -> "Recover"
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = { vm.cancelPomegranateExport() }) { Text("Cancel") }
+            }
+
+            is BackupViewModel.PomegranateExport.Done -> {
+                FieldLabel("Private key (nsec)")
+                Spacer(Modifier.height(Spacing.sm))
+                IdentifierRow(ids = listOf(Identifier("nsec", state.nsec)))
+                Spacer(Modifier.height(Spacing.sm))
+                Text(
+                    "Store it somewhere safe. With the nsec you can log in on any device via the Private Key option, with or without Google.",
+                    color = NostrordColors.TextSecondary,
+                    style = NostrordTypography.Caption,
+                )
+                TextButton(onClick = { vm.cancelPomegranateExport() }) { Text("Hide") }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(Spacing.md))
+    BackupCard {
+        FieldLabel("Disconnect from central server")
+        Spacer(Modifier.height(Spacing.sm))
+        Text(
+            "Removes this account from the central server: Google login and remote signing stop working. " +
+                "Export your nsec first; without it the account becomes inaccessible.",
+            color = NostrordColors.TextSecondary,
+            style = NostrordTypography.Caption,
+        )
+        Spacer(Modifier.height(Spacing.md))
+        if (disconnect == BackupViewModel.PomegranateDisconnect.Done) {
+            Text(
+                "Disconnected. This account now works only with its exported key.",
+                color = NostrordColors.TextSecondary,
+                style = NostrordTypography.Caption,
+            )
+        } else {
+            Button(
+                onClick = { if (!disconnectArmed) disconnectArmed = true else vm.disconnectPomegranate() },
+                enabled = disconnect != BackupViewModel.PomegranateDisconnect.Working,
+                colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Error),
+            ) {
+                Text(
+                    when {
+                        disconnect == BackupViewModel.PomegranateDisconnect.Working -> "Disconnecting…"
+                        disconnectArmed -> "Click again to confirm"
+                        else -> "Disconnect from central server"
+                    },
                 )
             }
         }

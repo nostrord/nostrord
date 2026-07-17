@@ -407,6 +407,8 @@ private val BackupPanel =
                     }
                 }
             }
+        } else if (vm.pomegranateCentral != null) {
+            PomegranateKeySection { this.vm = vm }
         } else {
             div {
                 className = ClassName("settings-card")

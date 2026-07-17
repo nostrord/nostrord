@@ -464,6 +464,46 @@ body {
     flex-shrink: 0;
 }
 
+/* Pomegranate export (Backup keys): operator recovery rows + revealed nsec. */
+.pom-operator-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.pom-operator-host {
+    overflow-wrap: anywhere;
+}
+
+.pom-nsec {
+    font-family: monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    background: var(--color-input);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 0;
+    color: var(--color-text-primary);
+    user-select: all;
+}
+
+.pom-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+/* These spinners sit on secondary (non-primary) buttons where white vanishes. */
+.settings-card .btn-secondary .btn-spinner {
+    border-color: rgba(122, 90, 248, 0.35);
+    border-top-color: var(--color-primary);
+}
+
 /* Google tab: the How-it-works card and the advanced section live inside the
    centered .ext-content; realign them left and stretch them to the card width,
    with the check pinned to the first line of wrapped benefit text. */
