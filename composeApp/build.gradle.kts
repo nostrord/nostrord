@@ -80,7 +80,10 @@ kotlin {
 
     sourceSets {
         androidMain.dependencies {
+            implementation("io.github.nostrord:pomegranate-dealer:0.1.0")
             implementation(compose.preview)
+            // Chrome Custom Tabs for the pomegranate Google sign-in (system browser, not WebView).
+            implementation("androidx.browser:browser:1.8.0")
             implementation(libs.androidx.activity.compose)
             implementation("io.ktor:ktor-client-okhttp:3.4.2")
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.14.0")
@@ -150,6 +153,7 @@ kotlin {
         }
 
         iosMain.dependencies {
+            implementation("io.github.nostrord:pomegranate-dealer:0.1.0")
             implementation(libs.sqldelight.native.driver)
             // Darwin engine for the Ktor WebSocket/HTTP client on iOS.
             implementation("io.ktor:ktor-client-darwin:3.4.2")
@@ -159,6 +163,7 @@ kotlin {
         }
 
         jvmMain.dependencies {
+            implementation("io.github.nostrord:pomegranate-dealer:0.1.0")
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.sqldelight.sqlite.driver)
