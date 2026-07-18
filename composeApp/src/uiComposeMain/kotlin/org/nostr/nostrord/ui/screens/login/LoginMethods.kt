@@ -10,11 +10,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.nostr.nostrord.auth.pomegranate.PomegranateService
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
 import org.nostr.nostrord.ui.screens.login.components.ExtensionLoginTab
+import org.nostr.nostrord.ui.screens.login.components.GoogleLoginTab
 import org.nostr.nostrord.ui.screens.login.components.PrivateKeyLoginTab
 
 /**
@@ -29,12 +31,14 @@ fun LoginMethods(
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by remember { mutableStateOf<LoginTab>(LoginTab.PrivateKey) }
+    val googleAvailable = remember { PomegranateService().isAvailable }
     val tabs =
         remember {
             buildList {
                 add(LoginTab.PrivateKey)
                 add(LoginTab.Bunker)
                 if (Nip07.isAvailable()) add(LoginTab.Extension)
+                if (googleAvailable) add(LoginTab.Google)
             }
         }
 
@@ -51,6 +55,7 @@ fun LoginMethods(
             LoginTab.PrivateKey -> PrivateKeyLoginTab(onLoginSuccess)
             LoginTab.Bunker -> BunkerLoginTab(onLoginSuccess)
             LoginTab.Extension -> ExtensionLoginTab(onLoginSuccess)
+            LoginTab.Google -> GoogleLoginTab(onLoginSuccess)
         }
     }
 }

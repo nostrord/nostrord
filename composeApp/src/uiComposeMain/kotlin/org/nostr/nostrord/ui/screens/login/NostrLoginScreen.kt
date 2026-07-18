@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Shield
@@ -34,6 +35,8 @@ sealed class LoginTab(
     object Bunker : LoginTab("Bunker", Icons.Default.Shield)
 
     object Extension : LoginTab("Extension", Icons.Default.Extension)
+
+    object Google : LoginTab("Google", Icons.Default.AccountCircle)
 }
 
 @Composable
