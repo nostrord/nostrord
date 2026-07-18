@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,6 +58,3 @@ fun PomegranateAuthHost() {
         }
     }
 }
-
-/** Fixed size for the embedded auth WebView; a sign-in page fits comfortably. */
-internal val pomegranateWebViewModifier: Modifier = Modifier.fillMaxWidth().height(520.dp)
