@@ -27,6 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.auth.pomegranate.PomegranateAuthHost
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
@@ -222,6 +223,10 @@ fun App() {
             // restore; ask for the password over whatever screen is showing.
             val pendingUnlock by AppModule.nostrRepository.pendingUnlockAccount.collectAsState()
             pendingUnlock?.let { UnlockAccountDialog(it) }
+
+            // Google (pomegranate) sign-in WebView, shown over login or backup export when
+            // the flow opens a popup.
+            PomegranateAuthHost()
         }
     }
 }
