@@ -155,7 +155,7 @@ val RelayScreen =
                                 if (info?.supportsSubgroups == true) {
                                     span {
                                         className = ClassName("relay-cap")
-                                        +"Subgroups"
+                                        +"Channels"
                                     }
                                 }
                                 if (42 in nips) {

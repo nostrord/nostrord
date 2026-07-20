@@ -575,7 +575,7 @@ fun GroupScreen(
                     if (childCount > 0) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            "This group has $childCount subgroup${if (childCount == 1) "" else "s"} that will become root groups.",
+                            "This group has $childCount channel${if (childCount == 1) "" else "s"} that will become root groups.",
                             color = NostrordColors.TextPrimary,
                         )
                     }

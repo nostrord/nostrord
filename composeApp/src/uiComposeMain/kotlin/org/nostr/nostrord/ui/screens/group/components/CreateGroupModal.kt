@@ -166,7 +166,7 @@ fun CreateGroupModal(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isSubgroup) "Create Subgroup" else "Create a Group",
+                                text = if (isSubgroup) "Create Channel" else "Create a Group",
                                 style = NostrordTypography.ServerHeader,
                                 color = NostrordColors.TextPrimary,
                                 fontWeight = FontWeight.Bold,
@@ -542,7 +542,7 @@ fun CreateGroupModal(
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                             }
-                            Text(if (isSubgroup) "Create Subgroup" else "Create Group", style = NostrordTypography.Button)
+                            Text(if (isSubgroup) "Create Channel" else "Create Group", style = NostrordTypography.Button)
                         }
                     }
                 }

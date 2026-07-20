@@ -91,7 +91,7 @@ val ManageGroupModal =
                         className = ClassName("modal-header-text")
                         div {
                             className = ClassName("modal-title")
-                            +"Manage group"
+                            +(if (group.parent != null) "Manage channel" else "Manage group")
                         }
                     }
                     button {
@@ -274,6 +274,7 @@ private val ManageInfoSection =
 private val ManageDangerSection =
     FC<ManageInfoProps> { props ->
         val group = props.group
+        val noun = if (group.parent != null) "channel" else "group"
         val (confirmDelete, setConfirmDelete) = useState { false }
         val (deleting, setDeleting) = useState { false }
         val (error, setError) = useState<String?> { null }
@@ -285,16 +286,16 @@ private val ManageDangerSection =
                 icon(Ic.Warning)
                 span {
                     className = ClassName("manage-danger-title")
-                    +"Delete group"
+                    +"Delete $noun"
                 }
             }
             div {
                 className = ClassName("manage-danger-desc")
                 +(
                     if (confirmDelete) {
-                        "Are you sure? This permanently deletes the group from the relay and cannot be undone."
+                        "Are you sure? This permanently deletes the $noun from the relay and cannot be undone."
                     } else {
-                        "This permanently deletes the group from the relay. This cannot be undone."
+                        "This permanently deletes the $noun from the relay. This cannot be undone."
                     }
                     )
             }
@@ -311,7 +312,7 @@ private val ManageDangerSection =
                         className = ClassName("btn-danger")
                         onClick = { setConfirmDelete(true) }
                         icon(Ic.Delete)
-                        +"Delete group"
+                        +"Delete $noun"
                     }
                 } else {
                     button {
@@ -334,7 +335,7 @@ private val ManageDangerSection =
                                     }
                                     is Result.Error -> {
                                         setDeleting(false)
-                                        setError(result.error.message.ifBlank { "Failed to delete group." })
+                                        setError(result.error.message.ifBlank { "Failed to delete $noun." })
                                     }
                                 }
                             }
