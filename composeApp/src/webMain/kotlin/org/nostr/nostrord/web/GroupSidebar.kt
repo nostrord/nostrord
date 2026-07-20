@@ -194,6 +194,7 @@ val GroupSidebar =
             div {
                 className = ClassName("group-side-body")
                 // The root group's own chat (Discord's #general); subgroup channels are listed below.
+                // "General" only makes sense next to a channel list; without subgroup support it's "Chat".
                 button {
                     className =
                         ClassName(
@@ -203,7 +204,7 @@ val GroupSidebar =
                     icon(Ic.Chat)
                     span {
                         className = ClassName("group-side-row-label")
-                        +"General"
+                        +(if (supportsSubgroups) "General" else "Chat")
                     }
                 }
                 button {

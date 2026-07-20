@@ -201,9 +201,10 @@ fun GroupSidebar(
                 .padding(horizontal = Spacing.sm, vertical = Spacing.md),
         ) {
             // The root group's own chat (Discord's #general); subgroup channels are listed below.
+            // "General" only makes sense next to a channel list; without subgroup support it's "Chat".
             SidebarRow(
                 icon = Icons.AutoMirrored.Filled.Chat,
-                label = "General",
+                label = if (supportsSubgroups) "General" else "Chat",
                 active = route.view == GroupView.Chat && route.groupId == rootId,
             ) { onNavigateGroup(GroupRoute(route.relayUrl, rootId)) }
             SidebarRow(
