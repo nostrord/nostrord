@@ -161,7 +161,7 @@ fun ManageGroupModal(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Manage group",
+                            text = if (currentMetadata?.parent != null) "Manage channel" else "Manage group",
                             style = NostrordTypography.ServerHeader,
                             color = NostrordColors.TextPrimary,
                             fontWeight = FontWeight.Bold,
@@ -240,7 +240,7 @@ private fun ManageTabContent(
         ManageTab.Invites -> ManageInvitesSection(vm, groupId, relayUrl)
         ManageTab.Requests -> ManageRequestsSection(vm, groupId, isOpen = currentMetadata?.isOpen != false)
         ManageTab.Hierarchy -> ManageHierarchySection(vm, groupId, currentMetadata, relayUrl)
-        ManageTab.Danger -> ManageDangerSection(groupId, onDeleted)
+        ManageTab.Danger -> ManageDangerSection(groupId, isChannel = currentMetadata?.parent != null, onDeleted = onDeleted)
     }
 }
 
@@ -1096,8 +1096,10 @@ private fun ManageHierarchySection(
 @Composable
 private fun ManageDangerSection(
     groupId: String,
+    isChannel: Boolean,
     onDeleted: () -> Unit,
 ) {
+    val noun = if (isChannel) "channel" else "group"
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -1114,13 +1116,13 @@ private fun ManageDangerSection(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Icon(Icons.Default.Warning, null, tint = NostrordColors.Error, modifier = Modifier.size(18.dp))
-            Text("Delete group", style = NostrordTypography.MessageBody, color = NostrordColors.Error, fontWeight = FontWeight.Bold)
+            Text("Delete $noun", style = NostrordTypography.MessageBody, color = NostrordColors.Error, fontWeight = FontWeight.Bold)
         }
         Text(
             if (confirmDelete) {
-                "Are you sure? This permanently deletes the group from the relay and cannot be undone."
+                "Are you sure? This permanently deletes the $noun from the relay and cannot be undone."
             } else {
-                "This permanently deletes the group from the relay. This cannot be undone."
+                "This permanently deletes the $noun from the relay. This cannot be undone."
             },
             style = NostrordTypography.Caption,
             color = NostrordColors.TextSecondary,
@@ -1138,7 +1140,7 @@ private fun ManageDangerSection(
                 ) {
                     Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text("Delete group", style = NostrordTypography.Button)
+                    Text("Delete $noun", style = NostrordTypography.Button)
                 }
             } else {
                 TextButton(onClick = { confirmDelete = false }, enabled = !deleting) {
@@ -1153,7 +1155,7 @@ private fun ManageDangerSection(
                                 is Result.Success -> onDeleted()
                                 is Result.Error -> {
                                     deleting = false
-                                    error = result.error.message.ifBlank { "Failed to delete group." }
+                                    error = result.error.message.ifBlank { "Failed to delete $noun." }
                                 }
                             }
                         }

@@ -34,7 +34,7 @@ external interface CreateGroupModalProps : Props {
     /** Navigate to the freshly created group (relay, groupId). Called before [onClose]. */
     var onCreated: ((relayUrl: String, groupId: String) -> Unit)?
 
-    /** When true, render as "Create Subgroup" (a child of the current group). */
+    /** When true, render as "Create Channel" (a child of the current group). */
     var subgroup: Boolean?
 
     /** Parent group id when creating a subgroup. */
@@ -170,7 +170,7 @@ val CreateGroupModal =
                         className = ClassName("modal-header-text")
                         div {
                             className = ClassName("modal-title")
-                            +(if (isSubgroup) "Create Subgroup" else "Create a Group")
+                            +(if (isSubgroup) "Create Channel" else "Create a Group")
                         }
                         div {
                             className = ClassName("modal-subtitle")
@@ -357,7 +357,7 @@ val CreateGroupModal =
                             if (busy) {
                                 "Creating…"
                             } else if (isSubgroup) {
-                                "Create Subgroup"
+                                "Create Channel"
                             } else {
                                 "Create Group"
                             }

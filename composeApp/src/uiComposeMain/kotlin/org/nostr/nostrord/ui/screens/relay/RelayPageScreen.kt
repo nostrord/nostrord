@@ -204,7 +204,7 @@ fun RelayPageScreen(
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
                                         if (29 in nips) CapChip("NIP-29")
-                                        if (info?.supportsSubgroups == true) CapChip("Subgroups")
+                                        if (info?.supportsSubgroups == true) CapChip("Channels")
                                         if (42 in nips) CapChip("NIP-42")
                                         if (inList) ListTag()
                                     }
