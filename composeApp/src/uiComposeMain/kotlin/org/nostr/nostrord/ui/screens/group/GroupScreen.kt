@@ -508,7 +508,9 @@ fun GroupScreen(
             onDismiss = { showEditGroupModal = false },
             onDeleted = {
                 showEditGroupModal = false
-                onNavigateHome()
+                // Deleting a channel lands on its parent group; only a root delete goes home.
+                val parentId = currentGroupMetadata?.parent
+                if (parentId != null) onNavigateToGroup(parentId, parentGroupName, currentRelayUrl, null) else onNavigateHome()
             },
             initialTab = ManageTab.Info,
             supportsSubgroups = supportsSubgroups,
@@ -525,7 +527,8 @@ fun GroupScreen(
             onDismiss = { showMemberManagementModal = false },
             onDeleted = {
                 showMemberManagementModal = false
-                onNavigateHome()
+                val parentId = currentGroupMetadata?.parent
+                if (parentId != null) onNavigateToGroup(parentId, parentGroupName, currentRelayUrl, null) else onNavigateHome()
             },
             initialTab = ManageTab.Members,
             supportsSubgroups = supportsSubgroups,
@@ -826,7 +829,8 @@ fun GroupScreen(
             onDismiss = { showJoinRequestsModal = false },
             onDeleted = {
                 showJoinRequestsModal = false
-                onNavigateHome()
+                val parentId = currentGroupMetadata?.parent
+                if (parentId != null) onNavigateToGroup(parentId, parentGroupName, currentRelayUrl, null) else onNavigateHome()
             },
             initialTab = ManageTab.Requests,
             supportsSubgroups = supportsSubgroups,

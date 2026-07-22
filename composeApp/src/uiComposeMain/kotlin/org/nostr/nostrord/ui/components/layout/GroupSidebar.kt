@@ -318,7 +318,9 @@ fun GroupSidebar(
             onDismiss = { showManage = false },
             onDeleted = {
                 showManage = false
-                onNavigateHome()
+                // Deleting a channel lands on its parent group; only a root delete goes home.
+                val parentId = meta?.parent
+                if (parentId != null) onNavigateGroup(GroupRoute(route.relayUrl, parentId)) else onNavigateHome()
             },
             initialTab = manageTab,
             supportsSubgroups = supportsSubgroups,
