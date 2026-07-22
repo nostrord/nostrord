@@ -990,13 +990,118 @@ private fun ManageHierarchySection(
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("PARENT", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
-        Spacer(modifier = Modifier.height(Spacing.xs))
-        Text(
-            "Current: ${view.parentName ?: "Root group"}",
-            style = NostrordTypography.Caption,
-            color = NostrordColors.TextSecondary,
-        )
+        if (view.parentId != null) {
+            // Channel view: where this channel lives (breadcrumb), its siblings, then the
+            // move actions. The parent crumb navigates like the sidebar rows do.
+            Text("LOCATION", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            val parentMeta = byId[view.parentId]
+            val parentLabel = view.parentName ?: view.parentId
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                Row(
+                    modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            if (onOpenGroup != null) {
+                                Modifier
+                                    .clickable { onOpenGroup(view.parentId!!) }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = Spacing.xs, vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    OptimizedSmallAvatar(
+                        imageUrl = parentMeta?.picture,
+                        identifier = view.parentId!!,
+                        displayName = parentLabel,
+                        size = 24.dp,
+                        shape = RoundedCornerShape(6.dp),
+                        isGroup = true,
+                    )
+                    Text(parentLabel, style = NostrordTypography.Caption, color = NostrordColors.TextPrimary)
+                }
+                Text("›", style = NostrordTypography.Caption, color = NostrordColors.TextMuted)
+                Row(
+                    modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    OptimizedSmallAvatar(
+                        imageUrl = currentMetadata?.picture,
+                        identifier = groupId,
+                        displayName = groupName,
+                        size = 24.dp,
+                        shape = RoundedCornerShape(6.dp),
+                        isGroup = true,
+                    )
+                    Text(groupName, style = NostrordTypography.Caption, color = NostrordColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Spacer(modifier = Modifier.height(Spacing.xxl))
+
+            Text("SIBLINGS (${view.siblingIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            view.siblingIds.forEach { sid ->
+                val isSelf = sid == groupId
+                val m = byId[sid]
+                val name = m?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}…"
+                Row(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            when {
+                                isSelf -> Modifier.background(NostrordColors.SurfaceVariant)
+                                onOpenGroup != null ->
+                                    Modifier
+                                        .clickable { onOpenGroup(sid) }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                else -> Modifier
+                            },
+                        )
+                        .padding(horizontal = Spacing.xs, vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    OptimizedSmallAvatar(
+                        imageUrl = m?.picture,
+                        identifier = sid,
+                        displayName = name,
+                        size = 24.dp,
+                        shape = RoundedCornerShape(6.dp),
+                        isGroup = true,
+                    )
+                    Text(
+                        name,
+                        style = NostrordTypography.Caption,
+                        color = if (m != null) NostrordColors.TextPrimary else NostrordColors.TextMuted,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (isSelf) {
+                        Text("this channel", style = NostrordTypography.Caption, color = NostrordColors.TextMuted)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(Spacing.xxl))
+
+            Text("MOVE", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+        } else {
+            Text("PARENT", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                "Current: Root group",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextSecondary,
+            )
+        }
         Spacer(modifier = Modifier.height(Spacing.sm))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             GroupPickerDropdown(

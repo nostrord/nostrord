@@ -21,7 +21,12 @@ data class HierarchyView(
     val parentCandidates: List<GroupMetadata>,
     /** Childless root groups you admin that could become channels here. */
     val childCandidates: List<GroupMetadata>,
-    /** Channel ids whose kind:39000 hasn't loaded yet (rows render the id; a fetch is due). */
+    /**
+     * Channel view only: the parent's full channel list in declared order (this group
+     * included), for the read-only siblings list. Empty for root groups.
+     */
+    val siblingIds: List<String>,
+    /** Ids whose kind:39000 hasn't loaded yet (rows render the id; a fetch is due). */
     val missingChildMeta: List<String>,
 )
 
@@ -47,10 +52,15 @@ fun hierarchyView(
 
     // Declared child order (position of the `child` tag) wins; undeclared confirmed
     // children follow, by name — the same ordering the sidebar channelTree uses.
-    val declared = metadata?.children.orEmpty().withIndex().associate { (i, id) -> id to i }
-    val childIds = childrenByParent[groupId].orEmpty().sortedWith(
-        compareBy({ declared[it] ?: Int.MAX_VALUE }, { (byId[it]?.name ?: it).lowercase() }),
-    )
+    fun orderedChildrenOf(pid: String, meta: GroupMetadata?): List<String> {
+        val declared = meta?.children.orEmpty().withIndex().associate { (i, id) -> id to i }
+        return childrenByParent[pid].orEmpty().sortedWith(
+            compareBy({ declared[it] ?: Int.MAX_VALUE }, { (byId[it]?.name ?: it).lowercase() }),
+        )
+    }
+
+    val childIds = orderedChildrenOf(groupId, metadata)
+    val siblingIds = if (parentId == null) emptyList() else orderedChildrenOf(parentId, byId[parentId])
 
     fun isAdmin(id: String) = myPubkey != null && myPubkey in groupAdmins[id].orEmpty()
 
@@ -77,7 +87,9 @@ fun hierarchyView(
         childIds = childIds,
         parentCandidates = parentCandidates,
         childCandidates = childCandidates,
-        missingChildMeta = childIds.filter { it !in byId },
+        siblingIds = siblingIds,
+        // The breadcrumb and siblings list need the parent's and siblings' metadata too.
+        missingChildMeta = (childIds + siblingIds + listOfNotNull(parentId)).filter { it !in byId }.distinct(),
     )
 }
 
