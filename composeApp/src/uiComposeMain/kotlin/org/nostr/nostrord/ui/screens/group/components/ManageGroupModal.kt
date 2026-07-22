@@ -68,8 +68,15 @@ import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.HierarchyPrompt
+import org.nostr.nostrord.ui.screens.group.addChannelPrompt
+import org.nostr.nostrord.ui.screens.group.detachChannelPrompt
+import org.nostr.nostrord.ui.screens.group.hierarchyView
+import org.nostr.nostrord.ui.screens.group.makeRootPrompt
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
+import org.nostr.nostrord.ui.screens.group.moveUnderPrompt
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
+import org.nostr.nostrord.ui.screens.group.reparentGroup
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -911,6 +918,14 @@ private fun ManageRequestsSection(
 
 // ---- Hierarchy ----
 
+/** A hierarchy edit awaiting the user's confirmation. */
+private data class PendingHierarchyOp(
+    val prompt: HierarchyPrompt,
+    val target: GroupMetadata,
+    val op: GroupManager.ParentOp,
+    val fail: String,
+)
+
 @Composable
 private fun ManageHierarchySection(
     vm: GroupViewModel,
@@ -925,67 +940,26 @@ private fun ManageHierarchySection(
     val myPubkey = remember { vm.getPublicKey() }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var pending by remember { mutableStateOf<PendingHierarchyOp?>(null) }
+    var showCreateChannel by remember { mutableStateOf(false) }
 
     val relayGroups = groupsByRelay[relayUrl].orEmpty()
-    val parentId = currentMetadata?.parent
-    val parentName = parentId?.let { pid -> relayGroups.firstOrNull { it.id == pid }?.name?.takeIf { it.isNotBlank() } ?: pid }
+    val byId = remember(relayGroups) { relayGroups.associateBy { it.id } }
+    val view = hierarchyView(groupId, currentMetadata, relayGroups, childrenByParent, groupAdmins, myPubkey)
+    val groupName = currentMetadata?.name?.takeIf { it.isNotBlank() } ?: groupId
 
-    // Transitive descendants, excluded from parent candidates to prevent cycles.
-    val descendants = remember(childrenByParent, groupId) {
-        val acc = HashSet<String>()
-        val stack = ArrayDeque(childrenByParent[groupId].orEmpty())
-        while (stack.isNotEmpty()) {
-            val id = stack.removeLast()
-            if (acc.add(id)) stack.addAll(childrenByParent[id].orEmpty())
-        }
-        acc
+    // Channel rows need each child's kind:39000 (name + full state for the detach PUT).
+    LaunchedEffect(view.missingChildMeta) {
+        view.missingChildMeta.forEach { AppModule.nostrRepository.refreshGroupMetadata(it) }
     }
-    // Single-level hierarchy: channels don't have channels. Only ROOT groups can be a
-    // parent, and only childless root groups can become a channel; a group that already
-    // has channels must detach them before it can be moved under another group.
-    val subIds = childrenByParent[groupId].orEmpty()
-    val parentCandidates =
-        relayGroups
-            .filter { it.parent == null && it.id != groupId && it.id != parentId && it.id !in descendants && myPubkey != null && myPubkey in groupAdmins[it.id].orEmpty() }
-            .sortedBy { (it.name ?: it.id).lowercase() }
-    val childCandidates =
-        relayGroups
-            .filter {
-                it.parent == null &&
-                    childrenByParent[it.id].orEmpty().isEmpty() &&
-                    it.id != groupId &&
-                    it.id !in descendants &&
-                    myPubkey != null &&
-                    myPubkey in groupAdmins[it.id].orEmpty()
-            }
-            .sortedBy { (it.name ?: it.id).lowercase() }
 
-    // Re-parent through editGroup: a kind:9002 replaces the WHOLE metadata (PUT), so the
-    // event must carry the target's full current state — publishing without its kind:39000
-    // cached would clobber the name/flags. Mirrors the web reparent helper.
-    suspend fun reparent(target: GroupMetadata, op: GroupManager.ParentOp): Result<Unit> = AppModule.nostrRepository.editGroup(
-        groupId = target.id,
-        name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
-        about = target.about,
-        isPrivate = !target.isPublic,
-        isClosed = !target.isOpen,
-        isRestricted = target.isRestricted,
-        isHidden = target.isHidden,
-        picture = target.picture,
-        parentOp = op,
-    )
-
-    fun apply(target: GroupMetadata?, op: GroupManager.ParentOp, fail: String) {
-        if (target == null) {
-            error = "Group metadata not loaded yet. Open the group once and try again."
-            return
-        }
+    fun run(op: PendingHierarchyOp) {
         busy = true
         error = null
         scope.launch {
-            val r = reparent(target, op)
+            val r = reparentGroup(AppModule.nostrRepository, op.target, op.op)
             busy = false
-            if (r is Result.Error) error = r.error.message?.ifBlank { fail } ?: fail
+            if (r is Result.Error) error = r.error.message?.ifBlank { op.fail } ?: op.fail
         }
     }
 
@@ -993,7 +967,7 @@ private fun ManageHierarchySection(
         Text("PARENT", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
         Spacer(modifier = Modifier.height(Spacing.xs))
         Text(
-            "Current: ${parentName ?: "Root group"}",
+            "Current: ${view.parentName ?: "Root group"}",
             style = NostrordTypography.Caption,
             color = NostrordColors.TextSecondary,
         )
@@ -1001,18 +975,36 @@ private fun ManageHierarchySection(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             GroupPickerDropdown(
                 placeholder = when {
-                    subIds.isNotEmpty() -> "Detach its channels to move this group"
-                    parentCandidates.isEmpty() -> "No other groups on this relay"
+                    !view.canMove -> "Detach its channels to move this group"
+                    view.parentCandidates.isEmpty() -> "No other groups on this relay"
                     else -> "Move under..."
                 },
-                candidates = parentCandidates,
-                enabled = !busy && parentCandidates.isNotEmpty() && subIds.isEmpty(),
+                candidates = view.parentCandidates,
+                enabled = !busy && view.canMove && view.parentCandidates.isNotEmpty(),
                 modifier = Modifier.weight(1f),
-                onPick = { g -> apply(currentMetadata, GroupManager.ParentOp.SetTo(g.id), "Failed to update hierarchy.") },
+                onPick = { g ->
+                    currentMetadata?.let { meta ->
+                        pending = PendingHierarchyOp(
+                            moveUnderPrompt(groupName, g.name?.takeIf { it.isNotBlank() } ?: g.id),
+                            meta,
+                            GroupManager.ParentOp.SetTo(g.id),
+                            "Failed to update hierarchy.",
+                        )
+                    }
+                },
             )
-            if (parentId != null) {
+            if (view.parentId != null) {
                 OutlinedButton(
-                    onClick = { apply(currentMetadata, GroupManager.ParentOp.Detach, "Failed to convert to root group.") },
+                    onClick = {
+                        currentMetadata?.let { meta ->
+                            pending = PendingHierarchyOp(
+                                makeRootPrompt(groupName, view.parentName),
+                                meta,
+                                GroupManager.ParentOp.Detach,
+                                "Failed to convert to root group.",
+                            )
+                        }
+                    },
                     enabled = !busy,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
@@ -1021,10 +1013,10 @@ private fun ManageHierarchySection(
                 }
             }
         }
-        if (parentId != null) {
+        if (view.parentId != null) {
             Spacer(modifier = Modifier.height(Spacing.xs))
             Text(
-                "Making this a root group keeps its members, messages and settings; it leaves ${parentName ?: "its parent"} and gets its own spot in the rail.",
+                "Making this a root group keeps its members, messages and settings; it leaves ${view.parentName ?: "its parent"} and gets its own spot in the rail.",
                 style = MaterialTheme.typography.labelSmall,
                 color = NostrordColors.TextMuted,
             )
@@ -1036,15 +1028,29 @@ private fun ManageHierarchySection(
 
         // Channels don't have channels (single-level hierarchy): the section only
         // exists on root groups.
-        if (parentId == null) {
+        if (view.parentId == null) {
             Spacer(modifier = Modifier.height(Spacing.xxl))
-            Text("CHANNELS (${subIds.size})", style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "CHANNELS (${view.childIds.size})",
+                    style = NostrordTypography.SectionHeader,
+                    color = NostrordColors.TextMuted,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = { showCreateChannel = true },
+                    enabled = !busy,
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                ) {
+                    Text("Create channel", style = NostrordTypography.Caption, color = NostrordColors.Primary)
+                }
+            }
             Spacer(modifier = Modifier.height(Spacing.sm))
-            if (subIds.isEmpty()) {
+            if (view.childIds.isEmpty()) {
                 ModEmpty("No channels.")
             } else {
-                subIds.forEach { sid ->
-                    val sub = relayGroups.firstOrNull { it.id == sid }
+                view.childIds.forEach { sid ->
+                    val sub = byId[sid]
                     Row(
                         modifier =
                         Modifier
@@ -1053,33 +1059,53 @@ private fun ManageHierarchySection(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            sub?.name?.takeIf { it.isNotBlank() } ?: sid,
+                            sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}…",
                             style = NostrordTypography.Caption,
-                            color = NostrordColors.TextPrimary,
+                            color = if (sub != null) NostrordColors.TextPrimary else NostrordColors.TextMuted,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         // Detaching edits the CHILD's kind:9002, so it needs its admin key.
-                        if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
+                        if (sub != null && myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
                             TextButton(
-                                onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") },
+                                onClick = {
+                                    pending = PendingHierarchyOp(
+                                        detachChannelPrompt(sub.name?.takeIf { it.isNotBlank() } ?: sid),
+                                        sub,
+                                        GroupManager.ParentOp.Detach,
+                                        "Failed to detach channel.",
+                                    )
+                                },
                                 enabled = !busy,
                                 modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                             ) {
                                 Text("Detach", style = NostrordTypography.Caption, color = NostrordColors.TextSecondary)
                             }
+                        } else {
+                            Text(
+                                if (sub == null) "loading…" else "channel admin only",
+                                style = NostrordTypography.Caption,
+                                color = NostrordColors.TextMuted,
+                            )
                         }
                     }
                 }
             }
             Spacer(modifier = Modifier.height(Spacing.sm))
             GroupPickerDropdown(
-                placeholder = if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...",
-                candidates = childCandidates,
-                enabled = !busy && childCandidates.isNotEmpty(),
+                placeholder = if (view.childCandidates.isEmpty()) "No groups you admin to add" else "Add an existing group as a channel...",
+                candidates = view.childCandidates,
+                enabled = !busy && view.childCandidates.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
-                onPick = { g -> apply(g, GroupManager.ParentOp.SetTo(groupId), "Failed to add channel.") },
+                onPick = { g ->
+                    pending = PendingHierarchyOp(
+                        addChannelPrompt(g.name?.takeIf { it.isNotBlank() } ?: g.id, groupName),
+                        g,
+                        GroupManager.ParentOp.SetTo(groupId),
+                        "Failed to add channel.",
+                    )
+                },
             )
             Spacer(modifier = Modifier.height(Spacing.sm))
             Text(
@@ -1088,6 +1114,28 @@ private fun ManageHierarchySection(
                 color = NostrordColors.TextMuted,
             )
         }
+    }
+
+    pending?.let { p ->
+        ConfirmDialog(
+            title = p.prompt.title,
+            message = p.prompt.message,
+            confirmLabel = p.prompt.confirmLabel,
+            onConfirm = {
+                pending = null
+                run(p)
+            },
+            onDismiss = { pending = null },
+        )
+    }
+
+    if (showCreateChannel) {
+        CreateGroupModal(
+            currentRelayUrl = relayUrl,
+            parentGroupId = groupId,
+            onDismiss = { showCreateChannel = false },
+            onGroupCreated = { _, _, _ -> showCreateChannel = false },
+        )
     }
 }
 

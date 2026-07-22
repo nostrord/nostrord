@@ -8559,6 +8559,24 @@ body {
     flex: 1;
 }
 
+/* CHANNELS header line: section title left, "Create channel" right. */
+.hierarchy-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.hierarchy-head .access-section-title {
+    margin: 0;
+}
+
+/* Inline muted hint in a mod-row action slot ("loading…", "channel admin only"). */
+.mod-muted {
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
 /* Danger tab: destructive delete kept apart from the edit-and-save flow. */
 .manage-danger {
     display: flex;

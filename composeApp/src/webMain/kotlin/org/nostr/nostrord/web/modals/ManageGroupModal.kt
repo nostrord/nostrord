@@ -8,7 +8,14 @@ import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.HierarchyPrompt
+import org.nostr.nostrord.ui.screens.group.addChannelPrompt
+import org.nostr.nostrord.ui.screens.group.detachChannelPrompt
+import org.nostr.nostrord.ui.screens.group.hierarchyView
+import org.nostr.nostrord.ui.screens.group.makeRootPrompt
+import org.nostr.nostrord.ui.screens.group.moveUnderPrompt
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
+import org.nostr.nostrord.ui.screens.group.reparentGroup
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.shortNpub
@@ -37,6 +44,7 @@ import react.dom.html.ReactHTML.option
 import react.dom.html.ReactHTML.select
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 
@@ -566,9 +574,15 @@ private external interface ManageHierarchyProps : Props {
  * kind:9002 via editGroup (PUT semantics); a parent must live on the same relay, and the
  * candidate list excludes the group itself and its own descendants so no cycle can form.
  */
+private data class PendingHierarchyOp(
+    val prompt: HierarchyPrompt,
+    val target: GroupMetadata,
+    val op: GroupManager.ParentOp,
+    val fail: String,
+)
+
 private val ManageHierarchySection =
     FC<ManageHierarchyProps> { props ->
-        val group = props.group
         val repo = AppModule.nostrRepository
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
@@ -577,85 +591,32 @@ private val ManageHierarchySection =
         val myPubkey = repo.getPublicKey()
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        val (pending, setPending) = useState<PendingHierarchyOp?> { null }
+        val (showCreate, setShowCreate) = useState { false }
 
         val relayGroups = groupsByRelay[relayUrl].orEmpty()
-        val parentId = group.parent
-        val parentName =
-            parentId?.let { pid -> relayGroups.firstOrNull { it.id == pid }?.name?.takeIf { it.isNotBlank() } ?: pid }
+        val byId = relayGroups.associateBy { it.id }
+        // Prefer the live metadata over the props snapshot: a reorder/reparent lands as a
+        // fresh kind:39000 while the modal is open.
+        val group = byId[props.group.id] ?: props.group
+        val view = hierarchyView(group.id, group, relayGroups, childrenByParent, groupAdmins, myPubkey)
+        val groupName = group.name?.takeIf { it.isNotBlank() } ?: group.id
 
-        // Transitive descendants of this group, excluded from parent candidates to prevent cycles.
-        val descendants = HashSet<String>()
-        val stack = ArrayDeque(childrenByParent[group.id].orEmpty())
-        while (stack.isNotEmpty()) {
-            val id = stack.removeLast()
-            if (descendants.add(id)) stack.addAll(childrenByParent[id].orEmpty())
+        // Channel rows need each child's kind:39000 (name + full state for the detach PUT).
+        val missingKey = view.missingChildMeta.joinToString(",")
+        useEffect(missingKey) {
+            view.missingChildMeta.forEach { repo.refreshGroupMetadata(it) }
         }
-        // Single-level hierarchy: channels don't have channels. Only ROOT groups you
-        // administer are offered as a parent, never this group, its current parent, or
-        // any of its descendants (cycles); a group that already has channels must detach
-        // them before it can be moved under another group.
-        val subIds = childrenByParent[group.id].orEmpty()
-        val candidates =
-            relayGroups
-                .filter {
-                    it.parent == null &&
-                        it.id != group.id &&
-                        it.id != parentId &&
-                        it.id !in descendants &&
-                        myPubkey != null &&
-                        myPubkey in groupAdmins[it.id].orEmpty()
-                }
-                .sortedBy { (it.name ?: it.id).lowercase() }
 
-        // Re-parent through editGroup: a kind:9002 replaces the WHOLE metadata (PUT), so the
-        // event must carry the target's full current state — publishing without its
-        // kind:39000 cached would clobber the name/flags.
-        suspend fun reparent(target: GroupMetadata, op: GroupManager.ParentOp): Result<Unit> = repo.editGroup(
-            groupId = target.id,
-            name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
-            about = target.about,
-            isPrivate = !target.isPublic,
-            isClosed = !target.isOpen,
-            isRestricted = target.isRestricted,
-            isHidden = target.isHidden,
-            picture = target.picture,
-            parentOp = op,
-        )
-
-        fun apply(target: GroupMetadata?, op: GroupManager.ParentOp, fail: String) {
-            if (target == null) {
-                setError("Group metadata not loaded yet. Open the group once and try again.")
-                return
-            }
+        fun run(op: PendingHierarchyOp) {
             setBusy(true)
             setError(null)
             launchApp {
-                val r = reparent(target, op)
+                val r = reparentGroup(repo, op.target, op.op)
                 setBusy(false)
-                if (r is Result.Error) setError(r.error.message.ifBlank { fail })
+                if (r is Result.Error) setError(r.error.message.ifBlank { op.fail })
             }
         }
-
-        fun applyParent(op: GroupManager.ParentOp) = apply(group, op, "Failed to update hierarchy.")
-
-        fun addChannel(childId: String) {
-            if (childId.isBlank()) return
-            apply(relayGroups.firstOrNull { it.id == childId }, GroupManager.ParentOp.SetTo(group.id), "Failed to add channel.")
-        }
-
-        // Groups you administer that could become a channel here: only childless root
-        // groups (single-level hierarchy), never this group or its descendants.
-        val childCandidates =
-            relayGroups
-                .filter {
-                    it.parent == null &&
-                        childrenByParent[it.id].orEmpty().isEmpty() &&
-                        it.id != group.id &&
-                        it.id !in descendants &&
-                        myPubkey != null &&
-                        myPubkey in groupAdmins[it.id].orEmpty()
-                }
-                .sortedBy { (it.name ?: it.id).lowercase() }
 
         div {
             className = ClassName("access-section-title")
@@ -666,7 +627,7 @@ private val ManageHierarchySection =
             +"Current: "
             span {
                 className = ClassName("hierarchy-current-value")
-                +(parentName ?: "Root group")
+                +(view.parentName ?: "Root group")
             }
         }
         div {
@@ -674,22 +635,32 @@ private val ManageHierarchySection =
             select {
                 className = ClassName("modal-input")
                 value = ""
-                disabled = busy || candidates.isEmpty() || subIds.isNotEmpty()
+                disabled = busy || view.parentCandidates.isEmpty() || !view.canMove
                 onChange = { e ->
                     val id = e.currentTarget.value
-                    if (id.isNotBlank()) applyParent(GroupManager.ParentOp.SetTo(id))
+                    val target = byId[id]
+                    if (id.isNotBlank() && target != null) {
+                        setPending(
+                            PendingHierarchyOp(
+                                moveUnderPrompt(groupName, target.name?.takeIf { it.isNotBlank() } ?: target.id),
+                                group,
+                                GroupManager.ParentOp.SetTo(id),
+                                "Failed to update hierarchy.",
+                            ),
+                        )
+                    }
                 }
                 option {
                     value = ""
                     +(
                         when {
-                            subIds.isNotEmpty() -> "Detach its channels to move this group"
-                            candidates.isEmpty() -> "No other groups on this relay"
+                            !view.canMove -> "Detach its channels to move this group"
+                            view.parentCandidates.isEmpty() -> "No other groups on this relay"
                             else -> "Move under..."
                         }
                         )
                 }
-                candidates.forEach { g ->
+                view.parentCandidates.forEach { g ->
                     option {
                         key = g.id
                         value = g.id
@@ -697,21 +668,30 @@ private val ManageHierarchySection =
                     }
                 }
             }
-            if (parentId != null) {
+            if (view.parentId != null) {
                 button {
                     className = ClassName("btn-secondary")
                     disabled = busy
-                    onClick = { applyParent(GroupManager.ParentOp.Detach) }
+                    onClick = {
+                        setPending(
+                            PendingHierarchyOp(
+                                makeRootPrompt(groupName, view.parentName),
+                                group,
+                                GroupManager.ParentOp.Detach,
+                                "Failed to convert to root group.",
+                            ),
+                        )
+                    }
                     +"Make root group"
                 }
             }
         }
-        if (parentId != null) {
+        if (view.parentId != null) {
             div {
                 className = ClassName("modal-subtitle")
                 +(
                     "Making this a root group keeps its members, messages and settings; " +
-                        "it leaves ${parentName ?: "its parent"} and gets its own spot in the rail."
+                        "it leaves ${view.parentName ?: "its parent"} and gets its own spot in the rail."
                     )
             }
         }
@@ -724,37 +704,60 @@ private val ManageHierarchySection =
 
         // Channels don't have channels (single-level hierarchy): the section only
         // exists on root groups.
-        if (parentId == null) {
+        if (view.parentId == null) {
             div {
-                className = ClassName("access-section-title")
-                +"CHANNELS (${subIds.size})"
+                className = ClassName("hierarchy-head")
+                div {
+                    className = ClassName("access-section-title")
+                    +"CHANNELS (${view.childIds.size})"
+                }
+                button {
+                    className = ClassName("btn-secondary")
+                    disabled = busy
+                    onClick = { setShowCreate(true) }
+                    +"Create channel"
+                }
             }
             div {
                 className = ClassName("mod-list")
-                if (subIds.isEmpty()) {
+                if (view.childIds.isEmpty()) {
                     div {
                         className = ClassName("mod-empty")
                         +"No channels."
                     }
                 }
-                subIds.forEach { sid ->
-                    val sub = relayGroups.firstOrNull { it.id == sid }
+                view.childIds.forEach { sid ->
+                    val sub = byId[sid]
                     div {
                         key = sid
                         className = ClassName("mod-row")
                         span {
                             className = ClassName("mod-name")
-                            +(sub?.name?.takeIf { it.isNotBlank() } ?: sid)
+                            +(sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}\u2026")
                         }
-                        // Detaching edits the CHILD's kind:9002, so it needs its admin key.
-                        if (myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
-                            div {
-                                className = ClassName("mod-actions")
+                        div {
+                            className = ClassName("mod-actions")
+                            // Detaching edits the CHILD's kind:9002, so it needs its admin key.
+                            if (sub != null && myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
                                 button {
                                     className = ClassName("mod-btn")
                                     disabled = busy
-                                    onClick = { apply(sub, GroupManager.ParentOp.Detach, "Failed to detach channel.") }
+                                    onClick = {
+                                        setPending(
+                                            PendingHierarchyOp(
+                                                detachChannelPrompt(sub.name?.takeIf { it.isNotBlank() } ?: sid),
+                                                sub,
+                                                GroupManager.ParentOp.Detach,
+                                                "Failed to detach channel.",
+                                            ),
+                                        )
+                                    }
                                     +"Detach"
+                                }
+                            } else {
+                                span {
+                                    className = ClassName("mod-muted")
+                                    +(if (sub == null) "loading\u2026" else "channel admin only")
                                 }
                             }
                         }
@@ -766,16 +769,26 @@ private val ManageHierarchySection =
                 select {
                     className = ClassName("modal-input")
                     value = ""
-                    disabled = busy || childCandidates.isEmpty()
+                    disabled = busy || view.childCandidates.isEmpty()
                     onChange = { e ->
                         val id = e.currentTarget.value
-                        if (id.isNotBlank()) addChannel(id)
+                        val target = byId[id]
+                        if (id.isNotBlank() && target != null) {
+                            setPending(
+                                PendingHierarchyOp(
+                                    addChannelPrompt(target.name?.takeIf { it.isNotBlank() } ?: target.id, groupName),
+                                    target,
+                                    GroupManager.ParentOp.SetTo(group.id),
+                                    "Failed to add channel.",
+                                ),
+                            )
+                        }
                     }
                     option {
                         value = ""
-                        +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a channel...")
+                        +(if (view.childCandidates.isEmpty()) "No groups you admin to add" else "Add an existing group as a channel...")
                     }
-                    childCandidates.forEach { g ->
+                    view.childCandidates.forEach { g ->
                         option {
                             key = g.id
                             value = g.id
@@ -787,6 +800,28 @@ private val ManageHierarchySection =
             div {
                 className = ClassName("modal-subtitle")
                 +"Only childless root groups you administer on this relay can be added as channels; channels can't contain channels. Detaching a channel turns it back into a root group."
+            }
+        }
+
+        pending?.let { p ->
+            confirmDialog(
+                title = p.prompt.title,
+                body = p.prompt.message,
+                confirmLabel = p.prompt.confirmLabel,
+                onCancel = { setPending(null) },
+                onConfirm = {
+                    setPending(null)
+                    run(p)
+                },
+            )
+        }
+
+        if (showCreate) {
+            CreateGroupModal {
+                onClose = { setShowCreate(false) }
+                subgroup = true
+                parentGroupId = group.id
+                this.relayUrl = relayUrl
             }
         }
     }
