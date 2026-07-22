@@ -132,19 +132,8 @@ fun GroupHeader(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    if (showSubgroupControls && parentGroupName != null) {
-                        Text(
-                            text = "◀ $parentGroupName",
-                            color = NostrordColors.TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier =
-                            Modifier
-                                .clickable(onClick = onParentClick)
-                                .pointerHoverIcon(PointerIcon.Hand),
-                        )
-                    }
+                    // Discord model: hierarchy lives in the sidebar channel list, so the header
+                    // shows no parent breadcrumb or child-count chip (web parity).
                     // Prototype single-row title: name · relay dot · inline description.
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -157,22 +146,6 @@ fun GroupHeader(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        if (showSubgroupControls && childCount > 0) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier =
-                                Modifier
-                                    .background(NostrordColors.SurfaceVariant, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = "› $childCount",
-                                    color = NostrordColors.TextSecondary,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
                         if (connectionState != null) {
                             Spacer(modifier = Modifier.width(8.dp))
                             RelayStatusDot(connectionState)
