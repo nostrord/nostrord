@@ -5,6 +5,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupAccessCopy
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
@@ -26,6 +27,7 @@ import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.tabItem
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.navigation.pushHome
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -135,6 +137,7 @@ val ManageGroupModal =
                             ManageTab.Danger ->
                                 ManageDangerSection {
                                     this.group = group
+                                    this.relayUrl = relayUrl
                                     onClose = props.onClose
                                 }
                         }
@@ -331,7 +334,14 @@ private val ManageDangerSection =
                                 when (val result = AppModule.nostrRepository.deleteGroup(group.id)) {
                                     is Result.Success -> {
                                         props.onClose()
-                                        pushHome()
+                                        // Deleting a channel lands on its parent group; only a
+                                        // root delete goes home.
+                                        val parentId = group.parent
+                                        if (parentId != null) {
+                                            pushRoute(GroupRoute(props.relayUrl, parentId))
+                                        } else {
+                                            pushHome()
+                                        }
                                     }
                                     is Result.Error -> {
                                         setDeleting(false)
