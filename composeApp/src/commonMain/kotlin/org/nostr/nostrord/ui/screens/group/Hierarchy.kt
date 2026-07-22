@@ -81,6 +81,21 @@ fun hierarchyView(
     )
 }
 
+/**
+ * [childIds] with [id] moved by [delta] positions (clamped to the list); null when the
+ * move is a no-op (unknown id or already at the edge), so callers can skip the publish.
+ */
+fun movedChildOrder(childIds: List<String>, id: String, delta: Int): List<String>? {
+    val from = childIds.indexOf(id)
+    if (from < 0) return null
+    val to = (from + delta).coerceIn(0, childIds.lastIndex)
+    if (to == from) return null
+    val out = childIds.toMutableList()
+    out.removeAt(from)
+    out.add(to, id)
+    return out
+}
+
 /** Confirm-dialog copy for a hierarchy operation, shared so both UIs read identically. */
 data class HierarchyPrompt(val title: String, val message: String, val confirmLabel: String)
 

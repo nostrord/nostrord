@@ -8577,6 +8577,89 @@ body {
     font-size: 12px;
 }
 
+/* Channel row identity (avatar + name) doubles as the open-channel affordance. */
+.hierarchy-open-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: 0;
+    padding: 4px 6px;
+    border-radius: var(--radius-md);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.hierarchy-open-btn:hover {
+    background: var(--color-hover);
+}
+
+.hierarchy-row-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+/* Searchable group picker: collapsed trigger + expanding panel (web analogue of the
+   Compose GroupPickerDropdown). */
+.hierarchy-pick {
+    flex: 1;
+    min-width: 0;
+}
+
+.hierarchy-pick-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    cursor: pointer;
+    text-align: left;
+}
+
+.hierarchy-pick-trigger:disabled {
+    cursor: default;
+    color: var(--color-text-muted);
+}
+
+.hierarchy-pick-panel {
+    margin-top: 6px;
+    padding: 6px;
+    background: var(--color-floating);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+}
+
+.hierarchy-pick-list {
+    margin-top: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hierarchy-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: 0;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.hierarchy-pick-row:hover {
+    background: var(--color-hover);
+}
+
 /* Danger tab: destructive delete kept apart from the edit-and-save flow. */
 .manage-danger {
     display: flex;

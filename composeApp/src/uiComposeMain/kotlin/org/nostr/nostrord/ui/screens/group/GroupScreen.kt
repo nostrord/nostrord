@@ -514,6 +514,10 @@ fun GroupScreen(
             },
             initialTab = ManageTab.Info,
             supportsSubgroups = supportsSubgroups,
+            onOpenGroup = { id ->
+                showEditGroupModal = false
+                onNavigateToGroup(id, null, currentRelayUrl, null)
+            },
         )
     }
 
@@ -532,6 +536,10 @@ fun GroupScreen(
             },
             initialTab = ManageTab.Members,
             supportsSubgroups = supportsSubgroups,
+            onOpenGroup = { id ->
+                showMemberManagementModal = false
+                onNavigateToGroup(id, null, currentRelayUrl, null)
+            },
         )
     }
 
@@ -834,6 +842,10 @@ fun GroupScreen(
             },
             initialTab = ManageTab.Requests,
             supportsSubgroups = supportsSubgroups,
+            onOpenGroup = { id ->
+                showJoinRequestsModal = false
+                onNavigateToGroup(id, null, currentRelayUrl, null)
+            },
         )
     }
 

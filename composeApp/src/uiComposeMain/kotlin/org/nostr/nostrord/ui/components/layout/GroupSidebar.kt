@@ -324,6 +324,10 @@ fun GroupSidebar(
             },
             initialTab = manageTab,
             supportsSubgroups = supportsSubgroups,
+            onOpenGroup = { id ->
+                showManage = false
+                onNavigateGroup(GroupRoute(route.relayUrl, id))
+            },
         )
     }
     if (showCreateSubgroup) {

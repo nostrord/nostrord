@@ -88,6 +88,16 @@ class HierarchyViewTest {
     }
 
     @Test
+    fun `movedChildOrder moves within bounds and rejects no-ops`() {
+        val ids = listOf("a", "b", "c")
+        assertEquals(listOf("b", "a", "c"), movedChildOrder(ids, "b", -1))
+        assertEquals(listOf("a", "c", "b"), movedChildOrder(ids, "b", +1))
+        assertEquals(null, movedChildOrder(ids, "a", -1))
+        assertEquals(null, movedChildOrder(ids, "c", +1))
+        assertEquals(null, movedChildOrder(ids, "ghost", +1))
+    }
+
+    @Test
     fun `missing child metadata is reported for fetching`() {
         val root = meta("root", children = listOf("ghost"))
         val groups = listOf(root)
