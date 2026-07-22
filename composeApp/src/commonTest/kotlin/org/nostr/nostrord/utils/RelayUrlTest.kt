@@ -39,6 +39,9 @@ class RelayUrlTest {
         assertEquals("ws://127.0.0.1:9888", "wss://127.0.0.1:9888".toRelayUrl())
         assertEquals("ws://127.0.0.1:9888", "127.0.0.1:9888".toRelayUrl())
         assertEquals("ws://localhost:7777", "wss://localhost:7777".toRelayUrl())
+        // Android emulator host alias counts as loopback.
+        assertEquals("ws://10.0.2.2:9888", "10.0.2.2:9888".toRelayUrl())
+        assertTrue(isValidRelayUrl("ws://10.0.2.2:9888"))
     }
 
     @Test

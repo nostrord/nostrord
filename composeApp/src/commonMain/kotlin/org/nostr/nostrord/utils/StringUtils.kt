@@ -180,7 +180,13 @@ fun String.toRelayUrl(): String {
     // Reject userinfo: `ws://localhost:7777@evil.com` would bypass loopback checks.
     if ('@' in authority) return ""
     val host = authority.substringBefore(':').lowercase()
-    val loopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    // 10.0.2.2 is the Android emulator's alias for the host machine's loopback.
+    val loopback = host == "localhost" ||
+        host == "127.0.0.1" ||
+        host == "0.0.0.0" ||
+        host == "[::1]" ||
+        host == "::1" ||
+        host == "10.0.2.2"
     // Tor onion services encrypt the transport themselves and rarely carry a TLS cert,
     // so a bare .onion host defaults to ws:// (a typed wss:// is kept).
     val onion = host.endsWith(".onion")
@@ -222,7 +228,13 @@ fun isValidRelayUrl(url: String): Boolean {
     if ('@' in authority) return false
     val host = authority.substringBefore(':').lowercase()
     if (host.isBlank()) return false
-    val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    // 10.0.2.2 is the Android emulator's alias for the host machine's loopback.
+    val isLoopback = host == "localhost" ||
+        host == "127.0.0.1" ||
+        host == "0.0.0.0" ||
+        host == "[::1]" ||
+        host == "::1" ||
+        host == "10.0.2.2"
     // ws:// (no TLS) is allowed only where the transport is already safe: loopback and Tor onion.
     if (trimmed.startsWith("ws://")) return isLoopback || host.endsWith(".onion")
     if (isLoopback) return true
