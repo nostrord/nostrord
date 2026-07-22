@@ -14,6 +14,7 @@ import org.nostr.nostrord.ui.screens.group.detachChannelPrompt
 import org.nostr.nostrord.ui.screens.group.hierarchyView
 import org.nostr.nostrord.ui.screens.group.makeRootPrompt
 import org.nostr.nostrord.ui.screens.group.moveUnderPrompt
+import org.nostr.nostrord.ui.screens.group.movedChildOrder
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.ui.screens.group.reparentGroup
 import org.nostr.nostrord.utils.Result
@@ -40,8 +41,6 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
-import react.dom.html.ReactHTML.option
-import react.dom.html.ReactHTML.select
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
@@ -141,7 +140,11 @@ val ManageGroupModal =
                                     groupId = group.id
                                     isOpen = group.isOpen
                                 }
-                            ManageTab.Hierarchy -> ManageHierarchySection { this.group = group }
+                            ManageTab.Hierarchy ->
+                                ManageHierarchySection {
+                                    this.group = group
+                                    onClose = props.onClose
+                                }
                             ManageTab.Danger ->
                                 ManageDangerSection {
                                     this.group = group
@@ -566,6 +569,9 @@ private val ManageMembersSection =
 
 private external interface ManageHierarchyProps : Props {
     var group: GroupMetadata
+
+    /** Close the whole Manage modal (row navigation leaves the screen). */
+    var onClose: () -> Unit
 }
 
 /**
@@ -574,6 +580,88 @@ private external interface ManageHierarchyProps : Props {
  * kind:9002 via editGroup (PUT semantics); a parent must live on the same relay, and the
  * candidate list excludes the group itself and its own descendants so no cycle can form.
  */
+private external interface GroupPickerProps : Props {
+    var placeholder: String
+    var candidates: List<GroupMetadata>
+    var disabled: Boolean
+    var onPick: (GroupMetadata) -> Unit
+}
+
+/**
+ * Collapsed trigger that expands into a searchable candidate panel (web analogue of the
+ * Compose GroupPickerDropdown): filter field past a handful of entries, avatar rows,
+ * picking collapses and reports the group.
+ */
+private val GroupPicker =
+    FC<GroupPickerProps> { props ->
+        val (open, setOpen) = useState { false }
+        val (query, setQuery) = useState { "" }
+        div {
+            className = ClassName("hierarchy-pick")
+            button {
+                className = ClassName("modal-input hierarchy-pick-trigger")
+                disabled = props.disabled
+                onClick = {
+                    setOpen(!open)
+                    setQuery("")
+                }
+                span { +props.placeholder }
+                icon(if (open) Ic.ExpandLess else Ic.ExpandMore)
+            }
+            if (open && !props.disabled) {
+                div {
+                    className = ClassName("hierarchy-pick-panel")
+                    if (props.candidates.size > 6) {
+                        searchInput(
+                            placeholder = "Search groups...",
+                            value = query,
+                            onChange = { setQuery(it) },
+                            compact = true,
+                            autoFocus = true,
+                        )
+                    }
+                    div {
+                        className = ClassName("hierarchy-pick-list")
+                        val shown = props.candidates.filter {
+                            query.isBlank() ||
+                                (it.name ?: "").contains(query, ignoreCase = true) ||
+                                it.id.contains(query, ignoreCase = true)
+                        }
+                        if (shown.isEmpty()) {
+                            div {
+                                className = ClassName("mod-empty")
+                                +"No matches"
+                            }
+                        }
+                        shown.forEach { g ->
+                            val gName = g.name?.takeIf { it.isNotBlank() } ?: g.id
+                            button {
+                                key = g.id
+                                className = ClassName("hierarchy-pick-row")
+                                onClick = {
+                                    setOpen(false)
+                                    setQuery("")
+                                    props.onPick(g)
+                                }
+                                WebAvatar {
+                                    url = g.picture
+                                    seed = g.id
+                                    name = gName
+                                    kind = AvatarKind.GROUP
+                                    cls = "hierarchy-row-avatar"
+                                }
+                                span {
+                                    className = ClassName("mod-name")
+                                    +gName
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 private data class PendingHierarchyOp(
     val prompt: HierarchyPrompt,
     val target: GroupMetadata,
@@ -618,6 +706,25 @@ private val ManageHierarchySection =
             }
         }
 
+        // Reordering re-declares the parent's child tags, so it needs THIS group's admin and a
+        // channel list in sync with the declared tags (an in-flight attach/detach desyncs them
+        // briefly, and reorderChildren rejects a non-permutation).
+        val canReorder = myPubkey != null &&
+            myPubkey in groupAdmins[group.id].orEmpty() &&
+            view.childIds.size > 1 &&
+            group.children.toSet() == view.childIds.toSet()
+
+        fun moveChild(sid: String, delta: Int) {
+            val newOrder = movedChildOrder(view.childIds, sid, delta) ?: return
+            setBusy(true)
+            setError(null)
+            launchApp {
+                val r = repo.reorderChildren(group.id, newOrder)
+                setBusy(false)
+                if (r is Result.Error) setError(r.error.message.ifBlank { "Failed to reorder channels." })
+            }
+        }
+
         div {
             className = ClassName("access-section-title")
             +"PARENT"
@@ -632,40 +739,23 @@ private val ManageHierarchySection =
         }
         div {
             className = ClassName("hierarchy-row")
-            select {
-                className = ClassName("modal-input")
-                value = ""
+            GroupPicker {
+                placeholder = when {
+                    !view.canMove -> "Detach its channels to move this group"
+                    view.parentCandidates.isEmpty() -> "No other groups on this relay"
+                    else -> "Move under..."
+                }
+                candidates = view.parentCandidates
                 disabled = busy || view.parentCandidates.isEmpty() || !view.canMove
-                onChange = { e ->
-                    val id = e.currentTarget.value
-                    val target = byId[id]
-                    if (id.isNotBlank() && target != null) {
-                        setPending(
-                            PendingHierarchyOp(
-                                moveUnderPrompt(groupName, target.name?.takeIf { it.isNotBlank() } ?: target.id),
-                                group,
-                                GroupManager.ParentOp.SetTo(id),
-                                "Failed to update hierarchy.",
-                            ),
-                        )
-                    }
-                }
-                option {
-                    value = ""
-                    +(
-                        when {
-                            !view.canMove -> "Detach its channels to move this group"
-                            view.parentCandidates.isEmpty() -> "No other groups on this relay"
-                            else -> "Move under..."
-                        }
-                        )
-                }
-                view.parentCandidates.forEach { g ->
-                    option {
-                        key = g.id
-                        value = g.id
-                        +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
-                    }
+                onPick = { target ->
+                    setPending(
+                        PendingHierarchyOp(
+                            moveUnderPrompt(groupName, target.name?.takeIf { it.isNotBlank() } ?: target.id),
+                            group,
+                            GroupManager.ParentOp.SetTo(target.id),
+                            "Failed to update hierarchy.",
+                        ),
+                    )
                 }
             }
             if (view.parentId != null) {
@@ -726,17 +816,49 @@ private val ManageHierarchySection =
                         +"No channels."
                     }
                 }
-                view.childIds.forEach { sid ->
+                view.childIds.forEachIndexed { index, sid ->
                     val sub = byId[sid]
+                    val subName = sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}\u2026"
                     div {
                         key = sid
                         className = ClassName("mod-row")
-                        span {
-                            className = ClassName("mod-name")
-                            +(sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}\u2026")
+                        button {
+                            className = ClassName("hierarchy-open-btn")
+                            title = "Open channel"
+                            onClick = {
+                                props.onClose()
+                                pushRoute(GroupRoute(relayUrl, sid))
+                            }
+                            WebAvatar {
+                                url = sub?.picture
+                                seed = sid
+                                name = subName
+                                kind = AvatarKind.GROUP
+                                cls = "hierarchy-row-avatar"
+                            }
+                            span {
+                                className = ClassName("mod-name")
+                                +subName
+                            }
                         }
                         div {
                             className = ClassName("mod-actions")
+                            if (canReorder) {
+                                button {
+                                    className = ClassName("mod-btn")
+                                    title = "Move up"
+                                    disabled = busy || index == 0
+                                    onClick = { moveChild(sid, -1) }
+                                    icon(Ic.ExpandLess)
+                                }
+                                button {
+                                    className = ClassName("mod-btn")
+                                    title = "Move down"
+                                    disabled = busy || index == view.childIds.lastIndex
+                                    onClick = { moveChild(sid, +1) }
+                                    icon(Ic.ExpandMore)
+                                }
+                            }
                             // Detaching edits the CHILD's kind:9002, so it needs its admin key.
                             if (sub != null && myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
                                 button {
@@ -745,7 +867,7 @@ private val ManageHierarchySection =
                                     onClick = {
                                         setPending(
                                             PendingHierarchyOp(
-                                                detachChannelPrompt(sub.name?.takeIf { it.isNotBlank() } ?: sid),
+                                                detachChannelPrompt(subName),
                                                 sub,
                                                 GroupManager.ParentOp.Detach,
                                                 "Failed to detach channel.",
@@ -766,34 +888,19 @@ private val ManageHierarchySection =
             }
             div {
                 className = ClassName("hierarchy-row")
-                select {
-                    className = ClassName("modal-input")
-                    value = ""
+                GroupPicker {
+                    placeholder = if (view.childCandidates.isEmpty()) "No groups you admin to add" else "Add an existing group as a channel..."
+                    candidates = view.childCandidates
                     disabled = busy || view.childCandidates.isEmpty()
-                    onChange = { e ->
-                        val id = e.currentTarget.value
-                        val target = byId[id]
-                        if (id.isNotBlank() && target != null) {
-                            setPending(
-                                PendingHierarchyOp(
-                                    addChannelPrompt(target.name?.takeIf { it.isNotBlank() } ?: target.id, groupName),
-                                    target,
-                                    GroupManager.ParentOp.SetTo(group.id),
-                                    "Failed to add channel.",
-                                ),
-                            )
-                        }
-                    }
-                    option {
-                        value = ""
-                        +(if (view.childCandidates.isEmpty()) "No groups you admin to add" else "Add an existing group as a channel...")
-                    }
-                    view.childCandidates.forEach { g ->
-                        option {
-                            key = g.id
-                            value = g.id
-                            +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
-                        }
+                    onPick = { target ->
+                        setPending(
+                            PendingHierarchyOp(
+                                addChannelPrompt(target.name?.takeIf { it.isNotBlank() } ?: target.id, groupName),
+                                target,
+                                GroupManager.ParentOp.SetTo(group.id),
+                                "Failed to add channel.",
+                            ),
+                        )
                     }
                 }
             }

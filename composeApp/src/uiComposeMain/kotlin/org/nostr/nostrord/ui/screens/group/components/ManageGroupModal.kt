@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
@@ -59,6 +60,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.ConfirmDialog
 import org.nostr.nostrord.ui.components.IdentifierRow
+import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.forms.AppField
 import org.nostr.nostrord.ui.components.forms.AppSearchField
@@ -75,6 +77,7 @@ import org.nostr.nostrord.ui.screens.group.hierarchyView
 import org.nostr.nostrord.ui.screens.group.makeRootPrompt
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.screens.group.moveUnderPrompt
+import org.nostr.nostrord.ui.screens.group.movedChildOrder
 import org.nostr.nostrord.ui.screens.group.pendingJoinRequests
 import org.nostr.nostrord.ui.screens.group.reparentGroup
 import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
@@ -116,6 +119,8 @@ fun ManageGroupModal(
     onDeleted: () -> Unit,
     initialTab: ManageTab = ManageTab.Info,
     supportsSubgroups: Boolean = true,
+    /** Navigate to a group/channel (Hierarchy rows); the caller closes the modal. */
+    onOpenGroup: ((groupId: String) -> Unit)? = null,
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
     var tab by remember { mutableStateOf(initialTab) }
@@ -207,7 +212,7 @@ fun ManageGroupModal(
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.lg))
                                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                    ManageTabContent(tab, vm, groupId, currentMetadata, relayUrl, onDeleted)
+                                    ManageTabContent(tab, vm, groupId, currentMetadata, relayUrl, onDeleted, onOpenGroup)
                                 }
                             }
                         } else {
@@ -221,7 +226,7 @@ fun ManageGroupModal(
                                 )
                                 Spacer(modifier = Modifier.height(Spacing.md))
                                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                    ManageTabContent(tab, vm, groupId, currentMetadata, relayUrl, onDeleted)
+                                    ManageTabContent(tab, vm, groupId, currentMetadata, relayUrl, onDeleted, onOpenGroup)
                                 }
                             }
                         }
@@ -240,13 +245,14 @@ private fun ManageTabContent(
     currentMetadata: GroupMetadata?,
     relayUrl: String,
     onDeleted: () -> Unit,
+    onOpenGroup: ((groupId: String) -> Unit)?,
 ) {
     when (tab) {
         ManageTab.Info -> ManageInfoSection(groupId, currentMetadata, relayUrl)
         ManageTab.Members -> ManageMembersSection(vm, groupId)
         ManageTab.Invites -> ManageInvitesSection(vm, groupId, relayUrl)
         ManageTab.Requests -> ManageRequestsSection(vm, groupId, isOpen = currentMetadata?.isOpen != false)
-        ManageTab.Hierarchy -> ManageHierarchySection(vm, groupId, currentMetadata, relayUrl)
+        ManageTab.Hierarchy -> ManageHierarchySection(vm, groupId, currentMetadata, relayUrl, onOpenGroup)
         ManageTab.Danger -> ManageDangerSection(groupId, isChannel = currentMetadata?.parent != null, onDeleted = onDeleted)
     }
 }
@@ -932,6 +938,7 @@ private fun ManageHierarchySection(
     groupId: String,
     currentMetadata: GroupMetadata?,
     relayUrl: String,
+    onOpenGroup: ((groupId: String) -> Unit)?,
 ) {
     val scope = rememberCoroutineScope()
     val groupsByRelay by vm.groupsByRelay.collectAsState()
@@ -960,6 +967,25 @@ private fun ManageHierarchySection(
             val r = reparentGroup(AppModule.nostrRepository, op.target, op.op)
             busy = false
             if (r is Result.Error) error = r.error.message?.ifBlank { op.fail } ?: op.fail
+        }
+    }
+
+    // Reordering re-declares the parent's child tags, so it needs THIS group's admin and a
+    // channel list in sync with the declared tags (an in-flight attach/detach desyncs them
+    // briefly, and reorderChildren rejects a non-permutation).
+    val canReorder = myPubkey != null &&
+        myPubkey in groupAdmins[groupId].orEmpty() &&
+        view.childIds.size > 1 &&
+        currentMetadata?.children?.toSet() == view.childIds.toSet()
+
+    fun moveChild(sid: String, delta: Int) {
+        val newOrder = movedChildOrder(view.childIds, sid, delta) ?: return
+        busy = true
+        error = null
+        scope.launch {
+            val r = AppModule.nostrRepository.reorderChildren(groupId, newOrder)
+            busy = false
+            if (r is Result.Error) error = r.error.message?.ifBlank { "Failed to reorder channels." } ?: "Failed to reorder channels."
         }
     }
 
@@ -1049,29 +1075,65 @@ private fun ManageHierarchySection(
             if (view.childIds.isEmpty()) {
                 ModEmpty("No channels.")
             } else {
-                view.childIds.forEach { sid ->
+                view.childIds.forEachIndexed { index, sid ->
                     val sub = byId[sid]
+                    val subName = sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}…"
                     Row(
                         modifier =
                         Modifier
                             .fillMaxWidth()
-                            .padding(vertical = Spacing.xs),
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(
+                                if (onOpenGroup != null) {
+                                    Modifier
+                                        .clickable { onOpenGroup(sid) }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(horizontal = Spacing.xs, vertical = Spacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     ) {
+                        OptimizedSmallAvatar(
+                            imageUrl = sub?.picture,
+                            identifier = sid,
+                            displayName = subName,
+                            size = 24.dp,
+                            shape = RoundedCornerShape(6.dp),
+                            isGroup = true,
+                        )
                         Text(
-                            sub?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}…",
+                            subName,
                             style = NostrordTypography.Caption,
                             color = if (sub != null) NostrordColors.TextPrimary else NostrordColors.TextMuted,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (canReorder) {
+                            IconButton(
+                                onClick = { moveChild(sid, -1) },
+                                enabled = !busy && index > 0,
+                                modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp, "Move up", tint = NostrordColors.TextMuted, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(
+                                onClick = { moveChild(sid, +1) },
+                                enabled = !busy && index < view.childIds.lastIndex,
+                                modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown, "Move down", tint = NostrordColors.TextMuted, modifier = Modifier.size(18.dp))
+                            }
+                        }
                         // Detaching edits the CHILD's kind:9002, so it needs its admin key.
                         if (sub != null && myPubkey != null && myPubkey in groupAdmins[sid].orEmpty()) {
                             TextButton(
                                 onClick = {
                                     pending = PendingHierarchyOp(
-                                        detachChannelPrompt(sub.name?.takeIf { it.isNotBlank() } ?: sid),
+                                        detachChannelPrompt(subName),
                                         sub,
                                         GroupManager.ParentOp.Detach,
                                         "Failed to detach channel.",
@@ -1250,6 +1312,7 @@ private fun GroupPickerDropdown(
     onPick: (GroupMetadata) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     Box(modifier = modifier) {
         Row(
             modifier =
@@ -1274,14 +1337,51 @@ private fun GroupPickerDropdown(
         }
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
+            onDismissRequest = {
+                expanded = false
+                query = ""
+            },
             containerColor = NostrordColors.Surface,
         ) {
-            candidates.forEach { g ->
+            // Search only pays off past a handful of entries; small lists stay one click.
+            if (candidates.size > 6) {
+                AppSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Search groups...",
+                    size = InputSize.Compact,
+                    modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs).widthIn(min = 220.dp),
+                )
+            }
+            val shown = candidates.filter {
+                query.isBlank() ||
+                    (it.name ?: "").contains(query, ignoreCase = true) ||
+                    it.id.contains(query, ignoreCase = true)
+            }
+            if (shown.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(g.name?.takeIf { it.isNotBlank() } ?: g.id, color = NostrordColors.TextPrimary, style = NostrordTypography.Caption) },
+                    text = { Text("No matches", color = NostrordColors.TextMuted, style = NostrordTypography.Caption) },
+                    onClick = {},
+                    enabled = false,
+                )
+            }
+            shown.forEach { g ->
+                val gName = g.name?.takeIf { it.isNotBlank() } ?: g.id
+                DropdownMenuItem(
+                    leadingIcon = {
+                        OptimizedSmallAvatar(
+                            imageUrl = g.picture,
+                            identifier = g.id,
+                            displayName = gName,
+                            size = 20.dp,
+                            shape = RoundedCornerShape(5.dp),
+                            isGroup = true,
+                        )
+                    },
+                    text = { Text(gName, color = NostrordColors.TextPrimary, style = NostrordTypography.Caption) },
                     onClick = {
                         expanded = false
+                        query = ""
                         onPick(g)
                     },
                 )
