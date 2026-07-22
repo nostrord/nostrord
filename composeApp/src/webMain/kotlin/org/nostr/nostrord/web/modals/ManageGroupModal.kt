@@ -725,16 +725,120 @@ private val ManageHierarchySection =
             }
         }
 
-        div {
-            className = ClassName("access-section-title")
-            +"PARENT"
-        }
-        div {
-            className = ClassName("hierarchy-current")
-            +"Current: "
-            span {
-                className = ClassName("hierarchy-current-value")
-                +(view.parentName ?: "Root group")
+        if (view.parentId != null) {
+            // Channel view: where this channel lives (breadcrumb), its siblings, then the
+            // move actions. The parent crumb navigates like the channel rows do.
+            div {
+                className = ClassName("access-section-title")
+                +"LOCATION"
+            }
+            div {
+                className = ClassName("hierarchy-crumb")
+                val parentMeta = byId[view.parentId]
+                val parentLabel = view.parentName ?: view.parentId!!
+                button {
+                    className = ClassName("hierarchy-crumb-item")
+                    title = "Open parent group"
+                    onClick = {
+                        props.onClose()
+                        pushRoute(GroupRoute(relayUrl, view.parentId!!))
+                    }
+                    WebAvatar {
+                        url = parentMeta?.picture
+                        seed = view.parentId!!
+                        name = parentLabel
+                        kind = AvatarKind.GROUP
+                        cls = "hierarchy-row-avatar"
+                    }
+                    span { +parentLabel }
+                }
+                span {
+                    className = ClassName("hierarchy-crumb-sep")
+                    +"\u203a"
+                }
+                div {
+                    className = ClassName("hierarchy-crumb-item current")
+                    WebAvatar {
+                        url = group.picture
+                        seed = group.id
+                        name = groupName
+                        kind = AvatarKind.GROUP
+                        cls = "hierarchy-row-avatar"
+                    }
+                    span { +groupName }
+                }
+            }
+
+            div {
+                className = ClassName("access-section-title")
+                +"SIBLINGS (${view.siblingIds.size})"
+            }
+            div {
+                className = ClassName("mod-list")
+                view.siblingIds.forEach { sid ->
+                    val isSelf = sid == group.id
+                    val m = byId[sid]
+                    val name = m?.name?.takeIf { it.isNotBlank() } ?: "${sid.take(12)}\u2026"
+                    div {
+                        key = sid
+                        className = ClassName(if (isSelf) "mod-row hierarchy-sibling-current" else "mod-row")
+                        if (isSelf) {
+                            WebAvatar {
+                                url = m?.picture
+                                seed = sid
+                                this.name = name
+                                kind = AvatarKind.GROUP
+                                cls = "hierarchy-row-avatar"
+                            }
+                            span {
+                                className = ClassName("mod-name")
+                                +name
+                            }
+                            span {
+                                className = ClassName("mod-muted")
+                                +"this channel"
+                            }
+                        } else {
+                            button {
+                                className = ClassName("hierarchy-open-btn")
+                                title = "Open channel"
+                                onClick = {
+                                    props.onClose()
+                                    pushRoute(GroupRoute(relayUrl, sid))
+                                }
+                                WebAvatar {
+                                    url = m?.picture
+                                    seed = sid
+                                    this.name = name
+                                    kind = AvatarKind.GROUP
+                                    cls = "hierarchy-row-avatar"
+                                }
+                                span {
+                                    className = ClassName("mod-name")
+                                    +name
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            div {
+                className = ClassName("access-section-title")
+                +"MOVE"
+            }
+        } else {
+            div {
+                className = ClassName("access-section-title")
+                +"PARENT"
+            }
+            div {
+                className = ClassName("hierarchy-current")
+                +"Current: "
+                span {
+                    className = ClassName("hierarchy-current-value")
+                    +"Root group"
+                }
             }
         }
         div {

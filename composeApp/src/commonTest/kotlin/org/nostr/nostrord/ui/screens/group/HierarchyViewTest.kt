@@ -88,6 +88,30 @@ class HierarchyViewTest {
     }
 
     @Test
+    fun `channel view lists ordered siblings including self, roots have none`() {
+        val root = meta("root", children = listOf("c2", "c1"))
+        val c1 = meta("c1", parent = "root")
+        val c2 = meta("c2", parent = "root")
+        val groups = listOf(root, c1, c2)
+
+        val channelView = hierarchyView("c1", c1, groups, childrenOf(groups), adminsOfAll(groups), me)
+        assertEquals(listOf("c2", "c1"), channelView.siblingIds)
+
+        val rootView = hierarchyView("root", root, groups, childrenOf(groups), adminsOfAll(groups), me)
+        assertEquals(emptyList(), rootView.siblingIds)
+    }
+
+    @Test
+    fun `missing parent and sibling metadata are reported for fetching`() {
+        // Only the channel's own 39000 is loaded; parent and sibling are ghosts.
+        val c1 = meta("c1", parent = "root")
+        val children = mapOf("root" to setOf("c1", "ghost-sib"))
+
+        val view = hierarchyView("c1", c1, listOf(c1), children, adminsOfAll(listOf(c1)), me)
+        assertEquals(setOf("root", "ghost-sib"), view.missingChildMeta.toSet())
+    }
+
+    @Test
     fun `movedChildOrder moves within bounds and rejects no-ops`() {
         val ids = listOf("a", "b", "c")
         assertEquals(listOf("b", "a", "c"), movedChildOrder(ids, "b", -1))
