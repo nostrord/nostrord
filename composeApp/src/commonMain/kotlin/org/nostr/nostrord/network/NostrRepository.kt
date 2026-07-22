@@ -3062,7 +3062,12 @@ class NostrRepository(
     ): Result<String> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        if (relayUrl != connectionManager.currentRelayUrl.value) {
+        // Also re-enter switchRelay when the URL already matches but the socket is dead:
+        // a failed first connect leaves currentRelayUrl set with an empty pool, and skipping
+        // here would fail every retry with Disconnected without ever reconnecting.
+        if (relayUrl != connectionManager.currentRelayUrl.value ||
+            connectionManager.getFocusedClient()?.isConnected() != true
+        ) {
             switchRelay(relayUrl)
         }
         val result = groupManager.createGroup(
