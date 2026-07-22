@@ -602,6 +602,11 @@ class GroupManager(
         recentlyJoinedAt[groupId] = epochMillis()
     }
 
+    private fun isRecentlyJoined(groupId: String): Boolean {
+        val at = recentlyJoinedAt[groupId] ?: return false
+        return epochMillis() - at <= RECENT_JOIN_GRACE_MS
+    }
+
     /**
      * Orphaned joined pins safe to auto-forget: groups still missing kind:39000 after their
      * relay finished serving its group list (so the relay was asked and does not have them —
@@ -1571,6 +1576,9 @@ class GroupManager(
             }.toString()
 
             // Send 9007, await relay OK, then subscribe for kind:39000 to get the
+            // Pre-claim the id: the relay's put-user echo (relay-authored, so the self-actor
+            // guard misses it) races the OK and must not become a pending invite.
+            markRecentlyJoined(suggestedId)
             // relay-confirmed group ID (relay may have used a different ID than suggested)
             val confirmedGroupId = currentClient.awaitGroupCreated(
                 create9007EventJson = create9007Json,
@@ -3751,6 +3759,9 @@ class GroupManager(
         if (actorPubkey != null && actorPubkey == currentPubkey) return
         if (isRecentlyLeft(groupId) || groupId in deletedGroupIds) return
         if (_joinedGroupsByRelay.value.values.any { groupId in it }) return
+        // A create/join we initiated is still in flight (id pre-claimed before the send):
+        // the relay's put-user echo for it is our own doing, not an external add.
+        if (isRecentlyJoined(groupId)) return
         val relay = (relayUrl ?: getRelayForGroup(groupId) ?: currentRelayUrl ?: return).normalizeRelayUrl()
         val leftAt = _leftGroups.value[groupId]
         if (leftAt != null) {
