@@ -843,7 +843,9 @@ class NostrRepository(
         // adds to joinedGroupsByRelay. When it grows, send a fresh targeted #d fetch so those
         // groups' metadata loads (name/picture/parent) — we never pull the full directory.
         scope.launch {
-            combine(_following, _userGroupLists, groupManager.joinedGroupsByRelay) { _, _, _ -> Unit }.collect {
+            // groupsByRelay is in the combine so a 39000 arriving with `child` tags
+            // re-expands the known set and fetches the channels' own metadata.
+            combine(_following, _userGroupLists, groupManager.joinedGroupsByRelay, groupManager.groupsByRelay) { _, _, _, _ -> Unit }.collect {
                 val relay = connectionManager.currentRelayUrl.value
                 if (relay.isBlank()) return@collect
                 val client = connectionManager.getFocusedClient() ?: return@collect
@@ -2556,6 +2558,13 @@ class NostrRepository(
                 if (ref.relayUrl.normalizeRelayUrl() == normalized) ids.add(ref.groupId)
             }
         }
+        // Follow the hierarchy: a known root's kind:39000 lists its channels in `child`
+        // tags, but joining the root doesn't join them — without this expansion their
+        // metadata is never fetched and the sidebar channel list stays empty. Fetched
+        // children re-enter here via the groupsByRelay collector, so deeper trees
+        // converge one level per round.
+        val metaById = groupManager.groupsByRelay.value[normalized].orEmpty().associateBy { it.id }
+        ids.toList().forEach { id -> metaById[id]?.children?.forEach { ids.add(it) } }
         return ids.filter { it !in restricted }
     }
 
