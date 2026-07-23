@@ -1559,9 +1559,7 @@ class GroupManager(
             val suggestedId = if (!customGroupId.isNullOrBlank()) {
                 customGroupId.trim().lowercase()
             } else {
-                buildString {
-                    repeat(32) { append("0123456789abcdef"[kotlin.random.Random.nextInt(16)]) }
-                }
+                org.nostr.nostrord.utils.ReadableId.generate()
             }
 
             // kind 9007: create-group — sign and build the full message first so
