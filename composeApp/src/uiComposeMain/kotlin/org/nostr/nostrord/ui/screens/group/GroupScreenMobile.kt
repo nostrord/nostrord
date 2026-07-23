@@ -21,7 +21,6 @@ import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
-import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.layout.FrameMenuButton
 import org.nostr.nostrord.ui.components.sidebars.MemberDrawerOverlay
@@ -113,8 +112,6 @@ fun GroupScreenMobile(
     groups: List<GroupMetadata> = emptyList(),
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onUserClick: (String) -> Unit = {},
-    onReconnect: () -> Unit = {},
-    onManageRelay: () -> Unit = {},
     isSending: Boolean = false,
     onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
@@ -245,12 +242,6 @@ fun GroupScreenMobile(
                         },
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        ConnectionStatusBanner(
-                            connectionState = connectionState,
-                            onRetry = onReconnect,
-                            onManageRelay = onManageRelay,
-                        )
-
                         Box(
                             modifier =
                             Modifier
