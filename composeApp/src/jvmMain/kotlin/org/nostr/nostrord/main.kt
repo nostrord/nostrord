@@ -1,6 +1,7 @@
 package org.nostr.nostrord
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.flow.MutableSharedFlow
 import okio.Path.Companion.toOkioPath
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
@@ -249,6 +251,32 @@ fun main(args: Array<String> = emptyArray()) {
                             get() = windowState.placement == WindowPlacement.Maximized
                     }
                 }
+
+            // Desktop's window LifecycleOwner stays RESUMED for the whole process, so
+            // the ON_STOP/ON_RESUME wiring in App.kt is inert here — AWT window focus
+            // is the desktop foreground signal. Regaining focus probes for zombie
+            // sockets (sleep/resume leaves half-open TCP that never fires
+            // onConnectionLost) and refreshes subs; losing focus persists cursors and
+            // lets notifications fire for the active group. Listener only — never
+            // toFront/requestFocus here (GNOME FileDialog ordering).
+            DisposableEffect(Unit) {
+                var wasUnfocused = false
+                val focusListener =
+                    object : java.awt.event.WindowFocusListener {
+                        override fun windowGainedFocus(e: java.awt.event.WindowEvent?) {
+                            AppModule.focusTracker.setFocused(true)
+                            if (wasUnfocused) AppModule.nostrRepository.onForeground()
+                        }
+
+                        override fun windowLostFocus(e: java.awt.event.WindowEvent?) {
+                            wasUnfocused = true
+                            AppModule.focusTracker.setFocused(false)
+                            AppModule.nostrRepository.onBackground()
+                        }
+                    }
+                window.addWindowFocusListener(focusListener)
+                onDispose { window.removeWindowFocusListener(focusListener) }
+            }
 
             // Deep link / relaunch while running: un-minimize and raise the window.
             // Compose Desktop's Main dispatcher is the EDT, so touching AWT here is safe.
