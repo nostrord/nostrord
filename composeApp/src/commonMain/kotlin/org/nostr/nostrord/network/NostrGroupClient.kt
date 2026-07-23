@@ -262,6 +262,9 @@ class NostrGroupClient(
          * refetch, which arrives only after handleAuthChallenge's 500 ms wait.
          */
         private const val GROUP_LIST_DEDUP_WINDOW_MS = 200L
+
+        /** Upper bound on the graceful ws close handshake in disconnect(). */
+        private const val CLOSE_HANDSHAKE_TIMEOUT_MS = 2_000L
     }
 
     fun getRelayUrl(): String = relayUrl
@@ -2103,7 +2106,13 @@ class NostrGroupClient(
         // Cancel all managed coroutines
         clientScope.coroutineContext.cancelChildren()
         connectionJob?.cancel()
-        session?.close()
+        // Graceful close is bounded: Ktor's close() suspends until the close frame
+        // drains, which never happens on a half-open socket (zombie after network
+        // flap/sleep). Unbounded, it hangs the NonCancellable logout teardown after
+        // credentials are wiped and the pool stopped accepting connects, bricking
+        // the session until the app data is cleared. On timeout the forced
+        // client.close() below tears the socket down anyway.
+        withTimeoutOrNull(CLOSE_HANDSHAKE_TIMEOUT_MS) { session?.close() }
         client.close()
     }
 
