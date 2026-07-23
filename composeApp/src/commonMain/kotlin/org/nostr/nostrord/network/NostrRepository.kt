@@ -1129,6 +1129,11 @@ class NostrRepository(
                 // relays' staleness re-arm whenever the focused relay sat in
                 // Reconnecting/Error. Each relay is individually guarded inside
                 // (no client / not connected → skip), so this is safe when offline.
+                // The zombie probe runs here too: a half-open TCP (sleep/resume,
+                // network flap) never fires onConnectionLost, and desktop has no
+                // network-change or lifecycle trigger to catch it, so without this
+                // the app sits "Connected" and deaf until the 10-min mux-stale path.
+                probeIdleSockets()
                 groupManager.refreshLiveSubscriptions()
                 liveCursorStore?.persistAll()
             }

@@ -395,6 +395,11 @@ class ConnectionManager(
      */
     fun reportReconnectAttempt(relayUrl: String, attempt: Int, maxFastAttempts: Int) {
         if (_currentRelayUrl.value != relayUrl) return
+        // Retry chains overlap: each drop spawns a fresh chain and "Retry now" doesn't
+        // cancel the old ones, so a straggler attempt can fire after the socket is
+        // already back. Once the focused client is genuinely connected, no attempt
+        // report may stomp Connected back to Reconnecting/Error.
+        if (_connectionState.value is ConnectionState.Connected && focusedClient()?.isConnected() == true) return
         _connectionState.value =
             if (attempt <= maxFastAttempts) {
                 ConnectionState.Reconnecting(attempt, maxFastAttempts)
