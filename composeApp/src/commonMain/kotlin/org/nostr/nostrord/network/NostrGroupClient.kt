@@ -198,7 +198,10 @@ class NostrGroupClient(
     private val relayUrl: String = "wss://groups.fiatjaf.com",
 ) {
     // Managed coroutine scope for this client - cancelled on disconnect
-    private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // networkClientDispatcher, NOT Default: concurrent ws handshakes park their thread
+    // in Ktor's generateNonce runBlocking and can deadlock the whole Default pool
+    // (see utils/NetworkDispatcher.kt).
+    private val clientScope = CoroutineScope(SupervisorJob() + org.nostr.nostrord.utils.networkClientDispatcher)
 
     private val client = createHttpClient()
     private var session: DefaultClientWebSocketSession? = null
