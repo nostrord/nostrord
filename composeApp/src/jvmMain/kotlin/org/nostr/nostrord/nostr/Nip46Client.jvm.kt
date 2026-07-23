@@ -35,7 +35,9 @@ actual class Nip46Client actual constructor(
     private var responseSubscriptionId: String? = null
     private var nostrConnectSecret: String? = null
 
-    private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // networkClientDispatcher, NOT Default: ws handshakes park in Ktor's generateNonce
+    // runBlocking and can deadlock the Default pool (see utils/NetworkDispatcher.kt).
+    private val clientScope = CoroutineScope(SupervisorJob() + org.nostr.nostrord.utils.networkClientDispatcher)
     private val nip46Json = Json { ignoreUnknownKeys = true }
 
     actual var onAuthUrl: ((String) -> Unit)? = null
