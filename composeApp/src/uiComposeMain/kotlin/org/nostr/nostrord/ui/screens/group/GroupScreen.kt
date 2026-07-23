@@ -65,7 +65,6 @@ fun GroupScreen(
     groupId: String,
     groupName: String?,
     onNavigateHome: () -> Unit = {},
-    onNavigateHomeManageRelay: () -> Unit = onNavigateHome,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?, messageId: String?) -> Unit = { _, _, _, _ -> },
     onOpenRelay: (relayUrl: String) -> Unit = {},
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
@@ -1008,8 +1007,6 @@ fun GroupScreen(
                     groups = groups,
                     onNavigateToGroup = onNavigateToGroup,
                     onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                    onReconnect = { vm.reconnect() },
-                    onManageRelay = onNavigateHomeManageRelay,
                     isSending = isSending,
                     onMediaUploaded = { upload ->
                         if (pendingUploads.none { it.url == upload.url }) {
@@ -1152,8 +1149,6 @@ fun GroupScreen(
                     groups = groups,
                     onNavigateToGroup = onNavigateToGroup,
                     onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                    onReconnect = { vm.reconnect() },
-                    onManageRelay = onNavigateHomeManageRelay,
                     isSending = isSending,
                     onMediaUploaded = { upload ->
                         if (pendingUploads.none { it.url == upload.url }) {

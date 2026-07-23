@@ -791,10 +791,6 @@ class GroupViewModel(
         viewModelScope.launch { repo.switchRelay(relayUrl) }
     }
 
-    fun reconnect() {
-        viewModelScope.launch { repo.reconnect() }
-    }
-
     fun markAsRead() {
         repo.markGroupAsRead(groupId)
     }

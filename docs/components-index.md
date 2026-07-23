@@ -21,7 +21,6 @@ delete the old one in the same change so the catalogue never lists a dead screen
 | `AvatarPlaceholder` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/avatars/AvatarPlaceholder.kt | — |
 | `BunkerStatusBanner` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/BunkerStatusBanner.kt | Floating warning shown when the active account signs through a NIP-46 bunker |
 | `ConfirmDialog` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/ConfirmDialog.kt | The single confirm dialog for the native UI (Compose counterpart of the web `confirmDialog` |
-| `ConnectionStatusBanner` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/ConnectionStatusBanner.kt | — |
 | `DateSeparator` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DateSeparator.kt | — |
 | `DmConversationList` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/layout/DmSidebar.kt | The DM conversation list plus its empty state, shared by [DmSidebar] (desktop column) and the |
 | `DmEventSourceDialog` | uiComposeMain/kotlin/org/nostr/nostrord/ui/components/chat/DmEventSourceDialog.kt | "View source" for a DM: the decrypted kind:14 rumor as pretty JSON plus the relays |
