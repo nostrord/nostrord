@@ -4592,6 +4592,12 @@ class NostrRepository(
                     if (!held) {
                         groupManager.handleEoseSuspend(subId, sourceRelayUrl)
                     }
+                    // Mux metadata EOSE: prune REQed ids that got no 39000 back (deleted
+                    // groups). Skipped pre-AUTH, when the relay may still be withholding
+                    // metadata it will serve post-AUTH.
+                    if (!authBlocked && subId == client.muxMetaSubId()) {
+                        groupManager.reconcileMuxMetadataEose(sourceRelayUrl)
+                    }
                     // Wake any pending batchFetch waiting on EOSE for this metadata sub.
                     metadataManager.notifyMetadataEose(subId, sourceRelayUrl)
                     // EOSE on any mux sub is proof of life for the relay's live feed —

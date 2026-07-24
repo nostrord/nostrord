@@ -331,6 +331,19 @@ fun SecureStorage.isFullGroupListCacheFresh(
     return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
 }
 
+// Per-relay Unix-seconds cursor of the last time the kind:9008 delete watch was armed.
+// The next arm uses it as `since`, so a deletion that happened while this client was
+// offline (or before the watch existed) replays on reconnect instead of leaving the
+// group's cached metadata behind forever.
+fun SecureStorage.saveDeleteWatchCursor(
+    relayUrl: String,
+    timestampSeconds: Long,
+) {
+    saveStringPref("group_del_watch_ts_${relayUrl.hashCode()}", timestampSeconds.toString())
+}
+
+fun SecureStorage.getDeleteWatchCursor(relayUrl: String): Long = getStringPref("group_del_watch_ts_${relayUrl.hashCode()}", "0").toLongOrNull() ?: 0L
+
 // Persisted timestamp of the most recently published (or locally applied) kind:10009 event.
 // Survives app restarts so that handleKind10009Event can reject stale network events that
 // would otherwise restore relays/groups the user explicitly removed while offline.
