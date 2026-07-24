@@ -89,9 +89,10 @@ import kotlin.math.roundToInt
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the
  * gradient banner (ROOT group identity, Discord's "server") and below it the
- * per-channel rows (Chat/Threads/Members/Manage act on the OPEN channel) plus the
- * channel list (the root and its subgroup subtree). Opening any channel keeps this
- * sidebar anchored on the root. Mirrors the web web/GroupSidebar.
+ * root rows (General/Threads/Members/Manage all act on the ROOT group) plus the
+ * channel list (the root's subgroup subtree). Opening a channel keeps this sidebar
+ * anchored on the root; the channel itself is managed only via the header cog.
+ * Mirrors the web web/GroupSidebar.
  */
 @Composable
 fun GroupSidebar(
@@ -112,17 +113,16 @@ fun GroupSidebar(
 
     val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
     val metaById = relayGroups.associateBy { it.id }
-    val meta = metaById[route.groupId]
     val currentUserPubkey = remember { vm.getPublicKey() }
-    val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
-    val memberCount = groupMembers[route.groupId].orEmpty().size
     // Discord-style channel model: the sidebar anchors on the ROOT of the open channel's
-    // subgroup tree (the "server"); the open channel only drives the chat pane + the
-    // per-channel rows (Chat/Threads/Members/Manage — membership is per subgroup).
+    // subgroup tree (the "server"); every row (General/Threads/Members/Manage) acts on the
+    // root. The open channel only drives the chat pane; its members/settings are reachable
+    // solely through the header cog.
     val rootId = rootGroupId(route.groupId) { metaById[it]?.parent }
     val rootMeta = metaById[rootId]
     val rootName = rootMeta?.name ?: rootId
     val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+    val memberCount = groupMembers[rootId].orEmpty().size
     // Optimistic channel order while a drag-reorder kind:9002 round-trips; cleared once
     // the relay's kind:39000 echoes it (or on publish failure).
     var orderOverride by remember(rootId) { mutableStateOf<List<String>?>(null) }
@@ -210,21 +210,21 @@ fun GroupSidebar(
             SidebarRow(
                 icon = Icons.Default.Forum,
                 label = "Threads",
-                active = route.view == GroupView.Threads,
-            ) { onNavigateGroup(route.copy(view = GroupView.Threads, threadRootId = null)) }
+                active = route.view == GroupView.Threads && route.groupId == rootId,
+            ) { onNavigateGroup(GroupRoute(route.relayUrl, rootId, view = GroupView.Threads)) }
             SidebarRow(
                 icon = Icons.Default.People,
                 label = if (memberCount > 0) "Members · $memberCount" else "Members",
             ) {
                 // Admins manage members in the Manage modal; everyone else sees the roster.
-                if (isAdmin) {
+                if (isRootAdmin) {
                     manageTab = ManageTab.Members
                     showManage = true
                 } else {
                     showMembers = true
                 }
             }
-            if (isAdmin) {
+            if (isRootAdmin) {
                 SidebarRow(icon = Icons.Default.Settings, label = "Manage group") {
                     manageTab = ManageTab.Info
                     showManage = true
@@ -306,21 +306,20 @@ fun GroupSidebar(
 
     if (showMembers) {
         MembersModal(
-            groupId = route.groupId,
+            groupId = rootId,
             onDismiss = { showMembers = false },
         )
     }
     if (showManage) {
         ManageGroupModal(
-            groupId = route.groupId,
-            currentMetadata = meta,
+            groupId = rootId,
+            currentMetadata = rootMeta,
             relayUrl = route.relayUrl,
             onDismiss = { showManage = false },
             onDeleted = {
                 showManage = false
-                // Deleting a channel lands on its parent group; only a root delete goes home.
-                val parentId = meta?.parent
-                if (parentId != null) onNavigateGroup(GroupRoute(route.relayUrl, parentId)) else onNavigateHome()
+                // The sidebar only manages the root; deleting it goes home.
+                onNavigateHome()
             },
             initialTab = manageTab,
             supportsSubgroups = supportsSubgroups,

@@ -45,9 +45,10 @@ external interface GroupSidebarProps : Props {
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the
  * gradient banner (ROOT group identity, Discord's "server") and below it the
- * per-channel rows (Chat/Threads/Members/Manage act on the OPEN channel) plus the
- * channel list (the root and its subgroup subtree). Opening any channel keeps this
- * sidebar anchored on the root. Mirrors the Compose ui/components/layout/GroupSidebar.
+ * root rows (General/Threads/Members/Manage all act on the ROOT group) plus the
+ * channel list (the root's subgroup subtree). Opening a channel keeps this sidebar
+ * anchored on the root; the channel itself is managed only via the header cog.
+ * Mirrors the Compose ui/components/layout/GroupSidebar.
  */
 val GroupSidebar =
     FC<GroupSidebarProps> { props ->
@@ -68,17 +69,16 @@ val GroupSidebar =
 
         val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
         val metaById = relayGroups.associateBy { it.id }
-        val meta = metaById[route.groupId]
         val currentUserPubkey = vm.getPublicKey()
-        val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
-        val memberCount = groupMembers[route.groupId].orEmpty().size
         // Discord-style channel model: the sidebar anchors on the ROOT of the open channel's
-        // subgroup tree (the "server"); the open channel only drives the chat pane + the
-        // per-channel rows (Chat/Threads/Members/Manage — membership is per subgroup).
+        // subgroup tree (the "server"); every row (General/Threads/Members/Manage) acts on the
+        // root. The open channel only drives the chat pane; its members/settings are reachable
+        // solely through the header cog.
         val rootId = rootGroupId(route.groupId) { metaById[it]?.parent }
         val rootMeta = metaById[rootId]
         val rootName = rootMeta?.name ?: rootId
         val isRootAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[rootId].orEmpty()
+        val memberCount = groupMembers[rootId].orEmpty().size
         // Optimistic channel order while a drag-reorder kind:9002 round-trips; cleared once
         // the relay's kind:39000 echoes it (or on publish failure).
         val (orderOverride, setOrderOverride) = useState<List<String>?> { null }
@@ -208,9 +208,12 @@ val GroupSidebar =
                     }
                 }
                 button {
-                    className = ClassName(if (route.view == GroupView.Threads) "group-side-row active" else "group-side-row")
+                    className =
+                        ClassName(
+                            if (route.view == GroupView.Threads && route.groupId == rootId) "group-side-row active" else "group-side-row",
+                        )
                     // Forum-style threads (kind:11 + kind:1111), shown in the centre pane.
-                    onClick = { props.onNavigateGroup(route.copy(view = GroupView.Threads, threadRootId = null)) }
+                    onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, rootId, view = GroupView.Threads)) }
                     icon(Ic.Forum)
                     span {
                         className = ClassName("group-side-row-label")
@@ -221,7 +224,7 @@ val GroupSidebar =
                     className = ClassName("group-side-row")
                     // Admins manage members in the Manage modal; everyone else sees the roster.
                     onClick = {
-                        if (isAdmin) {
+                        if (isRootAdmin) {
                             setManageTab("members")
                             setShowManage(true)
                         } else {
@@ -234,7 +237,7 @@ val GroupSidebar =
                         +(if (memberCount > 0) "Members · $memberCount" else "Members")
                     }
                 }
-                if (isAdmin) {
+                if (isRootAdmin) {
                     button {
                         className = ClassName("group-side-row")
                         onClick = {
@@ -342,7 +345,7 @@ val GroupSidebar =
         if (showMembers) {
             Portal {
                 MembersModal {
-                    groupId = route.groupId
+                    groupId = rootId
                     onClose = { setShowMembers(false) }
                 }
             }
@@ -350,7 +353,7 @@ val GroupSidebar =
         if (showManage) {
             Portal {
                 ManageGroupModal {
-                    group = meta ?: placeholderMeta(route.groupId)
+                    group = rootMeta ?: placeholderMeta(rootId)
                     initialTab = manageTab
                     onClose = { setShowManage(false) }
                 }
