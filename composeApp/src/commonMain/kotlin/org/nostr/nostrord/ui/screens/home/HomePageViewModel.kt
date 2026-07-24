@@ -288,15 +288,19 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /**
-     * [myGroups] filtered by the search [query] over name + description. The Home page's "My groups"
-     * list reads this; the groups rail / relay page read the unfiltered [myGroups] so the search box
+     * The Home page's "My groups" list. Without a query: root groups only (same predicate
+     * as [railRootGroups]) — a channel lives inside its root's sidebar, not as a home card;
+     * one whose parent isn't joined stays, or it would be unreachable. With a query: search
+     * over ALL joined groups (channels included) by name + description, as a jump-into-channel
+     * shortcut. The groups rail / relay page read the unfiltered [myGroups] so the search box
      * never trims the sidebar.
      */
     val filteredMyGroups: StateFlow<List<DiscoverGroup>> =
         combine(myGroups, _query) { groups, q ->
             val needle = q.trim().lowercase()
             if (needle.isEmpty()) {
-                groups
+                val joinedIds = groups.mapTo(HashSet()) { it.meta.id }
+                groups.filter { it.meta.parent == null || it.meta.parent !in joinedIds }
             } else {
                 groups.filter { dg ->
                     (dg.meta.name ?: dg.meta.id).lowercase().contains(needle) ||

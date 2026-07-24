@@ -37,7 +37,8 @@ class HomePageViewModelTest {
         id: String,
         name: String,
         about: String? = null,
-    ) = GroupMetadata(id = id, name = name, about = about, picture = null, isPublic = true, isOpen = true)
+        parent: String? = null,
+    ) = GroupMetadata(id = id, name = name, about = about, picture = null, isPublic = true, isOpen = true, parent = parent)
 
     @Test
     fun `myGroups joins kind10009 ids with metadata across relays`() = runTest {
@@ -81,6 +82,32 @@ class HomePageViewModelTest {
         vm.setQuery("ALPHA")
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("g1"), vm.filteredMyGroups.value.map { it.meta.id })
+    }
+
+    @Test
+    fun `home list hides channels whose parent is joined but search still finds them`() = runTest {
+        val fake = FakeNostrRepository()
+        fake._groupsByRelay.value =
+            mapOf(
+                "wss://a" to
+                    listOf(
+                        meta("root", "Server"),
+                        meta("chan", "General chat", parent = "root"),
+                        meta("stray", "Stray channel", parent = "notjoined"),
+                    ),
+            )
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("root", "chan", "stray"))
+        val vm = HomePageViewModel(fake, computeDispatcher = testDispatcher)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // No query: roots only. A channel whose parent isn't joined stays, or it
+        // would be unreachable from the home page.
+        assertEquals(listOf("root", "stray"), vm.filteredMyGroups.value.map { it.meta.id })
+
+        // Searching reaches hidden channels as a jump-into shortcut.
+        vm.setQuery("chat")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("chan"), vm.filteredMyGroups.value.map { it.meta.id })
     }
 
     @Test
