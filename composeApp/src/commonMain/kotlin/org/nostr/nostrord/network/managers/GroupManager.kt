@@ -41,6 +41,7 @@ import org.nostr.nostrord.storage.cache.CachedMsg
 import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
+import org.nostr.nostrord.storage.getDeleteWatchCursor
 import org.nostr.nostrord.storage.getLeftGroupsForRelay
 import org.nostr.nostrord.storage.getPendingGroupInvitesFor
 import org.nostr.nostrord.storage.getPutUserCursorForRelay
@@ -52,6 +53,7 @@ import org.nostr.nostrord.storage.loadDroppedGroupIds
 import org.nostr.nostrord.storage.loadGroupMembershipFor
 import org.nostr.nostrord.storage.removeLeftGroupForRelay
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
+import org.nostr.nostrord.storage.saveDeleteWatchCursor
 import org.nostr.nostrord.storage.saveDroppedGroupIds
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
@@ -275,6 +277,11 @@ class GroupManager(
 
     // Group IDs seen during an in-flight full fetch; cleared on EOSE to prune stale groups.
     private val pendingFetchSeenGroups = mutableMapOf<String, MutableSet<String>>()
+
+    // Expected-vs-seen kind:39000 ids for the in-flight mux metadata REQ, per normalized
+    // relay. Consumed once at that REQ's EOSE by [reconcileMuxMetadataEose].
+    private val muxMetaExpectedIds = mutableMapOf<String, Set<String>>()
+    private val muxMetaSeenIds = mutableMapOf<String, MutableSet<String>>()
 
     fun markPendingFullFetch(relayUrl: String) {
         val normalized = relayUrl.normalizeRelayUrl()
@@ -1033,6 +1040,10 @@ class GroupManager(
         // silencing metadata/delete updates for the groups we DO belong to.
         val restricted = _restrictedGroups.value.keys
         val allGroupIds = getGroupIdsForMux(relayUrl).filter { it !in restricted }
+        // The metadata + delete watches also cover every descendant channel of the mux
+        // groups: the sidebar renders the whole subgroup subtree, so channel renames and
+        // deletions must sync even for channels the user never joined or opened.
+        val metadataIds = expandWithDescendants(allGroupIds).filter { it !in restricted }
         // The put-user watch must be armed even with zero groups on this relay —
         // that is exactly the state in which an external add can only arrive via #p.
         val selfPubkey = currentPubkey
@@ -1059,7 +1070,7 @@ class GroupManager(
 
         val putUserSince = selfPubkey?.let { putUserWatchSince(it, relayUrl) } ?: 0L
         val desired = MuxSubscriptionTracker.MuxState(
-            metadataGroupIds = allGroupIds.toSet(),
+            metadataGroupIds = metadataIds.toSet(),
             chatGroupIds = chatGroupIds.toSet(),
             chatSinceSeconds = chatSince,
             putUserPubkey = selfPubkey,
@@ -1071,11 +1082,37 @@ class GroupManager(
             return
         }
 
+        // Delete-watch cursor: replay kind:9008s missed since the last arm (offline gap).
+        // Replays are idempotent (deletedGroupIds), so the overlap with live delivery is fine.
+        val normalized = relayUrl.normalizeRelayUrl()
+        val nowSeconds = epochMillis() / 1000
+        val deleteSince = SecureStorage.getDeleteWatchCursor(normalized)
+
         try {
-            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince, selfPubkey, putUserSince)
+            client.sendMuxSubscriptions(metadataIds, chatGroupIds, chatSince, selfPubkey, putUserSince, deleteSince)
             muxTracker.update(relayUrl, desired, epochMillis())
+            // Arm the EOSE reconciliation window: ids REQed now vs 39000s that answer.
+            muxMetaExpectedIds[normalized] = metadataIds.toSet()
+            muxMetaSeenIds[normalized] = mutableSetOf()
             connStats?.onSubscriptionSent(relayUrl)
+            try {
+                SecureStorage.saveDeleteWatchCursor(normalized, nowSeconds)
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
+    }
+
+    /** [ids] plus every subgroup descendant (walk over childrenByParent), order-stable. */
+    private fun expandWithDescendants(ids: List<String>): List<String> {
+        val children = _childrenByParent.value
+        if (children.isEmpty()) return ids
+        val out = LinkedHashSet(ids)
+        val queue = ArrayDeque(ids)
+        while (queue.isNotEmpty()) {
+            for (child in children[queue.removeFirst()].orEmpty()) {
+                if (out.add(child)) queue.add(child)
+            }
+        }
+        return out.toList()
     }
 
     // First-arm lookback for the put-user watch: catch adds from up to a week offline
@@ -3346,6 +3383,8 @@ class GroupManager(
         if (metadata.id in deletedGroupIds) return
         val normalized = relayUrl.normalizeRelayUrl()
         pendingFetchSeenGroups[normalized]?.add(metadata.id)
+        muxMetaSeenIds[normalized]?.add(metadata.id)
+        val previousChildren = _groupsByRelay.value[normalized].orEmpty().firstOrNull { it.id == metadata.id }?.children.orEmpty()
         // ALL relays contribute to the unified group list regardless of which relay
         // is currently active. _groupsByRelay handles per-relay filtering for the UI.
         val wasNew = _groups.value.none { it.id == metadata.id }
@@ -3368,9 +3407,54 @@ class GroupManager(
         }
         persistJoinedGroupMetadataSnapshot(relayUrl)
 
+        // Bilateral child tags are relay-maintained: a fresh parent 39000 that dropped a
+        // child it previously declared is the live deletion/move signal (not every relay
+        // stores kind:9008 for the delete watch to replay). Prune the dropped child's
+        // cached metadata; a moved (not deleted) child re-adds itself via its own
+        // re-emitted 39000. Diffing against OUR previous cache keeps relays that never
+        // emit child tags out of this path entirely.
+        val droppedChildren = previousChildren
+            .filter { it != metadata.id && it !in metadata.children }
+            .filterTo(mutableSetOf()) { id ->
+                _groupsByRelay.value[normalized].orEmpty().any { it.id == id && it.parent == metadata.id }
+            }
+        pruneRelayGroups(normalized, droppedChildren)
+
         // Recompute the full tree because a kind:39000 update can carry new
         // `child`/`parent` tags that move groups other than `metadata` itself.
         recomputeSubgroupTopology()
+    }
+
+    /**
+     * Drop [ids]' cached metadata for [normalizedRelay]: they no longer exist there.
+     * Unlike [handleRemoteDeleteGroup] this touches neither deletedGroupIds nor the
+     * joined pins, so a false prune (AUTH-withheld metadata, subgroup move) self-heals
+     * when the group's kind:39000 arrives again.
+     */
+    private fun pruneRelayGroups(normalizedRelay: String, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        _groups.value = _groups.value.filter { it.id !in ids }
+        _groupsByRelay.update { current ->
+            val updated = (current[normalizedRelay] ?: emptyList()).filter { it.id !in ids }
+            current + (normalizedRelay to updated)
+        }
+        persistJoinedGroupMetadataSnapshot(normalizedRelay)
+        recomputeSubgroupTopology()
+    }
+
+    /**
+     * Mux metadata REQ EOSE: every id REQed via `#d` that got no kind:39000 back no
+     * longer exists on the relay — the durable deletion signal for relays that don't
+     * store kind:9008. Public-only: an AUTH-gated relay may withhold private metadata,
+     * which must not read as deletion. One-shot per arm.
+     */
+    fun reconcileMuxMetadataEose(relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val expected = muxMetaExpectedIds.remove(normalized) ?: return
+        val seen = muxMetaSeenIds.remove(normalized).orEmpty()
+        val cached = _groupsByRelay.value[normalized].orEmpty().associateBy { it.id }
+        val gone = expected.filterTo(mutableSetOf()) { it !in seen && cached[it]?.isPublic == true }
+        pruneRelayGroups(normalized, gone)
     }
 
     /**
@@ -4691,6 +4775,8 @@ class GroupManager(
         // [clear] which covers logout) so every relay switch resets the bookkeeping.
         pendingFullFetchRelays.clear()
         pendingFetchSeenGroups.clear()
+        muxMetaExpectedIds.clear()
+        muxMetaSeenIds.clear()
 
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the
@@ -4734,6 +4820,8 @@ class GroupManager(
         // OTHER GROUPS is silently skipped by requestFullGroupListForRelay's guard.
         pendingFullFetchRelays.clear()
         pendingFetchSeenGroups.clear()
+        muxMetaExpectedIds.clear()
+        muxMetaSeenIds.clear()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()
         // Messages from the previous account must NOT survive into the new

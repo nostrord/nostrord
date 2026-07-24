@@ -1209,6 +1209,8 @@ class NostrGroupClient(
      * @param chatSinceSeconds Unix-seconds `since` for chat/reactions (cursor for opened groups).
      * @param putUserPubkey    Self pubkey for the kind:9000 put-user watch (null when logged out).
      * @param putUserSinceSeconds Unix-seconds `since` for the put-user watch (persisted cursor).
+     * @param deleteSinceSeconds Unix-seconds `since` for the kind:9008 delete watch (persisted
+     *   cursor; 0 falls back to now-60 for the first ever arm on this relay).
      */
     suspend fun sendMuxSubscriptions(
         metadataGroupIds: List<String>,
@@ -1216,6 +1218,7 @@ class NostrGroupClient(
         chatSinceSeconds: Long,
         putUserPubkey: String? = null,
         putUserSinceSeconds: Long = 0L,
+        deleteSinceSeconds: Long = 0L,
     ) {
         if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty() && putUserPubkey == null) return
         val chatSubId = muxChatSubId()
@@ -1364,12 +1367,13 @@ class NostrGroupClient(
                 }.toString(),
             )
 
-            // Delete-group watch for every joined group on this relay. kind:9008 is the only
+            // Delete-group watch for every group in the metadata mux. kind:9008 is the only
             // authoritative signal that a group was destroyed; without this, non-admin members
             // never find out and the stale metadata lingers in their UI.
-            // Uses `since` so historical deletions don't poison the in-memory deletedGroupIds
-            // set and make existing groups disappear until the user reloads.
-            val delSince = epochMillis() / 1000 - 60
+            // `since` is the persisted per-relay cursor (last arm time), so deletions that
+            // happened while this client was offline still replay; bounded so ancient
+            // deletions don't poison deletedGroupIds against re-created ids.
+            val delSince = if (deleteSinceSeconds > 0) deleteSinceSeconds else epochMillis() / 1000 - 60
             send(
                 buildJsonArray {
                     add("REQ")
