@@ -61,6 +61,7 @@ import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip17
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.nostr.Nip4e
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.cache.DM_CACHE_KIND
@@ -70,6 +71,7 @@ import org.nostr.nostrord.storage.getLastActiveAt
 import org.nostr.nostrord.storage.isDmCacheMigratedFor
 import org.nostr.nostrord.storage.isGroupFetchLazy
 import org.nostr.nostrord.storage.isKind10009RepublishPendingFor
+import org.nostr.nostrord.storage.loadDmEncKeys
 import org.nostr.nostrord.storage.loadDmLastRead
 import org.nostr.nostrord.storage.loadDmMessages
 import org.nostr.nostrord.storage.loadDmProcessedWrapIds
@@ -82,6 +84,7 @@ import org.nostr.nostrord.storage.loadKind10000TimestampFor
 import org.nostr.nostrord.storage.loadMuteListSnapshotFor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
+import org.nostr.nostrord.storage.saveDmEncKeys
 import org.nostr.nostrord.storage.saveDmLastRead
 import org.nostr.nostrord.storage.saveDmProcessedWrapIds
 import org.nostr.nostrord.storage.saveDmSeenRelays
@@ -1660,7 +1663,19 @@ class NostrRepository(
         val myPub = sessionManager.getPublicKey() ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return try {
             val rumor = Nip17.buildRumor(myPub, recipientPubkey, content)
-            val recipientWrap = Nip17.wrap(rumor, recipientPubkey, signer)
+            // NIP-4e: a recipient who announced an encryption key gets both NIP-44 layers addressed
+            // to it, tagged with the key they must ECDH the seal against. We hold no encryption key
+            // of our own yet, so that key is our identity pubkey, which is what makes this readable
+            // and verified by adopters without us publishing any state.
+            val recipientEncKey = dmManager.encryptionKeyFor(recipientPubkey)
+            val recipientWrap =
+                if (recipientEncKey != null) {
+                    Nip17.wrap(rumor, recipientPubkey, signer, encryptTo = recipientEncKey, senderEncTag = myPub)
+                } else {
+                    Nip17.wrap(rumor, recipientPubkey, signer)
+                }
+            // The self-copy stays identity-addressed: our own inbox path is unchanged and other
+            // devices on this account read it exactly as before.
             val selfWrap = Nip17.wrap(rumor, myPub, signer)
             dmManager.addOptimistic(rumor, recipientPubkey, myPub)
             val rumorId = rumor.id ?: return Result.Error(AppError.Unknown("Failed to build the message"))
@@ -2000,6 +2015,7 @@ class NostrRepository(
             SecureStorage.loadDmLastRead(myPub),
             SecureStorage.loadDmSeenRelays(myPub),
             SecureStorage.loadDmWrapRumor(myPub),
+            SecureStorage.loadDmEncKeys(myPub),
         )
         return cached.size
     }
@@ -2037,15 +2053,18 @@ class NostrRepository(
                 }
             }
         // Persist the "seen on" relay map (debounced) so View source keeps it across restarts.
-        dmManager.onSeenRelaysChanged = { scheduleSaveSeenRelays(myPub) }
+        dmManager.onSeenRelaysChanged = { scheduleSaveDmMaps(myPub) }
+        // Peer encryption keys ride the same debounce: both are small maps written on arrival.
+        dmManager.onEncKeysChanged = { scheduleSaveDmMaps(myPub) }
     }
 
-    private fun scheduleSaveSeenRelays(myPub: String) {
+    private fun scheduleSaveDmMaps(myPub: String) {
         dmSeenRelaysSaveJob?.cancel()
         dmSeenRelaysSaveJob = scope.launch {
             delay(2_000)
             SecureStorage.saveDmSeenRelays(myPub, dmManager.seenRelaysSnapshot())
             SecureStorage.saveDmWrapRumor(myPub, dmManager.wrapToRumorSnapshot())
+            SecureStorage.saveDmEncKeys(myPub, dmManager.encKeysSnapshot())
         }
     }
 
@@ -2160,14 +2179,19 @@ class NostrRepository(
     }
 
     /**
-     * One-shot fetch of [pubkey]'s kind:10050 DM relay list. Queries the user's NIP-65 write relays
-     * and bootstrap relays (where the replaceable list is published, see publishDmRelayList) plus the
-     * defaults, so an existing list is actually found instead of falsely read as absent.
+     * One-shot fetch of [pubkey]'s kind:10050 DM relay list and kind:10044 NIP-4e encryption key.
+     * Queries the user's NIP-65 write relays and bootstrap relays (where the replaceable lists are
+     * published, see publishDmRelayList) plus the defaults, so an existing list is actually found
+     * instead of falsely read as absent. Both replaceables ride one REQ: they are published to the
+     * same relay set and both are needed before the first send to this peer.
      */
     private suspend fun fetchDmRelays(pubkey: String) {
         val filter =
             buildJsonObject {
-                putJsonArray("kinds") { add(Nip17.KIND_DM_RELAYS) }
+                putJsonArray("kinds") {
+                    add(Nip17.KIND_DM_RELAYS)
+                    add(Nip4e.KIND_ENCRYPTION_KEY)
+                }
                 putJsonArray("authors") { add(pubkey) }
             }
         val req =
@@ -4819,6 +4843,15 @@ class NostrRepository(
                     } finally {
                         if (wrapId != null) dmInFlightWrapIds = dmInFlightWrapIds - wrapId
                     }
+                }
+                return
+            }
+            // A user's NIP-4e encryption key announcement (kind:10044). Sending only: we announce
+            // no key of our own here, so nothing changes about how our inbox is read.
+            if (kind == Nip4e.KIND_ENCRYPTION_KEY) {
+                if (!AppModule.dmSettings.dmEnabled.value) return
+                runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let {
+                    dmManager.ingestEncryptionKey(it)
                 }
                 return
             }
