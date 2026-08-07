@@ -18,17 +18,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.NotificationsOff
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +81,12 @@ fun GroupCard(
     relayUrl: String = "",
     relayIconUrl: String? = null,
     isJoined: Boolean = false,
+    // Silenced group: the card recedes and carries a bell-off mark, matching the rail chip
+    // so the same group doesn't read as two different states on two surfaces.
+    muted: Boolean = false,
+    // Unmute straight from the card. Null leaves the mark inert (discovery lists, where
+    // the account has no level for the group).
+    onUnmute: (() -> Unit)? = null,
     onRelayClick: (() -> Unit)? = null,
     onClick: () -> Unit = {},
 ) {
@@ -93,6 +105,7 @@ fun GroupCard(
                     size = 48.dp,
                     shape = NostrordShapes.shapeMedium,
                     isGroup = true,
+                    modifier = Modifier.alpha(if (muted) 0.45f else 1f),
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -108,6 +121,34 @@ fun GroupCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                         )
+                        if (muted) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Sits at the row's trailing edge because the name takes the free
+                            // space. As an action it earns that position: a tap unmutes without
+                            // opening the group.
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(NostrordShapes.shapeSmall)
+                                    .then(
+                                        if (onUnmute != null) {
+                                            Modifier
+                                                .clickable(onClick = onUnmute)
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.NotificationsOff,
+                                    contentDescription = if (onUnmute != null) "Unmute group" else "Muted",
+                                    tint = NostrordColors.TextMuted,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
                         if (isJoined) {
                             Spacer(modifier = Modifier.width(6.dp))
                             TagBadge(text = "Joined", color = NostrordColors.Success)
